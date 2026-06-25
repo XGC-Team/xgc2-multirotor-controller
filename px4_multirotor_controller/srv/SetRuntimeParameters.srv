@@ -1,0 +1,6 @@
+string[] names
+string[] values
+---
+bool success
+string message
+string[] applied_values

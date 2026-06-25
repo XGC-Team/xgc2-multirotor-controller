@@ -1,0 +1,24 @@
+#pragma once
+
+#include <ros/ros.h>
+#include <std_msgs/String.h>
+
+#include <functional>
+#include <state_machine/state_machine.hpp>
+
+namespace px4_multirotor_controller {
+
+class CommandInputProducer {
+   public:
+    using EventSink = std::function<::state_machine::Status(::state_machine::Event)>;
+
+    CommandInputProducer(ros::NodeHandle& nh, EventSink event_sink, uint32_t queue_size);
+
+   private:
+    void commandCallback(const std_msgs::String::ConstPtr& msg);
+
+    EventSink event_sink_;
+    ros::Subscriber command_sub_;
+};
+
+}  // namespace px4_multirotor_controller

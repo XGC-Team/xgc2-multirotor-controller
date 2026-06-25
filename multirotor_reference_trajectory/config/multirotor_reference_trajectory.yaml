@@ -1,0 +1,23 @@
+main_frequency: 100.0
+queue_size: 10
+
+analytic_topic: alg/multirotor_reference_trajectory/request/analytic
+waypoint_topic: alg/multirotor_reference_trajectory/request/waypoint
+sampled_topic: alg/multirotor_reference_trajectory/request/sampled
+reset_topic: alg/multirotor_reference_trajectory/reset
+status_topic: alg/multirotor_reference_trajectory/status
+active_analytic_topic: alg/multirotor_reference_trajectory/active/analytic
+active_polynomial_topic: alg/multirotor_reference_trajectory/active/polynomial
+active_sampled_topic: alg/multirotor_reference_trajectory/active/sampled
+
+status_rate: 10.0
+active_publish_rate: 10.0
+validation_sample_dt: 0.02
+trajectory_timeout: 0.5
+min_lead_time: 0.2
+
+max_velocity: 0.0
+max_acceleration: 0.0
+max_jerk: 0.0
+max_snap: 0.0
+min_specific_thrust: 0.1

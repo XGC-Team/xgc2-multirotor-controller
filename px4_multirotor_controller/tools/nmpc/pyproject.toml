@@ -1,0 +1,10 @@
+[project]
+name = "paper-open-quadrotor-nmpc"
+version = "0.1.0"
+description = "Python acados UAV NMPC OCP source for px4_multirotor_controller."
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "casadi",
+    "matplotlib",
+]

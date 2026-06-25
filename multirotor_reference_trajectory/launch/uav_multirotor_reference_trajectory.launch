@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<launch>
+    <arg name="ns" default="uav1"/>
+    <arg name="config_file" default="$(find multirotor_reference_trajectory)/config/multirotor_reference_trajectory.yaml"/>
+    <arg name="main_frequency" default="100.0"/>
+    <arg name="queue_size" default="10"/>
+    <arg name="analytic_topic" default="alg/multirotor_reference_trajectory/request/analytic"/>
+    <arg name="waypoint_topic" default="alg/multirotor_reference_trajectory/request/waypoint"/>
+    <arg name="sampled_topic" default="alg/multirotor_reference_trajectory/request/sampled"/>
+    <arg name="reset_topic" default="alg/multirotor_reference_trajectory/reset"/>
+    <arg name="status_topic" default="alg/multirotor_reference_trajectory/status"/>
+    <arg name="active_analytic_topic" default="alg/multirotor_reference_trajectory/active/analytic"/>
+    <arg name="active_polynomial_topic" default="alg/multirotor_reference_trajectory/active/polynomial"/>
+    <arg name="active_sampled_topic" default="alg/multirotor_reference_trajectory/active/sampled"/>
+    <arg name="status_rate" default="10.0"/>
+    <arg name="active_publish_rate" default="10.0"/>
+    <arg name="validation_sample_dt" default="0.02"/>
+    <arg name="trajectory_timeout" default="0.5"/>
+    <arg name="min_lead_time" default="0.2"/>
+    <arg name="max_velocity" default="0.0"/>
+    <arg name="max_acceleration" default="0.0"/>
+    <arg name="max_jerk" default="0.0"/>
+    <arg name="max_snap" default="0.0"/>
+    <arg name="min_specific_thrust" default="0.1"/>
+
+    <group ns="$(arg ns)">
+        <node pkg="multirotor_reference_trajectory"
+              type="multirotor_reference_trajectory_node"
+              name="multirotor_reference_trajectory"
+              output="screen"
+              clear_params="true">
+            <rosparam command="load" file="$(arg config_file)"/>
+            <param name="main_frequency" value="$(arg main_frequency)"/>
+            <param name="queue_size" value="$(arg queue_size)"/>
+            <param name="analytic_topic" value="$(arg analytic_topic)"/>
+            <param name="waypoint_topic" value="$(arg waypoint_topic)"/>
+            <param name="sampled_topic" value="$(arg sampled_topic)"/>
+            <param name="reset_topic" value="$(arg reset_topic)"/>
+            <param name="status_topic" value="$(arg status_topic)"/>
+            <param name="active_analytic_topic" value="$(arg active_analytic_topic)"/>
+            <param name="active_polynomial_topic" value="$(arg active_polynomial_topic)"/>
+            <param name="active_sampled_topic" value="$(arg active_sampled_topic)"/>
+            <param name="status_rate" value="$(arg status_rate)"/>
+            <param name="active_publish_rate" value="$(arg active_publish_rate)"/>
+            <param name="validation_sample_dt" value="$(arg validation_sample_dt)"/>
+            <param name="trajectory_timeout" value="$(arg trajectory_timeout)"/>
+            <param name="min_lead_time" value="$(arg min_lead_time)"/>
+            <param name="max_velocity" value="$(arg max_velocity)"/>
+            <param name="max_acceleration" value="$(arg max_acceleration)"/>
+            <param name="max_jerk" value="$(arg max_jerk)"/>
+            <param name="max_snap" value="$(arg max_snap)"/>
+            <param name="min_specific_thrust" value="$(arg min_specific_thrust)"/>
+        </node>
+    </group>
+</launch>

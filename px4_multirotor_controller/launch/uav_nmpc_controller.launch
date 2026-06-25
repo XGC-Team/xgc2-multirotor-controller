@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<launch>
+    <arg name="ns" default="uav1"/>
+    <arg name="debug_print" default="false"/>
+    <arg name="vrpn_rigid_body" default="$(arg ns)"/>
+    <arg name="vrpn_client_node" default="/vrpn_client_node"/>
+    <arg name="vrpn_pose_topic" default="$(arg vrpn_client_node)/$(arg vrpn_rigid_body)/pose"/>
+    <arg name="vrpn_twist_topic" default="$(arg vrpn_client_node)/$(arg vrpn_rigid_body)/twist"/>
+    <arg name="state_estimate_topic" default="alg/state_estimator/state"/>
+    <arg name="takeoff_altitude" default="3.0"/>
+    <arg name="fence_x_min" default="-1000000.0"/>
+    <arg name="fence_x_max" default="1000000.0"/>
+    <arg name="fence_y_min" default="-1000000.0"/>
+    <arg name="fence_y_max" default="1000000.0"/>
+    <arg name="fence_z_min" default="-1000000.0"/>
+    <arg name="fence_z_max" default="1000000.0"/>
+    <arg name="position_jump_threshold" default="100.0"/>
+    <arg name="max_velocity_xy" default="1000.0"/>
+    <arg name="max_velocity_z" default="1000.0"/>
+    <arg name="acc_saturation_xy" default="1000.0"/>
+    <arg name="acc_saturation_z" default="1000.0"/>
+    <arg name="reference_start_delay" default="0.2"/>
+    <arg name="reference_duration" default="60.0"/>
+    <arg name="reference_radius" default="3.0"/>
+    <arg name="reference_line_speed" default="3.0"/>
+    <arg name="reference_height" default="3.0"/>
+    <arg name="reference_z_amplitude" default="1.0"/>
+    <arg name="reference_z_frequency" default="0.5"/>
+    <arg name="reference_entry_duration" default="5.0"/>
+    <arg name="config_file" default="$(find px4_multirotor_controller)/config/uav_nmpc.yaml"/>
+    <arg name="hover_thrust_config_file" default=""/>
+
+    <group ns="$(arg ns)">
+        <node pkg="hover_thrust_estimator"
+              type="hover_thrust_estimator_node"
+              name="hover_thrust_estimator"
+              output="screen"
+              respawn="false"
+              clear_params="true">
+            <rosparam if="$(eval arg('hover_thrust_config_file') != '')"
+                      command="load"
+                      file="$(arg hover_thrust_config_file)"/>
+        </node>
+
+        <node pkg="px4_multirotor_controller"
+              type="px4_multirotor_controller_node"
+              name="px4_multirotor_controller"
+              output="screen"
+              respawn="false"
+              clear_params="true">
+            <rosparam command="load" file="$(arg config_file)"/>
+            <param name="debug_print" value="$(arg debug_print)"/>
+            <param name="takeoff_altitude" value="$(arg takeoff_altitude)"/>
+            <param name="fence_x_min" value="$(arg fence_x_min)"/>
+            <param name="fence_x_max" value="$(arg fence_x_max)"/>
+            <param name="fence_y_min" value="$(arg fence_y_min)"/>
+            <param name="fence_y_max" value="$(arg fence_y_max)"/>
+            <param name="fence_z_min" value="$(arg fence_z_min)"/>
+            <param name="fence_z_max" value="$(arg fence_z_max)"/>
+            <param name="position_jump_threshold" value="$(arg position_jump_threshold)"/>
+            <param name="max_velocity_xy" value="$(arg max_velocity_xy)"/>
+            <param name="max_velocity_z" value="$(arg max_velocity_z)"/>
+            <param name="acc_saturation_xy" value="$(arg acc_saturation_xy)"/>
+            <param name="acc_saturation_z" value="$(arg acc_saturation_z)"/>
+            <param name="nmpc/reference_start_delay" value="$(arg reference_start_delay)"/>
+            <param name="nmpc/reference_duration" value="$(arg reference_duration)"/>
+            <param name="nmpc/reference_radius" value="$(arg reference_radius)"/>
+            <param name="nmpc/reference_line_speed" value="$(arg reference_line_speed)"/>
+            <param name="nmpc/reference_height" value="$(arg reference_height)"/>
+            <param name="nmpc/reference_z_amplitude" value="$(arg reference_z_amplitude)"/>
+            <param name="nmpc/reference_z_frequency" value="$(arg reference_z_frequency)"/>
+            <param name="nmpc/reference_entry_duration" value="$(arg reference_entry_duration)"/>
+            <param name="state_estimate_topic" value="$(arg state_estimate_topic)"/>
+            <param name="vrpn_pose_topic" value="$(arg vrpn_pose_topic)"/>
+            <param name="vrpn_twist_topic" value="$(arg vrpn_twist_topic)"/>
+        </node>
+    </group>
+</launch>

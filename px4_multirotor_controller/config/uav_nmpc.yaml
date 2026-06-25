@@ -1,0 +1,31 @@
+tracking_backend: nmpc_attitude_rate
+
+nmpc:
+  control_period: 0.01
+  prediction_horizon: 1.0
+  gravity: 9.8066
+  hover_thrust_ratio: 0.5
+  min_hover_thrust: 0.05
+  max_hover_thrust: 0.95
+  specific_thrust_min: 0.0
+  specific_thrust_max: 20.373
+  solve_timeout: 0.03
+  result_timeout: 0.1
+  reference_timeout: 0.5
+  reference_start_delay: 0.2
+  reference_duration: 60.0
+  reference_radius: 3.0
+  reference_line_speed: 3.0
+  reference_height: 3.0
+  reference_z_amplitude: 1.0
+  reference_z_frequency: 0.5
+  reference_entry_duration: 5.0
+  enable_timing_log: true
+  log_period: 1.0
+
+hover_thrust:
+  enabled: true
+  timeout: 0.5
+  min_altitude: 0.5
+  sample_timeout: 0.2
+  publish_rate: 50.0
