@@ -266,6 +266,8 @@ void DroneRosNode::loadControllerConfig() {
                       config.nmpc.specific_thrust_min);
     nh_private_.param("nmpc/specific_thrust_max", config.nmpc.specific_thrust_max,
                       config.nmpc.specific_thrust_max);
+    nh_private_.param("nmpc/max_body_rate", config.nmpc.max_body_rate,
+                      config.nmpc.max_body_rate);
     nh_private_.param("nmpc/enable_timing_log", config.nmpc.enable_timing_log,
                       config.nmpc.enable_timing_log);
     nh_private_.param("nmpc/log_period", config.nmpc.log_period, config.nmpc.log_period);
@@ -311,6 +313,20 @@ void DroneRosNode::loadControllerConfig() {
     if (!std::isfinite(config.nmpc.gravity) || config.nmpc.gravity <= 1e-6) {
         ROS_WARN("[DroneRosNode] Invalid nmpc/gravity; using 9.8066");
         config.nmpc.gravity = 9.8066;
+    }
+    if (!std::isfinite(config.nmpc.max_body_rate) || config.nmpc.max_body_rate <= 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid nmpc/max_body_rate; using 1.500 rad/s");
+        config.nmpc.max_body_rate = 1.5;
+    }
+    if (!std::isfinite(config.nmpc.specific_thrust_min) ||
+        config.nmpc.specific_thrust_min < 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid nmpc/specific_thrust_min; using 5.000 m/s^2");
+        config.nmpc.specific_thrust_min = 5.0;
+    }
+    if (!std::isfinite(config.nmpc.specific_thrust_max) ||
+        config.nmpc.specific_thrust_max <= config.nmpc.specific_thrust_min) {
+        ROS_WARN("[DroneRosNode] Invalid nmpc/specific_thrust_max; using 20.373 m/s^2");
+        config.nmpc.specific_thrust_max = 20.373;
     }
     config.nmpc.hover_thrust_ratio =
         xgc2_math::math_helpers::clamp(config.nmpc.hover_thrust_ratio, 0.05, 0.95);
@@ -382,13 +398,14 @@ void DroneRosNode::loadControllerConfig() {
         ROS_INFO(
             "[DroneRosNode] UAV NMPC: dt=%.3f horizon=%.3f gravity=%.4f "
             "hover=%.3f estimator=required hover_timeout=%.3f "
-            "solve_timeout=%.3f reference_timeout=%.3f "
+            "thrust=[%.2f, %.2f] solve_timeout=%.3f reference_timeout=%.3f "
             "reference=circle_entry radius=%.2f speed=%.2f height=%.2f z_amp=%.2f",
             config.nmpc.control_period, config.nmpc.prediction_horizon, config.nmpc.gravity,
             config.nmpc.hover_thrust_ratio, config.nmpc.hover_thrust_timeout,
-            config.nmpc.solve_timeout, config.nmpc.reference_timeout, config.nmpc.reference_radius,
-            config.nmpc.reference_line_speed, config.nmpc.reference_height,
-            config.nmpc.reference_z_amplitude);
+            config.nmpc.specific_thrust_min, config.nmpc.specific_thrust_max,
+            config.nmpc.solve_timeout, config.nmpc.reference_timeout,
+            config.nmpc.reference_radius, config.nmpc.reference_line_speed,
+            config.nmpc.reference_height, config.nmpc.reference_z_amplitude);
     }
 
     // ========== 滑模控制器参数 ==========

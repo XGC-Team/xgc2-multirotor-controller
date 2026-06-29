@@ -26,6 +26,7 @@ class UavNmpcSolver {
     UavNmpcSolver& operator=(const UavNmpcSolver&) = delete;
 
     bool initialize();
+    bool configureInputBounds(double specific_thrust_min, double specific_thrust_max);
     void resetWarmStart();
     bool solve(const Se3StateVector& x0, const std::vector<Se3Reference>& references);
 
@@ -62,6 +63,7 @@ class UavNmpcSolver {
     }
 
    private:
+    bool applyInputBounds();
     bool setInitialState(const Se3StateVector& x0);
     bool setReference(int stage, const Se3Reference& reference);
     void setGuesses(const Se3StateVector& x0, const std::vector<Se3Reference>& references);
@@ -80,6 +82,8 @@ class UavNmpcSolver {
     std::array<Se3ControlVector, UAV_NMPC_N> u_guess_{};
     std::array<Se3StateVector, UAV_NMPC_N + 1> x_solution_{};
     std::array<Se3ControlVector, UAV_NMPC_N> u_solution_{};
+    std::array<double, UAV_NMPC_NU> input_lower_bounds_{{5.0, -10.0, -10.0, -10.0}};
+    std::array<double, UAV_NMPC_NU> input_upper_bounds_{{20.373, 10.0, 10.0, 10.0}};
     Se3ControlVector optimal_control_{Se3ControlVector::Zero()};
     Eigen::Vector3d predicted_body_rate_{Eigen::Vector3d::Zero()};
 };

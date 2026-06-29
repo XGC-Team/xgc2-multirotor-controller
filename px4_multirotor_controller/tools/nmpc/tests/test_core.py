@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from nmpc.controller import AcadosNMPCController, MPCConfig, optional_backend_status
+from nmpc.controller import AcadosNMPCController, Bounds, MPCConfig, optional_backend_status
 from nmpc.dynamics import default_quadrotor_params, hover_state
 from nmpc.math_utils import (
     STATE_SIZE,
@@ -56,6 +56,11 @@ class ControllerTests(unittest.TestCase):
         status = optional_backend_status()
         if not (status["casadi"] and status["acados_template"]):
             self.skipTest("casadi/acados_template not available")
+
+    def test_bounds_match_runtime_product_defaults(self) -> None:
+        bounds = Bounds()
+        self.assertAlmostEqual(float(bounds.u_min[0]), 5.0)
+        self.assertAlmostEqual(float(bounds.u_max[0]), 20.373)
 
     def test_exact_hover_equilibrium(self) -> None:
         self.require_acados()

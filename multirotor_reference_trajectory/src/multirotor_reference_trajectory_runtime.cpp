@@ -472,6 +472,10 @@ bool ReferenceTrajectoryRuntime::activeExpired(double now_sec) const {
     return now_sec > active_start_sec_ + active_duration_ + config_.trajectory_timeout;
 }
 
+bool ReferenceTrajectoryRuntime::hasPendingReference() const {
+    return pending_kind_ != PendingKind::kNone;
+}
+
 void ReferenceTrajectoryRuntime::enterState(uint8_t state) {
     state_ = state;
 }
@@ -613,7 +617,8 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3>
 ReferenceTrajectoryRuntime::buildAnalyticEvaluator(const AnalyticReference& msg,
                                                    uint32_t& flags) const {
     flags = msg.flags;
-    const double duration = msg.duration > 0.0 ? msg.duration : 60.0;
+    const bool has_duration = msg.duration > 0.0;
+    const double duration = has_duration ? msg.duration : 60.0;
     const Eigen::Vector3d origin = pointToVector(msg.origin.position);
     const double origin_yaw = yawFromQuaternion(msg.origin.orientation);
     const double radius = paramAt(msg, 0U, 3.0);
@@ -662,6 +667,64 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(const AnalyticReference& msg,
             params.line_speed = line_speed;
             params.height = height;
             evaluator = std::make_unique<trajectory::FigureEightCurveEvaluator3>(params);
+            break;
+        }
+        case AnalyticReference::ANALYTIC_LINE: {
+            trajectory::LineCurveParameters3 params;
+            params.flags = msg.flags;
+            params.duration = has_duration ? duration : params.duration;
+            params.start = origin;
+            params.target = Eigen::Vector3d(paramAt(msg, 0U, origin.x() + 1.0),
+                                            paramAt(msg, 1U, origin.y() + 1.0),
+                                            paramAt(msg, 2U, origin.z() + 1.0));
+            params.target_velocity = Eigen::Vector3d(paramAt(msg, 3U, 0.0), paramAt(msg, 4U, 0.0),
+                                                     paramAt(msg, 5U, 0.0));
+            params.start_velocity = Eigen::Vector3d(paramAt(msg, 6U, 0.0), paramAt(msg, 7U, 0.0),
+                                                    paramAt(msg, 8U, 0.0));
+            evaluator = std::make_unique<trajectory::LineCurveEvaluator3>(params);
+            break;
+        }
+        case AnalyticReference::ANALYTIC_LEMNISCATE: {
+            trajectory::LemniscateCurveParameters3 params;
+            params.flags = msg.flags;
+            params.duration = has_duration ? duration : params.duration;
+            params.origin = origin;
+            params.radius = paramAt(msg, 0U, 1.0);
+            params.omega = paramAt(msg, 1U, 0.9);
+            params.height = paramAt(msg, 2U, 1.0);
+            evaluator = std::make_unique<trajectory::LemniscateCurveEvaluator3>(params);
+            break;
+        }
+        case AnalyticReference::ANALYTIC_HELIX_YZ: {
+            trajectory::HelixCurveParameters3 params;
+            params.flags = msg.flags;
+            params.duration = has_duration ? duration : params.duration;
+            params.origin = origin;
+            params.radius = paramAt(msg, 0U, 1.0);
+            params.omega = paramAt(msg, 1U, 1.5);
+            params.linear_scale = paramAt(msg, 2U, 10.0);
+            evaluator = std::make_unique<trajectory::HelixYzCurveEvaluator3>(params);
+            break;
+        }
+        case AnalyticReference::ANALYTIC_HELIX_XY: {
+            trajectory::HelixCurveParameters3 params;
+            params.flags = msg.flags;
+            params.duration = has_duration ? duration : params.duration;
+            params.origin = origin;
+            params.radius = paramAt(msg, 0U, 1.0);
+            params.omega = paramAt(msg, 1U, 0.9);
+            params.linear_scale = paramAt(msg, 2U, 10.0);
+            evaluator = std::make_unique<trajectory::HelixXyCurveEvaluator3>(params);
+            break;
+        }
+        case AnalyticReference::ANALYTIC_TORUS_KNOT: {
+            trajectory::TorusKnotCurveParameters3 params;
+            params.flags = msg.flags;
+            params.duration = has_duration ? duration : params.duration;
+            params.origin = origin;
+            params.omega = paramAt(msg, 0U, 0.9);
+            params.scale = paramAt(msg, 1U, 0.3);
+            evaluator = std::make_unique<trajectory::TorusKnotCurveEvaluator3>(params);
             break;
         }
         case AnalyticReference::ANALYTIC_CIRCLE_ENTRY:

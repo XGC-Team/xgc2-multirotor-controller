@@ -48,6 +48,7 @@ class ReferenceTrajectoryRuntime {
     bool activatePending();
     bool requestPendingWaypointPlan();
     bool activeExpired(double now_sec) const;
+    bool hasPendingReference() const;
 
     void enterState(uint8_t state);
     uint8_t currentState() const {

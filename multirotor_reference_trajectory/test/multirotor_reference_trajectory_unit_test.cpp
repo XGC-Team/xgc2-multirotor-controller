@@ -24,6 +24,50 @@ TEST(ReferenceTrajectoryCore, HeightCircleProvidesHighOrderDerivatives) {
     EXPECT_TRUE(std::isfinite(output.yaw_accel));
 }
 
+TEST(ReferenceTrajectoryCore, KoopmanAnalyticCurvesMatchReferenceFormulas) {
+    trajectory::FlatOutput3 output;
+
+    trajectory::LineCurveParameters3 line_params;
+    line_params.duration = 4.0;
+    line_params.start = Eigen::Vector3d::Zero();
+    line_params.target = Eigen::Vector3d(1.0, 0.5, 1.5);
+    trajectory::LineCurveEvaluator3 line(line_params);
+    ASSERT_TRUE(line.evaluate(line_params.duration, output));
+    EXPECT_TRUE(output.position.isApprox(line_params.target, 1e-12));
+    EXPECT_TRUE(output.velocity.isApprox(Eigen::Vector3d::Zero(), 1e-12));
+
+    trajectory::LemniscateCurveParameters3 lemniscate_params;
+    lemniscate_params.radius = 2.0;
+    lemniscate_params.omega = 0.5;
+    lemniscate_params.height = 1.5;
+    trajectory::LemniscateCurveEvaluator3 lemniscate(lemniscate_params);
+    ASSERT_TRUE(lemniscate.evaluate(0.0, output));
+    EXPECT_TRUE(output.position.isApprox(Eigen::Vector3d(0.0, 0.0, 1.5), 1e-12));
+    EXPECT_TRUE(output.velocity.isApprox(Eigen::Vector3d(1.0, 1.0, 0.0), 1e-12));
+
+    trajectory::HelixCurveParameters3 helix_params;
+    helix_params.radius = 2.0;
+    helix_params.omega = 0.5;
+    helix_params.linear_scale = 10.0;
+    trajectory::HelixYzCurveEvaluator3 helix_yz(helix_params);
+    ASSERT_TRUE(helix_yz.evaluate(0.0, output));
+    EXPECT_TRUE(output.position.isApprox(Eigen::Vector3d(0.0, 2.0, 0.0), 1e-12));
+    EXPECT_TRUE(output.velocity.isApprox(Eigen::Vector3d(0.1, 0.0, 1.0), 1e-12));
+
+    trajectory::HelixXyCurveEvaluator3 helix_xy(helix_params);
+    ASSERT_TRUE(helix_xy.evaluate(0.0, output));
+    EXPECT_TRUE(output.position.isApprox(Eigen::Vector3d(2.0, 0.0, 0.0), 1e-12));
+    EXPECT_TRUE(output.velocity.isApprox(Eigen::Vector3d(0.0, 1.0, 0.1), 1e-12));
+
+    trajectory::TorusKnotCurveParameters3 torus_params;
+    torus_params.omega = 0.6;
+    torus_params.scale = 0.4;
+    trajectory::TorusKnotCurveEvaluator3 torus(torus_params);
+    ASSERT_TRUE(torus.evaluate(0.0, output));
+    EXPECT_TRUE(output.position.isApprox(Eigen::Vector3d(0.0, -0.4, 1.6), 1e-12));
+    EXPECT_TRUE(output.velocity.isApprox(Eigen::Vector3d(1.2, 0.0, 0.72), 1e-12));
+}
+
 TEST(ReferenceTrajectoryCore, WaypointSolverProducesMinSnapPolynomial) {
     trajectory::WaypointProblem3 problem;
     for (const auto& point : {Eigen::Vector3d(0.0, 0.0, 3.0), Eigen::Vector3d(1.0, 1.0, 3.5),

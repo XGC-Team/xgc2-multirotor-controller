@@ -130,4 +130,17 @@ inline bool isFinite(const Eigen::VectorXd& value) {
     return value.array().isFinite().all();
 }
 
+inline Eigen::Vector3d clampVectorAbs(const Eigen::Vector3d& value, double max_abs) {
+    if (!std::isfinite(max_abs) || max_abs <= 0.0) {
+        return value;
+    }
+    return value.cwiseMax(Eigen::Vector3d::Constant(-max_abs))
+        .cwiseMin(Eigen::Vector3d::Constant(max_abs));
+}
+
+inline Eigen::Vector3d bodyRateCommandFromPrediction(const Eigen::Vector3d& predicted_body_rate,
+                                                     double max_body_rate) {
+    return clampVectorAbs(predicted_body_rate, max_body_rate);
+}
+
 }  // namespace px4_multirotor_controller

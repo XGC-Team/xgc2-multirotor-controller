@@ -812,8 +812,8 @@ void uav_nmpc_acados_setup_nlp_in(uav_nmpc_solver_capsule* capsule, const int N,
     double* lubu = calloc(2*NBU, sizeof(double));
     double* lbu = lubu;
     double* ubu = lubu + NBU;
-    lbu[0] = 0.5;
-    ubu[0] = 25.0;
+    lbu[0] = 5.0;
+    ubu[0] = 20.373;
     lbu[1] = -10.0;
     ubu[1] = 10.0;
     lbu[2] = -10.0;

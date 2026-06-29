@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 
 namespace px4_multirotor_controller {
 
@@ -37,11 +38,32 @@ bool UavNmpcSolver::initialize() {
         cleanup();
         return false;
     }
-
     initialized_ = true;
+    if (!applyInputBounds()) {
+        cleanup();
+        return false;
+    }
+
     resetWarmStart();
     ROS_INFO("[UavNmpcSolver] Initialized generated acados solver (N=%d, nx=%d, nu=%d)", UAV_NMPC_N,
              UAV_NMPC_NX, UAV_NMPC_NU);
+    return true;
+}
+
+bool UavNmpcSolver::configureInputBounds(double specific_thrust_min,
+                                         double specific_thrust_max) {
+    if (!std::isfinite(specific_thrust_min) || !std::isfinite(specific_thrust_max) ||
+        specific_thrust_min < 0.0 || specific_thrust_max <= specific_thrust_min) {
+        ROS_ERROR("[UavNmpcSolver] Invalid input thrust bounds [%.3f, %.3f]",
+                  specific_thrust_min, specific_thrust_max);
+        return false;
+    }
+
+    input_lower_bounds_[0] = specific_thrust_min;
+    input_upper_bounds_[0] = specific_thrust_max;
+    if (capsule_) {
+        return applyInputBounds();
+    }
     return true;
 }
 
@@ -93,6 +115,30 @@ bool UavNmpcSolver::solve(const Se3StateVector& x0, const std::vector<Se3Referen
 
     readSolution();
     shiftWarmStart(references);
+    return true;
+}
+
+bool UavNmpcSolver::applyInputBounds() {
+    if (!capsule_) {
+        return false;
+    }
+
+    ocp_nlp_config* config = uav_nmpc_acados_get_nlp_config(capsule_);
+    ocp_nlp_dims* dims = uav_nmpc_acados_get_nlp_dims(capsule_);
+    ocp_nlp_in* in = uav_nmpc_acados_get_nlp_in(capsule_);
+    ocp_nlp_out* out = uav_nmpc_acados_get_nlp_out(capsule_);
+
+    int status = 0;
+    for (int i = 0; i < UAV_NMPC_N; ++i) {
+        status |= ocp_nlp_constraints_model_set(config, dims, in, out, i, "lbu",
+                                                input_lower_bounds_.data());
+        status |= ocp_nlp_constraints_model_set(config, dims, in, out, i, "ubu",
+                                                input_upper_bounds_.data());
+    }
+    if (status != 0) {
+        ROS_ERROR("[UavNmpcSolver] Failed to apply input bounds");
+        return false;
+    }
     return true;
 }
 

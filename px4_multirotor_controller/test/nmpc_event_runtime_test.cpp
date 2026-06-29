@@ -4,6 +4,7 @@
 
 #include "estimator_vrpn_px4_rotor_state/RigidStateEstimate.h"
 #include "px4_multirotor_controller/common/sensor_checks.h"
+#include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
 #include "px4_multirotor_controller/uav/active_trajectory_cache.h"
 #include "px4_multirotor_controller/uav/nmpc_result_buffer.h"
@@ -23,6 +24,36 @@ multirotor_reference_trajectory::AnalyticReference makeAnalyticReference() {
     msg.origin.position.z = 3.0;
     msg.origin.orientation.w = 1.0;
     msg.params = {3.0, 1.5, 3.0, 0.5, 0.5, 0.0, 0.0, 0.0};
+    return msg;
+}
+
+multirotor_reference_trajectory::AnalyticReference makeKoopmanAnalyticReference(
+    uint16_t analytic_type) {
+    auto msg = makeAnalyticReference();
+    msg.analytic_type = analytic_type;
+    msg.duration = 6.0;
+    msg.origin.position.x = 0.0;
+    msg.origin.position.y = 0.0;
+    msg.origin.position.z = 1.5;
+    switch (analytic_type) {
+        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE:
+            msg.params = {1.0, 0.5, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+            break;
+        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE:
+            msg.params = {1.0, 0.7, 1.0};
+            break;
+        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_YZ:
+            msg.params = {0.5, 0.6, 10.0};
+            break;
+        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_XY:
+            msg.params = {0.5, 0.6, 10.0};
+            break;
+        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_TORUS_KNOT:
+            msg.params = {0.5, 0.25};
+            break;
+        default:
+            break;
+    }
     return msg;
 }
 
@@ -62,6 +93,38 @@ TEST(ActiveTrajectoryCache, AnalyticReferenceSamplesAndBuildsHorizon) {
     EXPECT_EQ(horizon.size(), 12U);
     EXPECT_TRUE(control::packState(horizon.front().state).array().isFinite().all());
     EXPECT_TRUE(control::packControl(horizon.front().control).array().isFinite().all());
+}
+
+TEST(ActiveTrajectoryCache, KoopmanAnalyticReferencesSampleAndBuildHorizons) {
+    const uint16_t analytic_types[] = {
+        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE,
+        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE,
+        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_YZ,
+        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_XY,
+        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_TORUS_KNOT,
+    };
+
+    for (const auto analytic_type : analytic_types) {
+        ActiveTrajectoryCache cache;
+        ASSERT_TRUE(
+            cache.updateAnalytic(makeKoopmanAnalyticReference(analytic_type), ros::Time(10.0)))
+            << "analytic_type=" << analytic_type;
+
+        UavReferencePoint sample;
+        ASSERT_TRUE(cache.sample(ros::Time(10.5), 1.0, sample))
+            << "analytic_type=" << analytic_type;
+        EXPECT_TRUE(sample.position.array().isFinite().all()) << "analytic_type=" << analytic_type;
+        EXPECT_TRUE(sample.snap.array().isFinite().all()) << "analytic_type=" << analytic_type;
+
+        std::vector<Se3Reference> horizon;
+        ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0), 0.1, 10, 1.0, 9.8066, horizon))
+            << "analytic_type=" << analytic_type;
+        EXPECT_EQ(horizon.size(), 12U) << "analytic_type=" << analytic_type;
+        EXPECT_TRUE(control::packState(horizon.front().state).array().isFinite().all())
+            << "analytic_type=" << analytic_type;
+        EXPECT_TRUE(control::packControl(horizon.front().control).array().isFinite().all())
+            << "analytic_type=" << analytic_type;
+    }
 }
 
 TEST(ActiveTrajectoryCache, ReportsFiniteReferenceEndBeforeHorizonSamplingFails) {
@@ -148,6 +211,43 @@ TEST(UavNmpcSolver, SolvesHoverEquilibrium) {
     EXPECT_TRUE(solver.solve(x0, references)) << "status=" << solver.status();
     EXPECT_NEAR(solver.optimalControl()(0), 9.8066, 1e-3);
     EXPECT_NEAR(solver.predictedBodyRate().norm(), 0.0, 1e-3);
+}
+
+TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
+    ros::Time::init();
+    UavNmpcSolver solver;
+    ASSERT_TRUE(solver.configureInputBounds(12.0, 20.373));
+    ASSERT_TRUE(solver.initialize());
+
+    Se3Reference hover;
+    hover.state.position.z() = 3.0;
+    hover.state.attitude = Eigen::Quaterniond::Identity();
+    hover.control.body_z_specific_force = 9.8066;
+    hover.control.angular_acceleration.setZero();
+
+    const Se3StateVector x0 = control::packState(hover.state);
+    std::vector<Se3Reference> references(static_cast<size_t>(UavNmpcSolver::horizonSteps() + 2),
+                                         hover);
+    ASSERT_TRUE(solver.solve(x0, references)) << "status=" << solver.status();
+    EXPECT_GE(solver.optimalControl()(0), 12.0 - 1e-5);
+}
+
+TEST(UavNmpcBridge, UsesPredictedBodyRateCommand) {
+    const Eigen::Vector3d predicted_rate(0.8, -0.6, 0.2);
+    const Eigen::Vector3d command = bodyRateCommandFromPrediction(predicted_rate, 1.5);
+
+    EXPECT_NEAR(command.x(), 0.8, 1e-12);
+    EXPECT_NEAR(command.y(), -0.6, 1e-12);
+    EXPECT_NEAR(command.z(), 0.2, 1e-12);
+}
+
+TEST(UavNmpcBridge, ClampsBodyRateCommand) {
+    const Eigen::Vector3d command =
+        bodyRateCommandFromPrediction(Eigen::Vector3d(2.0, -2.0, 0.2), 1.5);
+
+    EXPECT_NEAR(command.x(), 1.5, 1e-12);
+    EXPECT_NEAR(command.y(), -1.5, 1e-12);
+    EXPECT_NEAR(command.z(), 0.2, 1e-12);
 }
 
 TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangAngularAcceleration) {

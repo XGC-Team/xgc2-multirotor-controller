@@ -22,6 +22,21 @@ TEST(ReferenceTrajectorySmoke, AnalyticTypesSampleFiniteValues) {
 
     EXPECT_TRUE(trajectory::FigureEightCurveEvaluator3().evaluate(0.5, output));
     EXPECT_TRUE(trajectory::TrajectoryValidator3::finite(output));
+
+    EXPECT_TRUE(trajectory::LineCurveEvaluator3().evaluate(0.5, output));
+    EXPECT_TRUE(trajectory::TrajectoryValidator3::finite(output));
+
+    EXPECT_TRUE(trajectory::LemniscateCurveEvaluator3().evaluate(0.5, output));
+    EXPECT_TRUE(trajectory::TrajectoryValidator3::finite(output));
+
+    EXPECT_TRUE(trajectory::HelixYzCurveEvaluator3().evaluate(0.5, output));
+    EXPECT_TRUE(trajectory::TrajectoryValidator3::finite(output));
+
+    EXPECT_TRUE(trajectory::HelixXyCurveEvaluator3().evaluate(0.5, output));
+    EXPECT_TRUE(trajectory::TrajectoryValidator3::finite(output));
+
+    EXPECT_TRUE(trajectory::TorusKnotCurveEvaluator3().evaluate(0.5, output));
+    EXPECT_TRUE(trajectory::TrajectoryValidator3::finite(output));
 }
 
 int main(int argc, char** argv) {

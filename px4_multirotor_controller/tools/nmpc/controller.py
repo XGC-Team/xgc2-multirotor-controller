@@ -29,8 +29,8 @@ from .references import BaseTrajectory
 class Bounds:
     """Default state and input bounds for the UAV NMPC OCP."""
 
-    u_min: np.ndarray = field(default_factory=lambda: np.array([0.5, -10.0, -10.0, -10.0]))
-    u_max: np.ndarray = field(default_factory=lambda: np.array([25.0, 10.0, 10.0, 10.0]))
+    u_min: np.ndarray = field(default_factory=lambda: np.array([5.0, -10.0, -10.0, -10.0]))
+    u_max: np.ndarray = field(default_factory=lambda: np.array([20.373, 10.0, 10.0, 10.0]))
     p_min: np.ndarray = field(default_factory=lambda: np.array([-100.0, -100.0, 0.2]))
     p_max: np.ndarray = field(default_factory=lambda: np.array([100.0, 100.0, 6.0]))
     v_min: np.ndarray = field(default_factory=lambda: np.array([-10.0, -10.0, -10.0]))
