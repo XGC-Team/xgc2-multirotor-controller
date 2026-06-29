@@ -79,8 +79,7 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
     const bool success = solver_.solve(x0, references);
     if (success) {
         const Se3ControlVector u = solver_.optimalControl();
-        const Eigen::Vector3d body_rate =
-            x0.segment<3>(10) + u.tail<3>() * config_.nmpc.control_period;
+        const Eigen::Vector3d body_rate = solver_.predictedBodyRate();
         target.body_rate_x = body_rate.x();
         target.body_rate_y = body_rate.y();
         target.body_rate_z = body_rate.z();
@@ -107,8 +106,7 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
     if (config_.nmpc.enable_timing_log &&
         (last_log_time_.isZero() || (now - last_log_time_).toSec() >= config_.nmpc.log_period)) {
         const Se3ControlVector u = solver_.optimalControl();
-        const Eigen::Vector3d omega_cmd =
-            x0.segment<3>(10) + u.tail<3>() * config_.nmpc.control_period;
+        const Eigen::Vector3d omega_cmd = solver_.predictedBodyRate();
         const Se3StateVector ref0_x = control::packState(references.front().state);
         const Se3ControlVector ref0_u = control::packControl(references.front().control);
         const Se3StateVector refn_x =
