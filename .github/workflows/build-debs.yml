@@ -153,7 +153,6 @@ jobs:
 
   build-debs:
     name: Build debs (${{ matrix.arch }})
-    if: github.event_name == 'workflow_dispatch'
     needs: package-compliance
     strategy:
       fail-fast: false
@@ -187,7 +186,7 @@ jobs:
 
   publish-apt:
     name: Publish APT
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_apt
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_apt)
     needs: build-debs
     runs-on: ubuntu-latest
     env:
