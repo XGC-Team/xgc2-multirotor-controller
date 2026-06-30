@@ -87,6 +87,9 @@ TEST(ActiveTrajectoryCache, AnalyticReferenceSamplesAndBuildsHorizon) {
     ASSERT_TRUE(cache.sample(ros::Time(10.5), 1.0, sample));
     EXPECT_TRUE(sample.position.array().isFinite().all());
     EXPECT_TRUE(sample.snap.array().isFinite().all());
+    EXPECT_NEAR(sample.yaw, 0.0, 1e-12);
+    EXPECT_NEAR(sample.yaw_rate, 0.0, 1e-12);
+    EXPECT_NEAR(sample.yaw_accel, 0.0, 1e-12);
 
     std::vector<Se3Reference> horizon;
     ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0), 0.1, 10, 1.0, 9.8066, horizon));
@@ -115,6 +118,9 @@ TEST(ActiveTrajectoryCache, KoopmanAnalyticReferencesSampleAndBuildHorizons) {
             << "analytic_type=" << analytic_type;
         EXPECT_TRUE(sample.position.array().isFinite().all()) << "analytic_type=" << analytic_type;
         EXPECT_TRUE(sample.snap.array().isFinite().all()) << "analytic_type=" << analytic_type;
+        EXPECT_NEAR(sample.yaw, 0.0, 1e-12) << "analytic_type=" << analytic_type;
+        EXPECT_NEAR(sample.yaw_rate, 0.0, 1e-12) << "analytic_type=" << analytic_type;
+        EXPECT_NEAR(sample.yaw_accel, 0.0, 1e-12) << "analytic_type=" << analytic_type;
 
         std::vector<Se3Reference> horizon;
         ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0), 0.1, 10, 1.0, 9.8066, horizon))
@@ -216,7 +222,7 @@ TEST(UavNmpcSolver, SolvesHoverEquilibrium) {
 TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
     ros::Time::init();
     UavNmpcSolver solver;
-    ASSERT_TRUE(solver.configureInputBounds(12.0, 20.373));
+    ASSERT_TRUE(solver.configureInputBounds(12.0, 20.373, 3.0));
     ASSERT_TRUE(solver.initialize());
 
     Se3Reference hover;
@@ -233,17 +239,18 @@ TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
 }
 
 TEST(UavNmpcBridge, UsesPredictedBodyRateCommand) {
-    const Eigen::Vector3d predicted_rate(0.8, -0.6, 0.2);
-    const Eigen::Vector3d command = bodyRateCommandFromPrediction(predicted_rate, 1.5);
+    const Eigen::Vector3d predicted_rate(0.80, -0.40, 0.30);
+    const Eigen::Vector3d command =
+        bodyRateCommandFromPredictedBodyRate(predicted_rate, 1.5);
 
-    EXPECT_NEAR(command.x(), 0.8, 1e-12);
-    EXPECT_NEAR(command.y(), -0.6, 1e-12);
-    EXPECT_NEAR(command.z(), 0.2, 1e-12);
+    EXPECT_NEAR(command.x(), 0.80, 1e-12);
+    EXPECT_NEAR(command.y(), -0.40, 1e-12);
+    EXPECT_NEAR(command.z(), 0.30, 1e-12);
 }
 
 TEST(UavNmpcBridge, ClampsBodyRateCommand) {
     const Eigen::Vector3d command =
-        bodyRateCommandFromPrediction(Eigen::Vector3d(2.0, -2.0, 0.2), 1.5);
+        bodyRateCommandFromPredictedBodyRate(Eigen::Vector3d(2.4, -2.4, 0.2), 1.5);
 
     EXPECT_NEAR(command.x(), 1.5, 1e-12);
     EXPECT_NEAR(command.y(), -1.5, 1e-12);

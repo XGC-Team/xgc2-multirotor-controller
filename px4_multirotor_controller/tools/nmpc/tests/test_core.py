@@ -38,17 +38,20 @@ class CoreMathTests(unittest.TestCase):
 
     def test_px4_bridge_maps_specific_thrust_and_body_rate(self) -> None:
         params = default_quadrotor_params()
-        predicted_state = hover_state(np.array([0.0, 0.0, 1.0]))
-        predicted_state[10:13] = np.array([0.4, -0.3, 0.2])
+        current_state = hover_state(np.array([0.0, 0.0, 1.0]))
+        current_state[10:13] = np.array([0.4, -0.3, 0.2])
         command = np.array([params.g, 1.0, -2.0, 0.5])
+        predicted_body_rate = np.array([0.8, -0.4, 0.1])
         thrust_norm, body_rate = to_px4_bodyrate_thrust(
-            predicted_state,
+            current_state,
             command,
+            predicted_body_rate=predicted_body_rate,
+            control_interval=0.01,
             hover_specific_thrust=params.g,
             hover_thrust_norm=0.5,
         )
         self.assertAlmostEqual(thrust_norm, 0.5)
-        np.testing.assert_allclose(body_rate, np.array([0.4, -0.3, 0.2]), atol=1e-12)
+        np.testing.assert_allclose(body_rate, predicted_body_rate, atol=1e-12)
 
 
 class ControllerTests(unittest.TestCase):
@@ -61,6 +64,8 @@ class ControllerTests(unittest.TestCase):
         bounds = Bounds()
         self.assertAlmostEqual(float(bounds.u_min[0]), 5.0)
         self.assertAlmostEqual(float(bounds.u_max[0]), 20.373)
+        np.testing.assert_allclose(bounds.u_min[1:4], -10.0 * np.ones(3), atol=1e-12)
+        np.testing.assert_allclose(bounds.u_max[1:4], 10.0 * np.ones(3), atol=1e-12)
 
     def test_exact_hover_equilibrium(self) -> None:
         self.require_acados()

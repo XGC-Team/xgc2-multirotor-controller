@@ -39,16 +39,15 @@ The NMPC command is therefore not sent to PX4 raw. Use
 `to_px4_bodyrate_thrust()` or the ROS C++ tracking backend bridge:
 
 ```text
-body_rate_cmd = predicted_x1.omega
+body_rate_cmd = x_solution[1].omega
 thrust_norm   = hover_thrust_norm * (T/m) / g
 ```
 
 This bridge still does not model the PX4 body-rate loop dynamics inside the
-OCP, but it uses the optimizer-predicted next-state angular velocity instead of
-manually integrating angular acceleration outside the solver. A future
-deployment-oriented model can make the NMPC input `[normalized_thrust;
-body_rate_cmd]` and approximate the inner loop with first-order body-rate
-dynamics.
+OCP; it maps the high-level angular-acceleration input through the first
+predicted NMPC state onto the runtime body-rate setpoint. A future deployment-oriented model can make the NMPC
+input `[normalized_thrust; body_rate_cmd]` and approximate the inner loop with
+first-order body-rate dynamics.
 
 Attitude tracking cost uses the Lie algebra error
 `log(R_ref.T @ R)^vee`; it does not use raw `R - R_ref` element error.

@@ -53,6 +53,7 @@ struct ControllerConfig {
         double specific_thrust_min{5.0};
         double specific_thrust_max{20.373};
         double max_body_rate{1.5};
+        double max_angular_acceleration{10.0};
         bool hover_thrust_enabled{false};
         double hover_thrust_timeout{0.5};
         double solve_timeout{0.03};

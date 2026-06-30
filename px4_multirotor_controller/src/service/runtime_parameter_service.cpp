@@ -71,6 +71,8 @@ const std::unordered_map<std::string, DoubleSetter>& doubleSetters() {
          [](ControllerConfig& cfg, double value) { cfg.nmpc.specific_thrust_min = value; }},
         {"nmpc/specific_thrust_max",
          [](ControllerConfig& cfg, double value) { cfg.nmpc.specific_thrust_max = value; }},
+        {"nmpc/max_angular_acceleration",
+         [](ControllerConfig& cfg, double value) { cfg.nmpc.max_angular_acceleration = value; }},
         {"nmpc/hover_thrust_timeout",
          [](ControllerConfig& cfg, double value) { cfg.nmpc.hover_thrust_timeout = value; }},
         {"nmpc/solve_timeout",
@@ -276,6 +278,10 @@ bool RuntimeParameterService::validate(const ControllerConfig& config, std::stri
         error = "specific thrust bounds must be finite, non-negative, and ordered";
         return false;
     }
+    if (!positive(config.nmpc.max_angular_acceleration,
+                  "nmpc/max_angular_acceleration")) {
+        return false;
+    }
     if (config.safety.fence_x_min >= config.safety.fence_x_max ||
         config.safety.fence_y_min >= config.safety.fence_y_max ||
         config.safety.fence_z_min >= config.safety.fence_z_max) {
@@ -307,6 +313,7 @@ std::vector<std::string> RuntimeParameterService::currentValues(
         "nmpc/max_hover_thrust=" + formatDouble(config.nmpc.max_hover_thrust),
         "nmpc/specific_thrust_min=" + formatDouble(config.nmpc.specific_thrust_min),
         "nmpc/specific_thrust_max=" + formatDouble(config.nmpc.specific_thrust_max),
+        "nmpc/max_angular_acceleration=" + formatDouble(config.nmpc.max_angular_acceleration),
         "nmpc/hover_thrust_enabled=" + formatBool(config.nmpc.hover_thrust_enabled),
         "nmpc/hover_thrust_timeout=" + formatDouble(config.nmpc.hover_thrust_timeout),
         "nmpc/solve_timeout=" + formatDouble(config.nmpc.solve_timeout),

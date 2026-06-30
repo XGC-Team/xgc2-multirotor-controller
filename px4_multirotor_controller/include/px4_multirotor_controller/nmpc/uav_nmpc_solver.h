@@ -26,7 +26,8 @@ class UavNmpcSolver {
     UavNmpcSolver& operator=(const UavNmpcSolver&) = delete;
 
     bool initialize();
-    bool configureInputBounds(double specific_thrust_min, double specific_thrust_max);
+    bool configureInputBounds(double specific_thrust_min, double specific_thrust_max,
+                              double max_angular_acceleration);
     void resetWarmStart();
     bool solve(const Se3StateVector& x0, const std::vector<Se3Reference>& references);
 

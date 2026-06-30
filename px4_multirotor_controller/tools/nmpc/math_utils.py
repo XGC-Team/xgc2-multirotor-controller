@@ -12,7 +12,7 @@ state is the 13D quaternion form used by the Python implementation.
 
 from __future__ import annotations
 
-from typing import Callable, Tuple
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 
@@ -300,28 +300,34 @@ def rk4_step_time(
 
 
 def to_px4_bodyrate_thrust(
-    predicted_state: np.ndarray,
+    current_state: np.ndarray,
     u_mpc: np.ndarray,
     *,
+    predicted_body_rate: Optional[np.ndarray],
+    control_interval: float,
     hover_specific_thrust: float = 9.8066,
     hover_thrust_norm: float = 0.5,
 ) -> tuple[float, np.ndarray]:
-    """Map predicted NMPC state and ``u0`` to PX4 body-rate and thrust.
+    """Map current NMPC state and ``u0`` to PX4 body-rate and thrust.
 
     The OCP input contains specific thrust and angular acceleration, while PX4's
     attitude setpoint interface expects normalized thrust and body-rate
-    setpoints. Use the optimizer-predicted next-state angular velocity for the
-    body-rate command so the bridge matches the solver discretization and the
-    C++ runtime backend.
+    setpoints. Use the first predicted OCP body-rate state for the command so
+    the bridge matches the OCP model rather than re-integrating angular
+    acceleration over the runtime control interval.
     """
 
-    predicted_state = as_vector(predicted_state, STATE_SIZE, "predicted_state")
+    current_state = as_vector(current_state, STATE_SIZE, "current_state")
     u_mpc = as_vector(u_mpc, CONTROL_SIZE, "u_mpc")
+    if predicted_body_rate is None:
+        raise ValueError("predicted_body_rate is required for the PX4 body-rate bridge")
+    body_rate_cmd = as_vector(predicted_body_rate, 3, "predicted_body_rate")
+    if control_interval < 0.0 or not np.isfinite(control_interval):
+        raise ValueError("control_interval must be finite and non-negative")
     if hover_specific_thrust <= 1e-9:
         raise ValueError("hover_specific_thrust must be positive")
     if not 0.0 < hover_thrust_norm <= 1.0:
         raise ValueError("hover_thrust_norm must be in (0, 1]")
 
-    body_rate_cmd = predicted_state[OMEGA].copy()
     thrust_norm = hover_thrust_norm * u_mpc[0] / hover_specific_thrust
     return float(np.clip(thrust_norm, 0.0, 1.0)), body_rate_cmd

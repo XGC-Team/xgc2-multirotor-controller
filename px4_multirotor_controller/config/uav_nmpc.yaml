@@ -10,6 +10,7 @@ nmpc:
   specific_thrust_min: 5.0
   specific_thrust_max: 20.373
   max_body_rate: 1.5
+  max_angular_acceleration: 10.0
   solve_timeout: 0.03
   result_timeout: 0.1
   reference_timeout: 0.5

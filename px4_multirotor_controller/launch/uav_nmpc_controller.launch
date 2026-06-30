@@ -19,6 +19,7 @@
     <arg name="max_velocity_z" default="1000.0"/>
     <arg name="acc_saturation_xy" default="1000.0"/>
     <arg name="acc_saturation_z" default="1000.0"/>
+    <arg name="enable_yaw_control" default="false"/>
     <arg name="reference_start_delay" default="0.2"/>
     <arg name="reference_duration" default="60.0"/>
     <arg name="reference_radius" default="3.0"/>
@@ -62,6 +63,7 @@
             <param name="max_velocity_z" value="$(arg max_velocity_z)"/>
             <param name="acc_saturation_xy" value="$(arg acc_saturation_xy)"/>
             <param name="acc_saturation_z" value="$(arg acc_saturation_z)"/>
+            <param name="enable_yaw_control" value="$(arg enable_yaw_control)"/>
             <param name="nmpc/reference_start_delay" value="$(arg reference_start_delay)"/>
             <param name="nmpc/reference_duration" value="$(arg reference_duration)"/>
             <param name="nmpc/reference_radius" value="$(arg reference_radius)"/>

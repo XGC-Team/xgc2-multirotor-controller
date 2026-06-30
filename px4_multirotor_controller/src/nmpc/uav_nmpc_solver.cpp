@@ -51,16 +51,26 @@ bool UavNmpcSolver::initialize() {
 }
 
 bool UavNmpcSolver::configureInputBounds(double specific_thrust_min,
-                                         double specific_thrust_max) {
+                                         double specific_thrust_max,
+                                         double max_angular_acceleration) {
     if (!std::isfinite(specific_thrust_min) || !std::isfinite(specific_thrust_max) ||
         specific_thrust_min < 0.0 || specific_thrust_max <= specific_thrust_min) {
         ROS_ERROR("[UavNmpcSolver] Invalid input thrust bounds [%.3f, %.3f]",
                   specific_thrust_min, specific_thrust_max);
         return false;
     }
+    if (!std::isfinite(max_angular_acceleration) || max_angular_acceleration <= 0.0) {
+        ROS_ERROR("[UavNmpcSolver] Invalid angular acceleration bound %.3f",
+                  max_angular_acceleration);
+        return false;
+    }
 
     input_lower_bounds_[0] = specific_thrust_min;
     input_upper_bounds_[0] = specific_thrust_max;
+    for (int i = 1; i < UAV_NMPC_NU; ++i) {
+        input_lower_bounds_[static_cast<size_t>(i)] = -max_angular_acceleration;
+        input_upper_bounds_[static_cast<size_t>(i)] = max_angular_acceleration;
+    }
     if (capsule_) {
         return applyInputBounds();
     }

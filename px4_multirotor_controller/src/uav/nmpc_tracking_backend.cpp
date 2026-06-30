@@ -2,6 +2,7 @@
 
 #include <ros/console.h>
 
+#include <algorithm>
 #include <cmath>
 
 #include "px4_multirotor_controller/common/sensor_checks.h"
@@ -9,6 +10,8 @@
 
 namespace px4_multirotor_controller {
 namespace {
+
+constexpr double kMaxYawReferenceErrorRad = 0.01;
 
 double yawFromStateVector(const Se3StateVector& x0) {
     const double qw = x0(6);
@@ -22,13 +25,33 @@ double yawFromStateVector(const Se3StateVector& x0) {
     return quaternionToYaw(qx, qy, qz, qw);
 }
 
+void setReferenceYaw(Se3Reference& reference, double yaw) {
+    const Eigen::Vector3d body_z = reference.state.attitude.toRotationMatrix().col(2);
+    reference.state.attitude = Eigen::Quaterniond(rotationFromBodyZ(body_z, yaw));
+    reference.state.attitude.normalize();
+}
+
+void zeroReferenceAngularKinematics(Se3Reference& reference) {
+    reference.state.body_rate.setZero();
+    reference.control.angular_acceleration.setZero();
+}
+
 void holdCurrentYaw(std::vector<Se3Reference>& references, double yaw) {
     for (auto& reference : references) {
-        const Eigen::Vector3d body_z = reference.state.attitude.toRotationMatrix().col(2);
-        reference.state.attitude = Eigen::Quaterniond(rotationFromBodyZ(body_z, yaw));
-        reference.state.attitude.normalize();
-        reference.state.body_rate.setZero();
-        reference.control.angular_acceleration.setZero();
+        setReferenceYaw(reference, yaw);
+        zeroReferenceAngularKinematics(reference);
+    }
+}
+
+void limitYawAuthority(std::vector<Se3Reference>& references, double current_yaw) {
+    for (auto& reference : references) {
+        const Eigen::Quaterniond& q = reference.state.attitude;
+        const double desired_yaw = quaternionToYaw(q.x(), q.y(), q.z(), q.w());
+        const double yaw_error = normalizeAngle(desired_yaw - current_yaw);
+        const double limited_yaw_error =
+            std::max(-kMaxYawReferenceErrorRad, std::min(kMaxYawReferenceErrorRad, yaw_error));
+        setReferenceYaw(reference, normalizeAngle(current_yaw + limited_yaw_error));
+        zeroReferenceAngularKinematics(reference);
     }
 }
 
@@ -37,7 +60,8 @@ void holdCurrentYaw(std::vector<Se3Reference>& references, double yaw) {
 void UavNmpcTrackingBackend::configure(const ControllerConfig& config) {
     config_ = config;
     if (!solver_.configureInputBounds(config_.nmpc.specific_thrust_min,
-                                      config_.nmpc.specific_thrust_max)) {
+                                      config_.nmpc.specific_thrust_max,
+                                      config_.nmpc.max_angular_acceleration)) {
         ROS_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Keeping previous NMPC input bounds");
     }
 }
@@ -106,15 +130,18 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
     }
 
     std::vector<Se3Reference> tracking_references = references;
+    const double current_yaw = yawFromStateVector(x0);
     if (!config_.enable_yaw_control) {
-        holdCurrentYaw(tracking_references, yawFromStateVector(x0));
+        holdCurrentYaw(tracking_references, current_yaw);
+    } else {
+        limitYawAuthority(tracking_references, current_yaw);
     }
 
     const bool success = solver_.solve(x0, tracking_references);
     if (success) {
         const Se3ControlVector u = solver_.optimalControl();
-        const Eigen::Vector3d body_rate =
-            bodyRateCommandFromPrediction(solver_.predictedBodyRate(), config_.nmpc.max_body_rate);
+        const Eigen::Vector3d body_rate = bodyRateCommandFromPredictedBodyRate(
+            solver_.predictedBodyRate(), config_.nmpc.max_body_rate);
         target.body_rate_x = body_rate.x();
         target.body_rate_y = body_rate.y();
         target.body_rate_z = body_rate.z();
@@ -142,8 +169,9 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
         (last_log_time_.isZero() || (now - last_log_time_).toSec() >= config_.nmpc.log_period)) {
         const Se3ControlVector u = solver_.optimalControl();
         const Eigen::Vector3d omega_pred = solver_.predictedBodyRate();
+        const Eigen::Vector3d alpha_cmd = u.segment<3>(1);
         const Eigen::Vector3d omega_cmd =
-            bodyRateCommandFromPrediction(omega_pred, config_.nmpc.max_body_rate);
+            bodyRateCommandFromPredictedBodyRate(omega_pred, config_.nmpc.max_body_rate);
         const Se3StateVector ref0_x = control::packState(tracking_references.front().state);
         const Se3ControlVector ref0_u = control::packControl(tracking_references.front().control);
         const Se3StateVector refn_x =
@@ -153,13 +181,13 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
         ROS_INFO(
             "[UavNmpcTrackingBackend] solve %.2f ms status=%d u=[%.3f %.3f "
             "%.3f %.3f] omega_cmd=[%.3f %.3f %.3f] omega_pred=[%.3f %.3f %.3f] hover=%.3f "
-            "q_norm_err=%.3e success=%s x0_p=[%.3f %.3f %.3f] "
+            "alpha_cmd=[%.3f %.3f %.3f] q_norm_err=%.3e success=%s x0_p=[%.3f %.3f %.3f] "
             "ref0_p=[%.3f %.3f %.3f] refN_p=[%.3f %.3f %.3f] "
             "e_p=[%.3f %.3f %.3f] e_v=[%.3f %.3f %.3f] ref0_u=[%.3f %.3f %.3f "
             "%.3f]",
             solver_.solveTimeMs(), solver_.status(), u(0), u(1), u(2), u(3), omega_cmd.x(),
             omega_cmd.y(), omega_cmd.z(), omega_pred.x(), omega_pred.y(), omega_pred.z(),
-            sensor.hover_thrust_estimate,
+            sensor.hover_thrust_estimate, alpha_cmd.x(), alpha_cmd.y(), alpha_cmd.z(),
             solver_.maxQuaternionNormError(), success ? "true" : "false", x0(0), x0(1), x0(2),
             ref0_x(0), ref0_x(1), ref0_x(2), refn_x(0), refn_x(1), refn_x(2), pos_err.x(),
             pos_err.y(), pos_err.z(), vel_err.x(), vel_err.y(), vel_err.z(), ref0_u(0), ref0_u(1),
