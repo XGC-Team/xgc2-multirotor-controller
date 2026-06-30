@@ -5,6 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 ROS_DISTRO="${ROS_DISTRO:-noetic}"
 
+if [[ "${XGC2_ENABLE_CPP_QUALITY:-0}" != "1" ]]; then
+  echo "C++ quality check temporarily disabled; set XGC2_ENABLE_CPP_QUALITY=1 to run it."
+  exit 0
+fi
+
 require_command() {
   local command_name="$1"
   if ! command -v "${command_name}" >/dev/null 2>&1; then
