@@ -1,6 +1,5 @@
 Checks: >
   -*,
-  clang-analyzer-*,
   bugprone-*,
   performance-*,
   portability-*,
