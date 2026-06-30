@@ -287,7 +287,6 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             params.radius = radius;
             params.line_speed = line_speed;
             params.height = height;
-            params.yaw = origin_yaw;
             evaluator = std::make_unique<trajectory::CircleCurveEvaluator3>(params);
             break;
         }
@@ -301,7 +300,6 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             params.height = height;
             params.z_amplitude = z_amplitude;
             params.z_frequency = z_frequency;
-            params.yaw = origin_yaw;
             evaluator = std::make_unique<trajectory::CircleCurveEvaluator3>(params);
             break;
         }
@@ -313,7 +311,6 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             params.radius = radius;
             params.line_speed = line_speed;
             params.height = height;
-            params.yaw = origin_yaw;
             evaluator = std::make_unique<trajectory::FigureEightCurveEvaluator3>(params);
             break;
         }
@@ -329,7 +326,6 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
                                                      paramAt(msg, 5U, 0.0));
             params.start_velocity = Eigen::Vector3d(paramAt(msg, 6U, 0.0), paramAt(msg, 7U, 0.0),
                                                     paramAt(msg, 8U, 0.0));
-            params.yaw = origin_yaw;
             evaluator = std::make_unique<trajectory::LineCurveEvaluator3>(params);
             break;
         }
@@ -341,7 +337,6 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             params.radius = paramAt(msg, 0U, 1.0);
             params.omega = paramAt(msg, 1U, 0.9);
             params.height = paramAt(msg, 2U, 1.0);
-            params.yaw = origin_yaw;
             evaluator = std::make_unique<trajectory::LemniscateCurveEvaluator3>(params);
             break;
         }
@@ -353,7 +348,6 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             params.radius = paramAt(msg, 0U, 1.0);
             params.omega = paramAt(msg, 1U, 1.5);
             params.linear_scale = paramAt(msg, 2U, 10.0);
-            params.yaw = origin_yaw;
             evaluator = std::make_unique<trajectory::HelixYzCurveEvaluator3>(params);
             break;
         }
@@ -365,7 +359,6 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             params.radius = paramAt(msg, 0U, 1.0);
             params.omega = paramAt(msg, 1U, 0.9);
             params.linear_scale = paramAt(msg, 2U, 10.0);
-            params.yaw = origin_yaw;
             evaluator = std::make_unique<trajectory::HelixXyCurveEvaluator3>(params);
             break;
         }
@@ -376,7 +369,6 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             params.origin = origin;
             params.omega = paramAt(msg, 0U, 0.9);
             params.scale = paramAt(msg, 1U, 0.3);
-            params.yaw = origin_yaw;
             evaluator = std::make_unique<trajectory::TorusKnotCurveEvaluator3>(params);
             break;
         }
@@ -396,7 +388,6 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             params.circle.height = height;
             params.circle.z_amplitude = z_amplitude;
             params.circle.z_frequency = z_frequency;
-            params.circle.yaw = origin_yaw;
             evaluator = std::make_unique<trajectory::CircleEntryCurveEvaluator3>(params);
             break;
         }
