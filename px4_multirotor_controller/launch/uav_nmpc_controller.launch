@@ -20,14 +20,23 @@
     <arg name="acc_saturation_xy" default="1000.0"/>
     <arg name="acc_saturation_z" default="1000.0"/>
     <arg name="enable_yaw_control" default="false"/>
+    <arg name="normalized_thrust_min" default="0.1"/>
+    <arg name="normalized_thrust_max" default="0.9"/>
+    <arg name="max_roll_pitch_body_rate" default="3.4906585"/>
+    <arg name="max_yaw_body_rate" default="0.8726646"/>
+    <arg name="max_roll_pitch_angular_acceleration" default="15.0"/>
+    <arg name="max_yaw_angular_acceleration" default="2.0"/>
     <arg name="reference_start_delay" default="0.2"/>
     <arg name="reference_duration" default="60.0"/>
     <arg name="reference_radius" default="3.0"/>
-    <arg name="reference_line_speed" default="3.0"/>
+    <arg name="reference_line_speed" default="1.0"/>
     <arg name="reference_height" default="3.0"/>
-    <arg name="reference_z_amplitude" default="1.0"/>
+    <arg name="reference_z_amplitude" default="0.0"/>
     <arg name="reference_z_frequency" default="0.5"/>
     <arg name="reference_entry_duration" default="5.0"/>
+    <arg name="reference_analytic_type" default="3"/>
+    <arg name="reference_torus_omega" default="0.3"/>
+    <arg name="reference_torus_scale" default="0.3"/>
     <arg name="config_file" default="$(find px4_multirotor_controller)/config/uav_nmpc.yaml"/>
     <arg name="hover_thrust_config_file" default=""/>
 
@@ -64,6 +73,14 @@
             <param name="acc_saturation_xy" value="$(arg acc_saturation_xy)"/>
             <param name="acc_saturation_z" value="$(arg acc_saturation_z)"/>
             <param name="enable_yaw_control" value="$(arg enable_yaw_control)"/>
+            <param name="nmpc/normalized_thrust_min" value="$(arg normalized_thrust_min)"/>
+            <param name="nmpc/normalized_thrust_max" value="$(arg normalized_thrust_max)"/>
+            <param name="nmpc/max_roll_pitch_body_rate" value="$(arg max_roll_pitch_body_rate)"/>
+            <param name="nmpc/max_yaw_body_rate" value="$(arg max_yaw_body_rate)"/>
+            <param name="nmpc/max_roll_pitch_angular_acceleration"
+                   value="$(arg max_roll_pitch_angular_acceleration)"/>
+            <param name="nmpc/max_yaw_angular_acceleration"
+                   value="$(arg max_yaw_angular_acceleration)"/>
             <param name="nmpc/reference_start_delay" value="$(arg reference_start_delay)"/>
             <param name="nmpc/reference_duration" value="$(arg reference_duration)"/>
             <param name="nmpc/reference_radius" value="$(arg reference_radius)"/>
@@ -72,6 +89,9 @@
             <param name="nmpc/reference_z_amplitude" value="$(arg reference_z_amplitude)"/>
             <param name="nmpc/reference_z_frequency" value="$(arg reference_z_frequency)"/>
             <param name="nmpc/reference_entry_duration" value="$(arg reference_entry_duration)"/>
+            <param name="nmpc/reference_analytic_type" value="$(arg reference_analytic_type)"/>
+            <param name="nmpc/reference_torus_omega" value="$(arg reference_torus_omega)"/>
+            <param name="nmpc/reference_torus_scale" value="$(arg reference_torus_scale)"/>
             <param name="state_estimate_topic" value="$(arg state_estimate_topic)"/>
             <param name="vrpn_pose_topic" value="$(arg vrpn_pose_topic)"/>
             <param name="vrpn_twist_topic" value="$(arg vrpn_twist_topic)"/>

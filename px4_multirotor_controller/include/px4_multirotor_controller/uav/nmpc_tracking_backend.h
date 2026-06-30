@@ -3,6 +3,8 @@
 #include <ros/ros.h>
 
 #include <Eigen/Dense>
+#include <array>
+#include <cstddef>
 #include <vector>
 
 #include "px4_multirotor_controller/drone_controller.h"
@@ -26,6 +28,12 @@ class UavNmpcTrackingBackend {
     double solveTimeMs() const {
         return solver_.solveTimeMs();
     }
+    const std::array<Se3StateVector, UAV_NMPC_N + 1>& predictedStates() const {
+        return solver_.predictedStates();
+    }
+    size_t predictedStateCount() const {
+        return solver_.predictedStateCount();
+    }
 
    private:
     bool feedbackState(const SensorData& sensor, Se3StateVector& x0) const;
@@ -33,12 +41,17 @@ class UavNmpcTrackingBackend {
                                                     const ros::Time& now) const;
     Se3Reference sampleReference(const MpcTrajectoryState& reference, double dt) const;
     bool hoverThrustReady(const SensorData& sensor, const ros::Time& now) const;
+    bool lockInputBounds(double hover_thrust);
     double mapSpecificThrustToNormalized(double specific_thrust, double hover_thrust) const;
 
     ControllerConfig config_{};
     UavNmpcSolver solver_;
 
     bool entered_{false};
+    bool input_bounds_locked_{false};
+    double initial_hover_thrust_{0.0};
+    double effective_specific_thrust_min_{0.0};
+    double effective_specific_thrust_max_{0.0};
 
     ros::Time last_control_time_;
     ros::Time last_log_time_;

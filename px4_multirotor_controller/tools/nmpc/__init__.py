@@ -8,6 +8,8 @@ from .controller import (
     CostWeights,
     MPCConfig,
     optional_backend_status,
+    projected_heading_error,
+    thrust_direction_error,
 )
 from .dynamics import QuadrotorParams, default_quadrotor_params, hover_state, quadrotor_dynamics
 from .math_utils import (
@@ -64,6 +66,7 @@ __all__ = [
     "hover_state",
     "optional_backend_status",
     "pack_state",
+    "projected_heading_error",
     "project_rotation_matrix",
     "project_state_rotation",
     "quat_to_rotation",
@@ -73,5 +76,6 @@ __all__ = [
     "so3_log_error",
     "to_px4_bodyrate_thrust",
     "trajectory_factory",
+    "thrust_direction_error",
     "unpack_state",
 ]

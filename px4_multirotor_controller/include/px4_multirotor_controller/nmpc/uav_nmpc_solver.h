@@ -2,6 +2,7 @@
 
 #include <Eigen/Dense>
 #include <array>
+#include <cstddef>
 #include <vector>
 #include <xgc2_math/control.hpp>
 
@@ -27,7 +28,8 @@ class UavNmpcSolver {
 
     bool initialize();
     bool configureInputBounds(double specific_thrust_min, double specific_thrust_max,
-                              double max_angular_acceleration);
+                              double max_roll_pitch_angular_acceleration,
+                              double max_yaw_angular_acceleration);
     void resetWarmStart();
     bool solve(const Se3StateVector& x0, const std::vector<Se3Reference>& references);
 
@@ -36,6 +38,12 @@ class UavNmpcSolver {
     }
     Eigen::Vector3d predictedBodyRate() const {
         return predicted_body_rate_;
+    }
+    const std::array<Se3StateVector, UAV_NMPC_N + 1>& predictedStates() const {
+        return x_solution_;
+    }
+    size_t predictedStateCount() const {
+        return static_cast<size_t>(UAV_NMPC_N + 1);
     }
     int status() const {
         return solver_status_;

@@ -161,7 +161,7 @@ class LemniscateTrajectory(BaseTrajectory):
     def __init__(
         self,
         radius: float = 1.0,
-        omega: float = 0.9,
+        omega: float = 0.3,
         height: float = 1.0,
         dt: float = 0.05,
         params: QuadrotorParams | None = None,
@@ -352,7 +352,7 @@ def trajectory_factory(
         3: {"radius": 1.0, "omega": 0.9, "height": 1.0},
         4: {"radius": 1.0, "omega": 1.5, "helix_scl": 10.0},
         5: {"radius": 1.0, "omega": 0.9, "helix_scl": 10.0},
-        6: {"omega": 0.9, "scale": 0.3},
+        6: {"omega": 0.3, "scale": 0.3},
     }
     kwargs = defaults[task_id].copy()
     if overrides:

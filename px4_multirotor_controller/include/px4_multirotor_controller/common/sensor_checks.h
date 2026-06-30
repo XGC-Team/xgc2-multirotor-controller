@@ -41,12 +41,9 @@ inline bool isStateEstimateUsableForControl(const SensorData& sensor) {
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_VRPN_RATE_LOW |
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_TIME_JUMP |
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_FAULT |
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_INNOVATION_REJECTED |
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_EXTRINSIC_UNVERIFIED |
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_COVARIANCE_HIGH |
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_INVALID_IMU |
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_INVALID_VRPN |
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_POSE_TIME_ALIGNMENT_REJECTED |
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_VRPN_FAULT |
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_FILTER_IMU_ONLY;
     const bool state_ok = sensor.uav_state_estimator_state ==

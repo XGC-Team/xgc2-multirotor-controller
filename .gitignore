@@ -5,3 +5,7 @@ install/
 install-root/
 debs/
 *.deb
+source/
+px4_multirotor_controller/tools/nmpc/results/
+__pycache__/
+*.pyc

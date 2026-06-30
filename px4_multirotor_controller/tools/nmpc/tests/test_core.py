@@ -4,13 +4,22 @@ import unittest
 
 import numpy as np
 
-from nmpc.controller import AcadosNMPCController, Bounds, MPCConfig, optional_backend_status
+from nmpc.controller import (
+    AcadosNMPCController,
+    Bounds,
+    CostWeights,
+    MPCConfig,
+    optional_backend_status,
+    projected_heading_error,
+    thrust_direction_error,
+)
 from nmpc.dynamics import default_quadrotor_params, hover_state
 from nmpc.math_utils import (
     STATE_SIZE,
     pack_state,
     quat_to_rotation,
     rk4_step_time,
+    rotation_from_body_z,
     so3_log_error,
     to_px4_bodyrate_thrust,
     unpack_state_quat,
@@ -53,6 +62,27 @@ class CoreMathTests(unittest.TestCase):
         self.assertAlmostEqual(thrust_norm, 0.5)
         np.testing.assert_allclose(body_rate, predicted_body_rate, atol=1e-12)
 
+    def test_thrust_direction_error_ignores_pure_yaw(self) -> None:
+        yaw = 0.7
+        rotation = rotation_from_body_z(np.array([0.0, 0.0, 1.0]), yaw=yaw)
+
+        np.testing.assert_allclose(
+            thrust_direction_error(rotation, np.eye(3)),
+            np.zeros(3),
+            atol=1e-12,
+        )
+        self.assertAlmostEqual(projected_heading_error(rotation, np.eye(3)), np.sin(yaw))
+
+    def test_thrust_direction_error_detects_tilt(self) -> None:
+        tilt = 0.2
+        body_z = np.array([np.sin(tilt), 0.0, np.cos(tilt)])
+        rotation = rotation_from_body_z(body_z, yaw=0.0)
+
+        error = thrust_direction_error(rotation, np.eye(3))
+
+        self.assertGreater(np.linalg.norm(error), 0.1)
+        np.testing.assert_allclose(error, np.array([0.0, np.sin(tilt), 0.0]), atol=1e-12)
+
 
 class ControllerTests(unittest.TestCase):
     def require_acados(self) -> None:
@@ -66,6 +96,24 @@ class ControllerTests(unittest.TestCase):
         self.assertAlmostEqual(float(bounds.u_max[0]), 20.373)
         np.testing.assert_allclose(bounds.u_min[1:4], -10.0 * np.ones(3), atol=1e-12)
         np.testing.assert_allclose(bounds.u_max[1:4], 10.0 * np.ones(3), atol=1e-12)
+
+    def test_cost_weights_match_nullspace_yaw_baseline(self) -> None:
+        weights = CostWeights()
+
+        np.testing.assert_allclose(weights.position, 120.0 * np.ones(3), atol=1e-12)
+        np.testing.assert_allclose(weights.velocity, 30.0 * np.ones(3), atol=1e-12)
+        np.testing.assert_allclose(
+            weights.thrust_direction,
+            40.0 * np.ones(3),
+            atol=1e-12,
+        )
+        self.assertAlmostEqual(weights.yaw, 1.0)
+        np.testing.assert_allclose(weights.omega, 3.0 * np.ones(3), atol=1e-12)
+        np.testing.assert_allclose(
+            weights.control,
+            np.array([0.08, 0.20, 0.20, 1.00]),
+            atol=1e-12,
+        )
 
     def test_exact_hover_equilibrium(self) -> None:
         self.require_acados()

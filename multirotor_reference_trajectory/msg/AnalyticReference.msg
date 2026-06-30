@@ -25,5 +25,6 @@ geometry_msgs/Pose origin
 #          start_vx, start_vy, start_vz]
 #   LEMNISCATE: [radius, omega, height]
 #   HELIX_YZ / HELIX_XY: [radius, omega, linear_scale]
-#   TORUS_KNOT: [omega, scale]
+#   TORUS_KNOT: [omega, scale] or
+#               [omega, scale, entry_duration, curve_origin_x, curve_origin_y, curve_origin_z]
 float64[] params

@@ -194,6 +194,21 @@ TEST(SensorChecks, StateEstimateGateIsOnlyControlStateSource) {
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_FAULT;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
+    sensor.uav_state_estimator_flags =
+        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_FILTER_DEGRADED |
+        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_VRPN_SUSPECTED |
+        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_POSE_TIME_ALIGNMENT_REJECTED |
+        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_INNOVATION_REJECTED;
+    EXPECT_TRUE(sensor_checks::isStateEstimateUsableForControl(sensor));
+
+    sensor.uav_state_estimator_flags =
+        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_VRPN_FAULT;
+    EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
+
+    sensor.uav_state_estimator_flags =
+        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_FILTER_IMU_ONLY;
+    EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
+
     sensor.uav_state_estimator_flags = 0u;
     sensor.uav_state_estimator_state =
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::STATE_SELF_CHECK;
@@ -222,7 +237,7 @@ TEST(UavNmpcSolver, SolvesHoverEquilibrium) {
 TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
     ros::Time::init();
     UavNmpcSolver solver;
-    ASSERT_TRUE(solver.configureInputBounds(12.0, 20.373, 3.0));
+    ASSERT_TRUE(solver.configureInputBounds(12.0, 20.373, 3.0, 1.0));
     ASSERT_TRUE(solver.initialize());
 
     Se3Reference hover;
@@ -240,7 +255,7 @@ TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
 
 TEST(UavNmpcBridge, UsesPredictedBodyRateCommand) {
     const Eigen::Vector3d predicted_rate(0.80, -0.40, 0.30);
-    const Eigen::Vector3d command = bodyRateCommandFromPredictedBodyRate(predicted_rate, 1.5);
+    const Eigen::Vector3d command = bodyRateCommandFromPredictedBodyRate(predicted_rate, 3.5, 0.9);
 
     EXPECT_NEAR(command.x(), 0.80, 1e-12);
     EXPECT_NEAR(command.y(), -0.40, 1e-12);
@@ -249,11 +264,23 @@ TEST(UavNmpcBridge, UsesPredictedBodyRateCommand) {
 
 TEST(UavNmpcBridge, ClampsBodyRateCommand) {
     const Eigen::Vector3d command =
-        bodyRateCommandFromPredictedBodyRate(Eigen::Vector3d(2.4, -2.4, 0.2), 1.5);
+        bodyRateCommandFromPredictedBodyRate(Eigen::Vector3d(4.0, -4.0, 1.2), 3.5, 0.9);
 
-    EXPECT_NEAR(command.x(), 1.5, 1e-12);
-    EXPECT_NEAR(command.y(), -1.5, 1e-12);
-    EXPECT_NEAR(command.z(), 0.2, 1e-12);
+    EXPECT_NEAR(command.x(), 3.5, 1e-12);
+    EXPECT_NEAR(command.y(), -3.5, 1e-12);
+    EXPECT_NEAR(command.z(), 0.9, 1e-12);
+}
+
+TEST(UavNmpcBridge, RecoversBodyRateFromReferenceAttitudeDelta) {
+    const double dt = 0.02;
+    const double yaw_rate = 0.7;
+    const Eigen::Quaterniond q0 = yawToQuaternion(0.3);
+    const Eigen::Quaterniond q1 = yawToQuaternion(0.3 + yaw_rate * dt);
+
+    const Eigen::Vector3d body_rate = bodyRateFromRotationDelta(q0, q1, dt);
+    EXPECT_NEAR(body_rate.x(), 0.0, 1e-12);
+    EXPECT_NEAR(body_rate.y(), 0.0, 1e-12);
+    EXPECT_NEAR(body_rate.z(), yaw_rate, 1e-12);
 }
 
 TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangAngularAcceleration) {

@@ -67,12 +67,22 @@ const std::unordered_map<std::string, DoubleSetter>& doubleSetters() {
          [](ControllerConfig& cfg, double value) { cfg.nmpc.min_hover_thrust = value; }},
         {"nmpc/max_hover_thrust",
          [](ControllerConfig& cfg, double value) { cfg.nmpc.max_hover_thrust = value; }},
-        {"nmpc/specific_thrust_min",
-         [](ControllerConfig& cfg, double value) { cfg.nmpc.specific_thrust_min = value; }},
-        {"nmpc/specific_thrust_max",
-         [](ControllerConfig& cfg, double value) { cfg.nmpc.specific_thrust_max = value; }},
-        {"nmpc/max_angular_acceleration",
-         [](ControllerConfig& cfg, double value) { cfg.nmpc.max_angular_acceleration = value; }},
+        {"nmpc/normalized_thrust_min",
+         [](ControllerConfig& cfg, double value) { cfg.nmpc.normalized_thrust_min = value; }},
+        {"nmpc/normalized_thrust_max",
+         [](ControllerConfig& cfg, double value) { cfg.nmpc.normalized_thrust_max = value; }},
+        {"nmpc/max_roll_pitch_body_rate",
+         [](ControllerConfig& cfg, double value) { cfg.nmpc.max_roll_pitch_body_rate = value; }},
+        {"nmpc/max_yaw_body_rate",
+         [](ControllerConfig& cfg, double value) { cfg.nmpc.max_yaw_body_rate = value; }},
+        {"nmpc/max_roll_pitch_angular_acceleration",
+         [](ControllerConfig& cfg, double value) {
+             cfg.nmpc.max_roll_pitch_angular_acceleration = value;
+         }},
+        {"nmpc/max_yaw_angular_acceleration",
+         [](ControllerConfig& cfg, double value) {
+             cfg.nmpc.max_yaw_angular_acceleration = value;
+         }},
         {"nmpc/hover_thrust_timeout",
          [](ControllerConfig& cfg, double value) { cfg.nmpc.hover_thrust_timeout = value; }},
         {"nmpc/solve_timeout",
@@ -97,6 +107,14 @@ const std::unordered_map<std::string, DoubleSetter>& doubleSetters() {
          [](ControllerConfig& cfg, double value) { cfg.nmpc.reference_z_frequency = value; }},
         {"nmpc/reference_entry_duration",
          [](ControllerConfig& cfg, double value) { cfg.nmpc.reference_entry_duration = value; }},
+        {"nmpc/reference_analytic_type",
+         [](ControllerConfig& cfg, double value) {
+             cfg.nmpc.reference_analytic_type = static_cast<int>(std::lround(value));
+         }},
+        {"nmpc/reference_torus_omega",
+         [](ControllerConfig& cfg, double value) { cfg.nmpc.reference_torus_omega = value; }},
+        {"nmpc/reference_torus_scale",
+         [](ControllerConfig& cfg, double value) { cfg.nmpc.reference_torus_scale = value; }},
         {"nmpc/log_period",
          [](ControllerConfig& cfg, double value) { cfg.nmpc.log_period = value; }},
         {"safety/fence_x_min",
@@ -267,18 +285,29 @@ bool RuntimeParameterService::validate(const ControllerConfig& config, std::stri
         error = "nmpc/reference_entry_duration must be finite and >= 0";
         return false;
     }
+    if (config.nmpc.reference_analytic_type < 0 || config.nmpc.reference_analytic_type > 9) {
+        error = "nmpc/reference_analytic_type must be one of AnalyticReference[0..9]";
+        return false;
+    }
+    if (!positive(config.nmpc.reference_torus_omega, "nmpc/reference_torus_omega") ||
+        !positive(config.nmpc.reference_torus_scale, "nmpc/reference_torus_scale")) {
+        return false;
+    }
     if (config.nmpc.hover_thrust_ratio < 0.0 || config.nmpc.hover_thrust_ratio > 1.0 ||
         config.nmpc.min_hover_thrust < 0.0 || config.nmpc.max_hover_thrust > 1.0 ||
-        config.nmpc.min_hover_thrust > config.nmpc.max_hover_thrust) {
-        error = "hover thrust ratio and bounds must be inside [0, 1] and ordered";
+        config.nmpc.min_hover_thrust > config.nmpc.max_hover_thrust ||
+        config.nmpc.normalized_thrust_min < 0.0 || config.nmpc.normalized_thrust_max > 1.0 ||
+        config.nmpc.normalized_thrust_min > config.nmpc.normalized_thrust_max) {
+        error = "hover thrust and normalized thrust bounds must be inside [0, 1] and ordered";
         return false;
     }
-    if (config.nmpc.specific_thrust_min < 0.0 ||
-        config.nmpc.specific_thrust_min >= config.nmpc.specific_thrust_max) {
-        error = "specific thrust bounds must be finite, non-negative, and ordered";
+    if (!positive(config.nmpc.max_roll_pitch_angular_acceleration,
+                  "nmpc/max_roll_pitch_angular_acceleration") ||
+        !positive(config.nmpc.max_yaw_angular_acceleration, "nmpc/max_yaw_angular_acceleration")) {
         return false;
     }
-    if (!positive(config.nmpc.max_angular_acceleration, "nmpc/max_angular_acceleration")) {
+    if (!positive(config.nmpc.max_roll_pitch_body_rate, "nmpc/max_roll_pitch_body_rate") ||
+        !positive(config.nmpc.max_yaw_body_rate, "nmpc/max_yaw_body_rate")) {
         return false;
     }
     if (config.safety.fence_x_min >= config.safety.fence_x_max ||
@@ -310,9 +339,14 @@ std::vector<std::string> RuntimeParameterService::currentValues(
         "nmpc/hover_thrust_ratio=" + formatDouble(config.nmpc.hover_thrust_ratio),
         "nmpc/min_hover_thrust=" + formatDouble(config.nmpc.min_hover_thrust),
         "nmpc/max_hover_thrust=" + formatDouble(config.nmpc.max_hover_thrust),
-        "nmpc/specific_thrust_min=" + formatDouble(config.nmpc.specific_thrust_min),
-        "nmpc/specific_thrust_max=" + formatDouble(config.nmpc.specific_thrust_max),
-        "nmpc/max_angular_acceleration=" + formatDouble(config.nmpc.max_angular_acceleration),
+        "nmpc/normalized_thrust_min=" + formatDouble(config.nmpc.normalized_thrust_min),
+        "nmpc/normalized_thrust_max=" + formatDouble(config.nmpc.normalized_thrust_max),
+        "nmpc/max_roll_pitch_body_rate=" + formatDouble(config.nmpc.max_roll_pitch_body_rate),
+        "nmpc/max_yaw_body_rate=" + formatDouble(config.nmpc.max_yaw_body_rate),
+        "nmpc/max_roll_pitch_angular_acceleration=" +
+            formatDouble(config.nmpc.max_roll_pitch_angular_acceleration),
+        "nmpc/max_yaw_angular_acceleration=" +
+            formatDouble(config.nmpc.max_yaw_angular_acceleration),
         "nmpc/hover_thrust_enabled=" + formatBool(config.nmpc.hover_thrust_enabled),
         "nmpc/hover_thrust_timeout=" + formatDouble(config.nmpc.hover_thrust_timeout),
         "nmpc/solve_timeout=" + formatDouble(config.nmpc.solve_timeout),
@@ -326,6 +360,10 @@ std::vector<std::string> RuntimeParameterService::currentValues(
         "nmpc/reference_z_amplitude=" + formatDouble(config.nmpc.reference_z_amplitude),
         "nmpc/reference_z_frequency=" + formatDouble(config.nmpc.reference_z_frequency),
         "nmpc/reference_entry_duration=" + formatDouble(config.nmpc.reference_entry_duration),
+        "nmpc/reference_analytic_type=" +
+            formatDouble(static_cast<double>(config.nmpc.reference_analytic_type)),
+        "nmpc/reference_torus_omega=" + formatDouble(config.nmpc.reference_torus_omega),
+        "nmpc/reference_torus_scale=" + formatDouble(config.nmpc.reference_torus_scale),
         "nmpc/enable_timing_log=" + formatBool(config.nmpc.enable_timing_log),
         "nmpc/log_period=" + formatDouble(config.nmpc.log_period),
         "safety/fence_x_min=" + formatDouble(config.safety.fence_x_min),

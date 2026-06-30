@@ -62,15 +62,17 @@ class Bounds:
 class CostWeights:
     """Diagonal cost weights used by the acados NMPC backend."""
 
-    position: np.ndarray = field(default_factory=lambda: 70.0 * np.ones(3))
-    velocity: np.ndarray = field(default_factory=lambda: 18.0 * np.ones(3))
-    attitude: np.ndarray = field(default_factory=lambda: 5.0 * np.ones(3))
-    omega: np.ndarray = field(default_factory=lambda: 1.5 * np.ones(3))
-    terminal_position: np.ndarray = field(default_factory=lambda: 160.0 * np.ones(3))
-    terminal_velocity: np.ndarray = field(default_factory=lambda: 45.0 * np.ones(3))
-    terminal_attitude: np.ndarray = field(default_factory=lambda: 10.0 * np.ones(3))
-    terminal_omega: np.ndarray = field(default_factory=lambda: 3.0 * np.ones(3))
-    control: np.ndarray = field(default_factory=lambda: np.array([0.02, 0.08, 0.08, 0.04]))
+    position: np.ndarray = field(default_factory=lambda: 120.0 * np.ones(3))
+    velocity: np.ndarray = field(default_factory=lambda: 30.0 * np.ones(3))
+    thrust_direction: np.ndarray = field(default_factory=lambda: 40.0 * np.ones(3))
+    yaw: float = 1.0
+    omega: np.ndarray = field(default_factory=lambda: 3.0 * np.ones(3))
+    terminal_position: np.ndarray = field(default_factory=lambda: 300.0 * np.ones(3))
+    terminal_velocity: np.ndarray = field(default_factory=lambda: 80.0 * np.ones(3))
+    terminal_thrust_direction: np.ndarray = field(default_factory=lambda: 80.0 * np.ones(3))
+    terminal_yaw: float = 2.0
+    terminal_omega: np.ndarray = field(default_factory=lambda: 6.0 * np.ones(3))
+    control: np.ndarray = field(default_factory=lambda: np.array([0.08, 0.20, 0.20, 1.00]))
     unit_quat_penalty: float = 10.0
     input_slack: np.ndarray = field(default_factory=lambda: np.array([1.0e8, 1.0e6, 1.0e6, 1.0e6]))
     state_slack_position: np.ndarray = field(default_factory=lambda: 1.0e4 * np.ones(3))
@@ -130,6 +132,33 @@ class ControllerInfo:
     finite_solution: bool
 
 
+def thrust_direction_error(rotation: np.ndarray, reference_rotation: np.ndarray) -> np.ndarray:
+    """Return the yaw-invariant thrust-direction residual ``z_ref x z``."""
+
+    rotation = np.asarray(rotation, dtype=float).reshape(3, 3)
+    reference_rotation = np.asarray(reference_rotation, dtype=float).reshape(3, 3)
+    return np.cross(reference_rotation[:, 2], rotation[:, 2])
+
+
+def projected_heading_error(rotation: np.ndarray, reference_rotation: np.ndarray) -> float:
+    """Return signed heading error projected onto the reference thrust plane."""
+
+    rotation = np.asarray(rotation, dtype=float).reshape(3, 3)
+    reference_rotation = np.asarray(reference_rotation, dtype=float).reshape(3, 3)
+    z_ref = reference_rotation[:, 2]
+    x_axis = _normalize_projected_heading(rotation[:, 0], z_ref)
+    x_ref = _normalize_projected_heading(reference_rotation[:, 0], z_ref)
+    return float(np.dot(z_ref, np.cross(x_ref, x_axis)))
+
+
+def _normalize_projected_heading(x_axis: np.ndarray, z_ref: np.ndarray) -> np.ndarray:
+    projected = x_axis - z_ref * float(np.dot(z_ref, x_axis))
+    norm = float(np.linalg.norm(projected))
+    if norm < 1e-9:
+        return np.zeros(3)
+    return projected / norm
+
+
 def _repo_root() -> Path:
     here = Path(__file__).resolve()
     for parent in (here.parent, *here.parents):
@@ -158,6 +187,9 @@ def _local_acados_root() -> Path:
     vendor_acados = repo_root / "external" / "toolchains" / "xgc2-acados" / "third_party" / "acados"
     if vendor_acados.exists():
         return vendor_acados
+    packaged_acados = Path("/opt/xgc2/acados")
+    if packaged_acados.exists():
+        return packaged_acados
     return repo_root / "external" / "acados-helper" / "acados"
 
 
@@ -187,6 +219,7 @@ def _format_float_token(value: float) -> str:
 def configure_acados_environment() -> dict[str, bool | str]:
     """Configure acados paths exported by the system xgc2-acados package."""
 
+    os.environ.setdefault("MPLBACKEND", "Agg")
     acados_root = _local_acados_root()
     template_parent = acados_root / "interfaces" / "acados_template"
     python_paths = _env_paths(
@@ -573,30 +606,33 @@ class AcadosNMPCController:
         uref = p[STATE_SIZE : STATE_SIZE + 4]
         rotation = self._casadi_quat_to_rotation(ca, x[6:10])
         rotation_ref = self._casadi_quat_to_rotation(ca, xref[6:10])
-        e_att = self._casadi_so3_log(ca, rotation_ref.T @ rotation)
+        e_thrust_direction = self._casadi_thrust_direction_error(ca, rotation, rotation_ref)
+        e_yaw = self._casadi_projected_heading_error(ca, rotation, rotation_ref)
         e_pos = x[0:3] - xref[0:3]
         e_vel = x[3:6] - xref[3:6]
         e_omega = x[10:13] - xref[10:13]
         unit_error = ca.dot(x[6:10], x[6:10]) - 1.0
         if terminal:
-            residual = ca.vertcat(e_pos, e_vel, e_att, e_omega, unit_error)
+            residual = ca.vertcat(e_pos, e_vel, e_thrust_direction, e_yaw, e_omega, unit_error)
             weights = np.concatenate(
                 (
                     self.weights.terminal_position,
                     self.weights.terminal_velocity,
-                    self.weights.terminal_attitude,
+                    self.weights.terminal_thrust_direction,
+                    np.array([self.weights.terminal_yaw]),
                     self.weights.terminal_omega,
                     np.array([self.weights.unit_quat_penalty]),
                 )
             )
         else:
             e_u = u - uref
-            residual = ca.vertcat(e_pos, e_vel, e_att, e_omega, e_u, unit_error)
+            residual = ca.vertcat(e_pos, e_vel, e_thrust_direction, e_yaw, e_omega, e_u, unit_error)
             weights = np.concatenate(
                 (
                     self.weights.position,
                     self.weights.velocity,
-                    self.weights.attitude,
+                    self.weights.thrust_direction,
+                    np.array([self.weights.yaw]),
                     self.weights.omega,
                     self.weights.control,
                     np.array([self.weights.unit_quat_penalty]),
@@ -629,10 +665,17 @@ class AcadosNMPCController:
         )
 
     @staticmethod
-    def _casadi_so3_log(ca, rotation):
-        trace = rotation[0, 0] + rotation[1, 1] + rotation[2, 2]
-        cos_theta = ca.fmin(1.0, ca.fmax(-1.0, 0.5 * (trace - 1.0)))
-        theta = ca.acos(cos_theta)
-        vee = ca.vertcat(rotation[2, 1] - rotation[1, 2], rotation[0, 2] - rotation[2, 0], rotation[1, 0] - rotation[0, 1])
-        scale = ca.if_else(theta < 1e-6, 0.5, theta / (2.0 * ca.sin(theta) + 1e-12))
-        return scale * vee
+    def _casadi_thrust_direction_error(ca, rotation, reference_rotation):
+        return ca.cross(reference_rotation[:, 2], rotation[:, 2])
+
+    @staticmethod
+    def _casadi_projected_heading_error(ca, rotation, reference_rotation):
+        z_ref = reference_rotation[:, 2]
+        x_axis = AcadosNMPCController._casadi_project_heading(ca, rotation[:, 0], z_ref)
+        x_ref = AcadosNMPCController._casadi_project_heading(ca, reference_rotation[:, 0], z_ref)
+        return ca.dot(z_ref, ca.cross(x_ref, x_axis))
+
+    @staticmethod
+    def _casadi_project_heading(ca, x_axis, z_ref):
+        projected = x_axis - z_ref * ca.dot(z_ref, x_axis)
+        return projected / ca.sqrt(ca.dot(projected, projected) + 1e-12)

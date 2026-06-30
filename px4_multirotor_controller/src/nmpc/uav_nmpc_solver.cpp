@@ -18,7 +18,7 @@ bool UavNmpcSolver::initialize() {
     if (initialized_) {
         return true;
     }
-    if (UAV_NMPC_NX != 13 || UAV_NMPC_NU != 4 || UAV_NMPC_NP != 17 || UAV_NMPC_N != 10 ||
+    if (UAV_NMPC_NX != 13 || UAV_NMPC_NU != 4 || UAV_NMPC_NP != 17 || UAV_NMPC_N <= 0 ||
         UAV_NMPC_NH != 1 || UAV_NMPC_NHN != 1 || UAV_NMPC_NSBU != 4 || UAV_NMPC_NSBX != 9 ||
         UAV_NMPC_NSH != 1 || UAV_NMPC_NS != 14 || UAV_NMPC_NS0 != 4 || UAV_NMPC_NSBXN != 9 ||
         UAV_NMPC_NSHN != 1 || UAV_NMPC_NSN != 10) {
@@ -51,25 +51,30 @@ bool UavNmpcSolver::initialize() {
 }
 
 bool UavNmpcSolver::configureInputBounds(double specific_thrust_min, double specific_thrust_max,
-                                         double max_angular_acceleration) {
+                                         double max_roll_pitch_angular_acceleration,
+                                         double max_yaw_angular_acceleration) {
     if (!std::isfinite(specific_thrust_min) || !std::isfinite(specific_thrust_max) ||
         specific_thrust_min < 0.0 || specific_thrust_max <= specific_thrust_min) {
         ROS_ERROR("[UavNmpcSolver] Invalid input thrust bounds [%.3f, %.3f]", specific_thrust_min,
                   specific_thrust_max);
         return false;
     }
-    if (!std::isfinite(max_angular_acceleration) || max_angular_acceleration <= 0.0) {
-        ROS_ERROR("[UavNmpcSolver] Invalid angular acceleration bound %.3f",
-                  max_angular_acceleration);
+    if (!std::isfinite(max_roll_pitch_angular_acceleration) ||
+        max_roll_pitch_angular_acceleration <= 0.0 ||
+        !std::isfinite(max_yaw_angular_acceleration) || max_yaw_angular_acceleration <= 0.0) {
+        ROS_ERROR("[UavNmpcSolver] Invalid angular acceleration bounds roll_pitch=%.3f yaw=%.3f",
+                  max_roll_pitch_angular_acceleration, max_yaw_angular_acceleration);
         return false;
     }
 
     input_lower_bounds_[0] = specific_thrust_min;
     input_upper_bounds_[0] = specific_thrust_max;
-    for (int i = 1; i < UAV_NMPC_NU; ++i) {
-        input_lower_bounds_[static_cast<size_t>(i)] = -max_angular_acceleration;
-        input_upper_bounds_[static_cast<size_t>(i)] = max_angular_acceleration;
-    }
+    input_lower_bounds_[1] = -max_roll_pitch_angular_acceleration;
+    input_upper_bounds_[1] = max_roll_pitch_angular_acceleration;
+    input_lower_bounds_[2] = -max_roll_pitch_angular_acceleration;
+    input_upper_bounds_[2] = max_roll_pitch_angular_acceleration;
+    input_lower_bounds_[3] = -max_yaw_angular_acceleration;
+    input_upper_bounds_[3] = max_yaw_angular_acceleration;
     if (capsule_) {
         return applyInputBounds();
     }

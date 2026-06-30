@@ -363,13 +363,33 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             break;
         }
         case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_TORUS_KNOT: {
-            trajectory::TorusKnotCurveParameters3 params;
-            params.flags = msg.flags;
-            params.duration = has_duration ? duration : params.duration;
-            params.origin = origin;
-            params.omega = paramAt(msg, 0U, 0.9);
-            params.scale = paramAt(msg, 1U, 0.3);
-            evaluator = std::make_unique<trajectory::TorusKnotCurveEvaluator3>(params);
+            trajectory::TorusKnotCurveParameters3 torus_params;
+            torus_params.flags = msg.flags;
+            torus_params.duration = has_duration ? duration : torus_params.duration;
+            torus_params.origin = origin;
+            torus_params.omega = paramAt(msg, 0U, 0.3);
+            torus_params.scale = paramAt(msg, 1U, 0.3);
+            torus_params.yaw = origin_yaw;
+            const double torus_entry_duration = paramAt(msg, 2U, 0.0);
+            if (msg.params.size() >= 6U) {
+                torus_params.origin =
+                    Eigen::Vector3d(paramAt(msg, 3U, origin.x()), paramAt(msg, 4U, origin.y()),
+                                    paramAt(msg, 5U, origin.z()));
+            }
+            if (torus_entry_duration > 0.0) {
+                trajectory::TorusKnotEntryCurveParameters3 params;
+                params.flags = msg.flags;
+                params.duration = has_duration ? duration : params.duration;
+                params.start = origin;
+                params.origin_yaw = origin_yaw;
+                params.entry_duration = torus_entry_duration;
+                params.torus = torus_params;
+                params.torus.duration =
+                    std::max(0.0, params.duration - std::max(0.0, torus_entry_duration));
+                evaluator = std::make_unique<trajectory::TorusKnotEntryCurveEvaluator3>(params);
+            } else {
+                evaluator = std::make_unique<trajectory::TorusKnotCurveEvaluator3>(torus_params);
+            }
             break;
         }
         case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_CIRCLE_ENTRY:

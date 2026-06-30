@@ -50,10 +50,12 @@ struct ControllerConfig {
         double hover_thrust_ratio{0.5};
         double min_hover_thrust{0.05};
         double max_hover_thrust{0.95};
-        double specific_thrust_min{5.0};
-        double specific_thrust_max{20.373};
-        double max_body_rate{1.5};
-        double max_angular_acceleration{10.0};
+        double normalized_thrust_min{0.1};
+        double normalized_thrust_max{0.9};
+        double max_roll_pitch_body_rate{3.4906585};
+        double max_yaw_body_rate{0.8726646};
+        double max_roll_pitch_angular_acceleration{15.0};
+        double max_yaw_angular_acceleration{2.0};
         bool hover_thrust_enabled{false};
         double hover_thrust_timeout{0.5};
         double solve_timeout{0.03};
@@ -62,11 +64,14 @@ struct ControllerConfig {
         double reference_start_delay{0.2};
         double reference_duration{60.0};
         double reference_radius{3.0};
-        double reference_line_speed{3.0};
+        double reference_line_speed{1.0};
         double reference_height{3.0};
-        double reference_z_amplitude{1.0};
+        double reference_z_amplitude{0.0};
         double reference_z_frequency{0.5};
         double reference_entry_duration{5.0};
+        int reference_analytic_type{3};
+        double reference_torus_omega{0.3};
+        double reference_torus_scale{0.3};
 
         bool enable_timing_log{true};
         double log_period{1.0};

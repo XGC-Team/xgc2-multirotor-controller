@@ -50,7 +50,7 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     };
 
     output_event_dispatcher_.addConsumer(
-        std::make_unique<NmpcOutputConsumer>(controller_, post_input_event));
+        std::make_unique<NmpcOutputConsumer>(nh_, controller_, post_input_event, kRosQueueSize));
 
     sensor_input_producer_ = std::make_unique<SensorInputProducer>(
         nh_, sensor_data_, vrpn_quality_stats_, kRosQueueSize, post_input_event, [this] {
@@ -262,13 +262,19 @@ void DroneRosNode::loadControllerConfig() {
                       config.nmpc.min_hover_thrust);
     nh_private_.param("nmpc/max_hover_thrust", config.nmpc.max_hover_thrust,
                       config.nmpc.max_hover_thrust);
-    nh_private_.param("nmpc/specific_thrust_min", config.nmpc.specific_thrust_min,
-                      config.nmpc.specific_thrust_min);
-    nh_private_.param("nmpc/specific_thrust_max", config.nmpc.specific_thrust_max,
-                      config.nmpc.specific_thrust_max);
-    nh_private_.param("nmpc/max_body_rate", config.nmpc.max_body_rate, config.nmpc.max_body_rate);
-    nh_private_.param("nmpc/max_angular_acceleration", config.nmpc.max_angular_acceleration,
-                      config.nmpc.max_angular_acceleration);
+    nh_private_.param("nmpc/normalized_thrust_min", config.nmpc.normalized_thrust_min,
+                      config.nmpc.normalized_thrust_min);
+    nh_private_.param("nmpc/normalized_thrust_max", config.nmpc.normalized_thrust_max,
+                      config.nmpc.normalized_thrust_max);
+    nh_private_.param("nmpc/max_roll_pitch_body_rate", config.nmpc.max_roll_pitch_body_rate,
+                      config.nmpc.max_roll_pitch_body_rate);
+    nh_private_.param("nmpc/max_yaw_body_rate", config.nmpc.max_yaw_body_rate,
+                      config.nmpc.max_yaw_body_rate);
+    nh_private_.param("nmpc/max_roll_pitch_angular_acceleration",
+                      config.nmpc.max_roll_pitch_angular_acceleration,
+                      config.nmpc.max_roll_pitch_angular_acceleration);
+    nh_private_.param("nmpc/max_yaw_angular_acceleration", config.nmpc.max_yaw_angular_acceleration,
+                      config.nmpc.max_yaw_angular_acceleration);
     nh_private_.param("nmpc/enable_timing_log", config.nmpc.enable_timing_log,
                       config.nmpc.enable_timing_log);
     nh_private_.param("nmpc/log_period", config.nmpc.log_period, config.nmpc.log_period);
@@ -302,6 +308,12 @@ void DroneRosNode::loadControllerConfig() {
                       config.nmpc.reference_z_frequency);
     nh_private_.param("nmpc/reference_entry_duration", config.nmpc.reference_entry_duration,
                       config.nmpc.reference_entry_duration);
+    nh_private_.param("nmpc/reference_analytic_type", config.nmpc.reference_analytic_type,
+                      config.nmpc.reference_analytic_type);
+    nh_private_.param("nmpc/reference_torus_omega", config.nmpc.reference_torus_omega,
+                      config.nmpc.reference_torus_omega);
+    nh_private_.param("nmpc/reference_torus_scale", config.nmpc.reference_torus_scale,
+                      config.nmpc.reference_torus_scale);
 
     if (!std::isfinite(config.nmpc.control_period) || config.nmpc.control_period <= 0.0) {
         ROS_WARN("[DroneRosNode] Invalid nmpc/control_period; using 0.010 s");
@@ -315,23 +327,26 @@ void DroneRosNode::loadControllerConfig() {
         ROS_WARN("[DroneRosNode] Invalid nmpc/gravity; using 9.8066");
         config.nmpc.gravity = 9.8066;
     }
-    if (!std::isfinite(config.nmpc.max_body_rate) || config.nmpc.max_body_rate <= 0.0) {
-        ROS_WARN("[DroneRosNode] Invalid nmpc/max_body_rate; using 1.500 rad/s");
-        config.nmpc.max_body_rate = 1.5;
+    if (!std::isfinite(config.nmpc.max_roll_pitch_body_rate) ||
+        config.nmpc.max_roll_pitch_body_rate <= 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid nmpc/max_roll_pitch_body_rate; using 3.491 rad/s");
+        config.nmpc.max_roll_pitch_body_rate = 3.4906585;
     }
-    if (!std::isfinite(config.nmpc.max_angular_acceleration) ||
-        config.nmpc.max_angular_acceleration <= 0.0) {
-        ROS_WARN("[DroneRosNode] Invalid nmpc/max_angular_acceleration; using 10.000 rad/s^2");
-        config.nmpc.max_angular_acceleration = 10.0;
+    if (!std::isfinite(config.nmpc.max_yaw_body_rate) || config.nmpc.max_yaw_body_rate <= 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid nmpc/max_yaw_body_rate; using 0.873 rad/s");
+        config.nmpc.max_yaw_body_rate = 0.8726646;
     }
-    if (!std::isfinite(config.nmpc.specific_thrust_min) || config.nmpc.specific_thrust_min < 0.0) {
-        ROS_WARN("[DroneRosNode] Invalid nmpc/specific_thrust_min; using 5.000 m/s^2");
-        config.nmpc.specific_thrust_min = 5.0;
+    if (!std::isfinite(config.nmpc.max_roll_pitch_angular_acceleration) ||
+        config.nmpc.max_roll_pitch_angular_acceleration <= 0.0) {
+        ROS_WARN(
+            "[DroneRosNode] Invalid nmpc/max_roll_pitch_angular_acceleration; using 15.000 "
+            "rad/s^2");
+        config.nmpc.max_roll_pitch_angular_acceleration = 15.0;
     }
-    if (!std::isfinite(config.nmpc.specific_thrust_max) ||
-        config.nmpc.specific_thrust_max <= config.nmpc.specific_thrust_min) {
-        ROS_WARN("[DroneRosNode] Invalid nmpc/specific_thrust_max; using 20.373 m/s^2");
-        config.nmpc.specific_thrust_max = 20.373;
+    if (!std::isfinite(config.nmpc.max_yaw_angular_acceleration) ||
+        config.nmpc.max_yaw_angular_acceleration <= 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid nmpc/max_yaw_angular_acceleration; using 2.000 rad/s^2");
+        config.nmpc.max_yaw_angular_acceleration = 2.0;
     }
     config.nmpc.hover_thrust_ratio =
         xgc2_math::math_helpers::clamp(config.nmpc.hover_thrust_ratio, 0.05, 0.95);
@@ -339,6 +354,10 @@ void DroneRosNode::loadControllerConfig() {
         xgc2_math::math_helpers::clamp(config.nmpc.min_hover_thrust, 0.0, 1.0);
     config.nmpc.max_hover_thrust = xgc2_math::math_helpers::clamp(
         config.nmpc.max_hover_thrust, config.nmpc.min_hover_thrust, 1.0);
+    config.nmpc.normalized_thrust_min =
+        xgc2_math::math_helpers::clamp(config.nmpc.normalized_thrust_min, 0.0, 1.0);
+    config.nmpc.normalized_thrust_max = xgc2_math::math_helpers::clamp(
+        config.nmpc.normalized_thrust_max, config.nmpc.normalized_thrust_min, 1.0);
     if (!std::isfinite(config.nmpc.hover_thrust_timeout) ||
         config.nmpc.hover_thrust_timeout <= 0.0) {
         ROS_WARN("[DroneRosNode] Invalid hover_thrust timeout; using 0.500 s");
@@ -371,8 +390,8 @@ void DroneRosNode::loadControllerConfig() {
     }
     if (!std::isfinite(config.nmpc.reference_line_speed) ||
         config.nmpc.reference_line_speed < 0.0) {
-        ROS_WARN("[DroneRosNode] Invalid nmpc/reference_line_speed; using 3.000 m/s");
-        config.nmpc.reference_line_speed = 3.0;
+        ROS_WARN("[DroneRosNode] Invalid nmpc/reference_line_speed; using 1.000 m/s");
+        config.nmpc.reference_line_speed = 1.0;
     }
     if (!std::isfinite(config.nmpc.reference_height) || config.nmpc.reference_height <= 0.0) {
         ROS_WARN("[DroneRosNode] Invalid nmpc/reference_height; using 3.000 m");
@@ -380,8 +399,8 @@ void DroneRosNode::loadControllerConfig() {
     }
     if (!std::isfinite(config.nmpc.reference_z_amplitude) ||
         config.nmpc.reference_z_amplitude < 0.0) {
-        ROS_WARN("[DroneRosNode] Invalid nmpc/reference_z_amplitude; using 1.000 m");
-        config.nmpc.reference_z_amplitude = 1.0;
+        ROS_WARN("[DroneRosNode] Invalid nmpc/reference_z_amplitude; using 0.000 m");
+        config.nmpc.reference_z_amplitude = 0.0;
     }
     if (!std::isfinite(config.nmpc.reference_z_frequency) ||
         config.nmpc.reference_z_frequency <= 0.0) {
@@ -393,6 +412,20 @@ void DroneRosNode::loadControllerConfig() {
         ROS_WARN("[DroneRosNode] Invalid nmpc/reference_entry_duration; using 5.000 s");
         config.nmpc.reference_entry_duration = 5.0;
     }
+    if (config.nmpc.reference_analytic_type < 0 || config.nmpc.reference_analytic_type > 9) {
+        ROS_WARN("[DroneRosNode] Invalid nmpc/reference_analytic_type; using circle-entry");
+        config.nmpc.reference_analytic_type = 3;
+    }
+    if (!std::isfinite(config.nmpc.reference_torus_omega) ||
+        config.nmpc.reference_torus_omega <= 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid nmpc/reference_torus_omega; using 0.300 rad/s");
+        config.nmpc.reference_torus_omega = 0.3;
+    }
+    if (!std::isfinite(config.nmpc.reference_torus_scale) ||
+        config.nmpc.reference_torus_scale <= 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid nmpc/reference_torus_scale; using 0.300 m");
+        config.nmpc.reference_torus_scale = 0.3;
+    }
     if (config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
         if (!config.nmpc.hover_thrust_enabled) {
             ROS_WARN(
@@ -403,16 +436,21 @@ void DroneRosNode::loadControllerConfig() {
         ROS_INFO(
             "[DroneRosNode] UAV NMPC: dt=%.3f horizon=%.3f gravity=%.4f "
             "hover=%.3f estimator=required hover_timeout=%.3f "
-            "thrust=[%.2f, %.2f] alpha_max=%.2f body_rate_max=%.2f "
+            "thrust_norm=[%.2f, %.2f] alpha_max=[roll_pitch %.2f yaw %.2f] "
+            "body_rate_max=[roll_pitch %.2f yaw %.2f] "
             "solve_timeout=%.3f reference_timeout=%.3f "
-            "reference=circle_entry radius=%.2f speed=%.2f height=%.2f z_amp=%.2f",
+            "reference_type=%d circle_entry=[radius %.2f speed %.2f height %.2f z_amp %.2f] "
+            "torus=[omega %.2f scale %.2f]",
             config.nmpc.control_period, config.nmpc.prediction_horizon, config.nmpc.gravity,
             config.nmpc.hover_thrust_ratio, config.nmpc.hover_thrust_timeout,
-            config.nmpc.specific_thrust_min, config.nmpc.specific_thrust_max,
-            config.nmpc.max_angular_acceleration, config.nmpc.max_body_rate,
-            config.nmpc.solve_timeout, config.nmpc.reference_timeout, config.nmpc.reference_radius,
+            config.nmpc.normalized_thrust_min, config.nmpc.normalized_thrust_max,
+            config.nmpc.max_roll_pitch_angular_acceleration,
+            config.nmpc.max_yaw_angular_acceleration, config.nmpc.max_roll_pitch_body_rate,
+            config.nmpc.max_yaw_body_rate, config.nmpc.solve_timeout, config.nmpc.reference_timeout,
+            config.nmpc.reference_analytic_type, config.nmpc.reference_radius,
             config.nmpc.reference_line_speed, config.nmpc.reference_height,
-            config.nmpc.reference_z_amplitude);
+            config.nmpc.reference_z_amplitude, config.nmpc.reference_torus_omega,
+            config.nmpc.reference_torus_scale);
     }
 
     // ========== 滑模控制器参数 ==========

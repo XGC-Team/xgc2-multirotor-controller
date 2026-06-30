@@ -178,8 +178,10 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
         request_in_flight_ = false;
     }
 
+    const double result_age = current_time - result.stamp.toSec();
+    const double result_timeout = controller_.getConfig().nmpc.result_timeout;
     if (!request_in_flight_ && result.sequence == in_flight_sequence_ &&
-        current_time > request_deadline_) {
+        current_time > request_deadline_ && result_timeout > 0.0 && result_age > result_timeout) {
         return;
     }
 

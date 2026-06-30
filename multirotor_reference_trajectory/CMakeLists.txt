@@ -4,6 +4,7 @@ project(multirotor_reference_trajectory)
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   message_generation
+  nav_msgs
   roscpp
   rospy
   std_msgs
@@ -31,7 +32,7 @@ generate_messages(
 
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS geometry_msgs message_runtime roscpp rospy std_msgs
+  CATKIN_DEPENDS geometry_msgs message_runtime nav_msgs roscpp rospy std_msgs
   DEPENDS EIGEN3 xgc2_math
 )
 

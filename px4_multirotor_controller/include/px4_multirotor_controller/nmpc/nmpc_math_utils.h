@@ -126,6 +126,37 @@ inline Eigen::Matrix3d projectRotation(const Eigen::Matrix3d& value) {
     return projected;
 }
 
+inline Eigen::Vector3d rotationLog(const Eigen::Matrix3d& rotation) {
+    const Eigen::AngleAxisd angle_axis(projectRotation(rotation));
+    const double angle = angle_axis.angle();
+    if (!std::isfinite(angle) || std::abs(angle) < 1e-12) {
+        return Eigen::Vector3d::Zero();
+    }
+    const Eigen::Vector3d axis = angle_axis.axis();
+    if (!axis.array().isFinite().all()) {
+        return Eigen::Vector3d::Zero();
+    }
+    return angle * axis;
+}
+
+inline Eigen::Vector3d bodyRateFromRotationDelta(const Eigen::Quaterniond& current,
+                                                 const Eigen::Quaterniond& next, double dt) {
+    if (!std::isfinite(dt) || dt <= 1e-9) {
+        return Eigen::Vector3d::Zero();
+    }
+    Eigen::Quaterniond q_current = current;
+    Eigen::Quaterniond q_next = next;
+    if (!std::isfinite(q_current.norm()) || q_current.norm() < 1e-9 ||
+        !std::isfinite(q_next.norm()) || q_next.norm() < 1e-9) {
+        return Eigen::Vector3d::Zero();
+    }
+    q_current.normalize();
+    q_next.normalize();
+    const Eigen::Matrix3d delta =
+        q_current.toRotationMatrix().transpose() * q_next.toRotationMatrix();
+    return rotationLog(delta) / dt;
+}
+
 inline bool isFinite(const Eigen::VectorXd& value) {
     return value.array().isFinite().all();
 }
@@ -139,8 +170,17 @@ inline Eigen::Vector3d clampVectorAbs(const Eigen::Vector3d& value, double max_a
 }
 
 inline Eigen::Vector3d bodyRateCommandFromPredictedBodyRate(
-    const Eigen::Vector3d& predicted_body_rate, double max_body_rate) {
-    return clampVectorAbs(predicted_body_rate, max_body_rate);
+    const Eigen::Vector3d& predicted_body_rate, double max_roll_pitch_body_rate,
+    double max_yaw_body_rate) {
+    Eigen::Vector3d body_rate = predicted_body_rate;
+    if (std::isfinite(max_roll_pitch_body_rate) && max_roll_pitch_body_rate > 0.0) {
+        body_rate.x() = clamp(body_rate.x(), -max_roll_pitch_body_rate, max_roll_pitch_body_rate);
+        body_rate.y() = clamp(body_rate.y(), -max_roll_pitch_body_rate, max_roll_pitch_body_rate);
+    }
+    if (std::isfinite(max_yaw_body_rate) && max_yaw_body_rate > 0.0) {
+        body_rate.z() = clamp(body_rate.z(), -max_yaw_body_rate, max_yaw_body_rate);
+    }
+    return body_rate;
 }
 
 }  // namespace px4_multirotor_controller

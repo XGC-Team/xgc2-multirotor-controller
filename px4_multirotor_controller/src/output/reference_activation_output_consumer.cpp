@@ -60,7 +60,7 @@ ReferenceActivationOutputConsumer::makeActivationMessage(const ::state_machine::
     msg.request_id = ++request_id_;
     msg.trajectory_id = ++trajectory_id_;
     msg.revision = ++revision_;
-    msg.analytic_type = multirotor_reference_trajectory::AnalyticReference::ANALYTIC_CIRCLE_ENTRY;
+    msg.analytic_type = static_cast<uint16_t>(config.nmpc.reference_analytic_type);
     msg.flags = 0U;
     msg.start_time = ros::Time(stamp + config.nmpc.reference_start_delay);
     msg.duration = config.nmpc.reference_duration;
@@ -89,10 +89,32 @@ ReferenceActivationOutputConsumer::makeActivationMessage(const ::state_machine::
         msg.origin.orientation.w /= q_norm;
     }
 
-    msg.params = {config.nmpc.reference_radius,      config.nmpc.reference_line_speed,
-                  config.nmpc.reference_height,      config.nmpc.reference_z_amplitude,
-                  config.nmpc.reference_z_frequency, config.nmpc.reference_entry_duration,
-                  finiteOr(sensor.x, 0.0),           finiteOr(sensor.y, 0.0)};
+    if (msg.analytic_type ==
+        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_TORUS_KNOT) {
+        const double scale = std::abs(config.nmpc.reference_torus_scale);
+        const double start_x = finiteOr(sensor.x, 0.0);
+        const double start_y = finiteOr(sensor.y, 0.0);
+        const double start_z = finiteOr(sensor.z, config.nmpc.reference_height);
+        const double curve_origin_x = start_x;
+        const double curve_origin_y = start_y;
+        const double curve_origin_z = start_z - 4.0 * scale;
+        msg.origin.position.x = start_x;
+        msg.origin.position.y = start_y;
+        msg.origin.position.z = start_z;
+        msg.params = {config.nmpc.reference_torus_omega,
+                      scale,
+                      config.nmpc.reference_entry_duration,
+                      curve_origin_x,
+                      curve_origin_y,
+                      curve_origin_z};
+    } else {
+        msg.analytic_type =
+            multirotor_reference_trajectory::AnalyticReference::ANALYTIC_CIRCLE_ENTRY;
+        msg.params = {config.nmpc.reference_radius,      config.nmpc.reference_line_speed,
+                      config.nmpc.reference_height,      config.nmpc.reference_z_amplitude,
+                      config.nmpc.reference_z_frequency, config.nmpc.reference_entry_duration,
+                      finiteOr(sensor.x, 0.0),           finiteOr(sensor.y, 0.0)};
+    }
 
     return msg;
 }
