@@ -26,6 +26,7 @@ set -u
 require_command clang-format
 require_command clang-tidy
 require_command catkin_make
+require_command run-clang-tidy
 require_command rsync
 
 mapfile -d '' CXX_FILES < <(
@@ -71,9 +72,10 @@ mapfile -d '' TIDY_FILES < <(
     -type f \( -name "*.cpp" -o -name "*.cc" -o -name "*.cxx" \) \
     -print0 | sort -z
 )
-clang-tidy \
+run-clang-tidy \
   -p "${WORK_DIR}/build" \
   -header-filter="^${WORK_DIR}/src/xgc2-multirotor-controller/(px4_multirotor_controller|multirotor_reference_trajectory)/(src|test)/" \
+  -j "$(nproc)" \
   -quiet \
   "${TIDY_FILES[@]}"
 
