@@ -18,8 +18,7 @@ double yawFromStateVector(const Se3StateVector& x0) {
     const double qx = x0(7);
     const double qy = x0(8);
     const double qz = x0(9);
-    if (!std::isfinite(qw) || !std::isfinite(qx) || !std::isfinite(qy) ||
-        !std::isfinite(qz)) {
+    if (!std::isfinite(qw) || !std::isfinite(qx) || !std::isfinite(qy) || !std::isfinite(qz)) {
         return 0.0;
     }
     return quaternionToYaw(qx, qy, qz, qw);

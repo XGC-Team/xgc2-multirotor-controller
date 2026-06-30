@@ -278,8 +278,7 @@ bool RuntimeParameterService::validate(const ControllerConfig& config, std::stri
         error = "specific thrust bounds must be finite, non-negative, and ordered";
         return false;
     }
-    if (!positive(config.nmpc.max_angular_acceleration,
-                  "nmpc/max_angular_acceleration")) {
+    if (!positive(config.nmpc.max_angular_acceleration, "nmpc/max_angular_acceleration")) {
         return false;
     }
     if (config.safety.fence_x_min >= config.safety.fence_x_max ||

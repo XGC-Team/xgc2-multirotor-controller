@@ -139,8 +139,7 @@ inline Eigen::Vector3d clampVectorAbs(const Eigen::Vector3d& value, double max_a
 }
 
 inline Eigen::Vector3d bodyRateCommandFromPredictedBodyRate(
-    const Eigen::Vector3d& predicted_body_rate,
-    double max_body_rate) {
+    const Eigen::Vector3d& predicted_body_rate, double max_body_rate) {
     return clampVectorAbs(predicted_body_rate, max_body_rate);
 }
 

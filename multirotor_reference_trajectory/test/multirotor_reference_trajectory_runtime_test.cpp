@@ -122,8 +122,8 @@ TEST(ReferenceTrajectoryRuntime, ActiveAnalyticCanSwitchToAnotherAnalytic) {
     ASSERT_EQ(runtime.currentState(),
               multirotor_reference_trajectory::ReferenceStatus::STATE_READY);
 
-    const auto line = makeKoopmanReference(
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE);
+    const auto line =
+        makeKoopmanReference(multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE);
     ASSERT_TRUE(runtime.acceptAnalytic(line));
     post(runtime, multirotor_reference_trajectory::event_type::ANALYTIC_RECEIVED, 0.02);
     runtime.update(0.02);

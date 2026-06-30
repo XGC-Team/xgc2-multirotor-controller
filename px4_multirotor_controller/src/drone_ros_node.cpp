@@ -266,8 +266,7 @@ void DroneRosNode::loadControllerConfig() {
                       config.nmpc.specific_thrust_min);
     nh_private_.param("nmpc/specific_thrust_max", config.nmpc.specific_thrust_max,
                       config.nmpc.specific_thrust_max);
-    nh_private_.param("nmpc/max_body_rate", config.nmpc.max_body_rate,
-                      config.nmpc.max_body_rate);
+    nh_private_.param("nmpc/max_body_rate", config.nmpc.max_body_rate, config.nmpc.max_body_rate);
     nh_private_.param("nmpc/max_angular_acceleration", config.nmpc.max_angular_acceleration,
                       config.nmpc.max_angular_acceleration);
     nh_private_.param("nmpc/enable_timing_log", config.nmpc.enable_timing_log,
@@ -325,8 +324,7 @@ void DroneRosNode::loadControllerConfig() {
         ROS_WARN("[DroneRosNode] Invalid nmpc/max_angular_acceleration; using 10.000 rad/s^2");
         config.nmpc.max_angular_acceleration = 10.0;
     }
-    if (!std::isfinite(config.nmpc.specific_thrust_min) ||
-        config.nmpc.specific_thrust_min < 0.0) {
+    if (!std::isfinite(config.nmpc.specific_thrust_min) || config.nmpc.specific_thrust_min < 0.0) {
         ROS_WARN("[DroneRosNode] Invalid nmpc/specific_thrust_min; using 5.000 m/s^2");
         config.nmpc.specific_thrust_min = 5.0;
     }
@@ -412,9 +410,9 @@ void DroneRosNode::loadControllerConfig() {
             config.nmpc.hover_thrust_ratio, config.nmpc.hover_thrust_timeout,
             config.nmpc.specific_thrust_min, config.nmpc.specific_thrust_max,
             config.nmpc.max_angular_acceleration, config.nmpc.max_body_rate,
-            config.nmpc.solve_timeout, config.nmpc.reference_timeout,
-            config.nmpc.reference_radius, config.nmpc.reference_line_speed,
-            config.nmpc.reference_height, config.nmpc.reference_z_amplitude);
+            config.nmpc.solve_timeout, config.nmpc.reference_timeout, config.nmpc.reference_radius,
+            config.nmpc.reference_line_speed, config.nmpc.reference_height,
+            config.nmpc.reference_z_amplitude);
     }
 
     // ========== 滑模控制器参数 ==========

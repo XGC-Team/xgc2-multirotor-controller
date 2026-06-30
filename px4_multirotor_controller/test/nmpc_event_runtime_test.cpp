@@ -240,8 +240,7 @@ TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
 
 TEST(UavNmpcBridge, UsesPredictedBodyRateCommand) {
     const Eigen::Vector3d predicted_rate(0.80, -0.40, 0.30);
-    const Eigen::Vector3d command =
-        bodyRateCommandFromPredictedBodyRate(predicted_rate, 1.5);
+    const Eigen::Vector3d command = bodyRateCommandFromPredictedBodyRate(predicted_rate, 1.5);
 
     EXPECT_NEAR(command.x(), 0.80, 1e-12);
     EXPECT_NEAR(command.y(), -0.40, 1e-12);
