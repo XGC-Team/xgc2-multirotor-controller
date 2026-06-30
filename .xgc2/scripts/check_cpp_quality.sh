@@ -58,7 +58,10 @@ rsync -a --delete --exclude ".git" "${REPO_ROOT}/" "${WORK_DIR}/src/xgc2-multiro
 echo "Generating compile_commands.json..."
 (
   cd "${WORK_DIR}"
+  parallel_jobs="$(nproc)"
   catkin_make \
+    -j"${parallel_jobs}" \
+    -l"${parallel_jobs}" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DCMAKE_BUILD_TYPE=Debug
 )
