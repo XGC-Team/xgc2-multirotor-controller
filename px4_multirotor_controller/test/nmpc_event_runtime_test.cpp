@@ -27,7 +27,7 @@ multirotor_reference_trajectory::AnalyticReference makeAnalyticReference() {
     return msg;
 }
 
-multirotor_reference_trajectory::AnalyticReference makeKoopmanAnalyticReference(
+multirotor_reference_trajectory::AnalyticReference makeAnalyticCurveReference(
     uint16_t analytic_type) {
     auto msg = makeAnalyticReference();
     msg.analytic_type = analytic_type;
@@ -98,7 +98,7 @@ TEST(ActiveTrajectoryCache, AnalyticReferenceSamplesAndBuildsHorizon) {
     EXPECT_TRUE(control::packControl(horizon.front().control).array().isFinite().all());
 }
 
-TEST(ActiveTrajectoryCache, KoopmanAnalyticReferencesSampleAndBuildHorizons) {
+TEST(ActiveTrajectoryCache, AnalyticCurveReferencesSampleAndBuildHorizons) {
     const uint16_t analytic_types[] = {
         multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE,
         multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE,
@@ -110,7 +110,7 @@ TEST(ActiveTrajectoryCache, KoopmanAnalyticReferencesSampleAndBuildHorizons) {
     for (const auto analytic_type : analytic_types) {
         ActiveTrajectoryCache cache;
         ASSERT_TRUE(
-            cache.updateAnalytic(makeKoopmanAnalyticReference(analytic_type), ros::Time(10.0)))
+            cache.updateAnalytic(makeAnalyticCurveReference(analytic_type), ros::Time(10.0)))
             << "analytic_type=" << analytic_type;
 
         UavReferencePoint sample;

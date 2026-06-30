@@ -341,7 +341,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             break;
         }
         case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_YZ: {
-            trajectory::HelixCurveParameters3 params;
+            trajectory::HelixYzCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
             params.origin = origin;
@@ -352,7 +352,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             break;
         }
         case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_XY: {
-            trajectory::HelixCurveParameters3 params;
+            trajectory::HelixXyCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
             params.origin = origin;

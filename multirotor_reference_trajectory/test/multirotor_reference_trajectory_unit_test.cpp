@@ -24,7 +24,7 @@ TEST(ReferenceTrajectoryCore, HeightCircleProvidesHighOrderDerivatives) {
     EXPECT_TRUE(std::isfinite(output.yaw_accel));
 }
 
-TEST(ReferenceTrajectoryCore, KoopmanAnalyticCurvesMatchReferenceFormulas) {
+TEST(ReferenceTrajectoryCore, AnalyticCurvesMatchReferenceFormulas) {
     trajectory::FlatOutput3 output;
 
     trajectory::LineCurveParameters3 line_params;
@@ -45,16 +45,20 @@ TEST(ReferenceTrajectoryCore, KoopmanAnalyticCurvesMatchReferenceFormulas) {
     EXPECT_TRUE(output.position.isApprox(Eigen::Vector3d(0.0, 0.0, 1.5), 1e-12));
     EXPECT_TRUE(output.velocity.isApprox(Eigen::Vector3d(1.0, 1.0, 0.0), 1e-12));
 
-    trajectory::HelixCurveParameters3 helix_params;
-    helix_params.radius = 2.0;
-    helix_params.omega = 0.5;
-    helix_params.linear_scale = 10.0;
-    trajectory::HelixYzCurveEvaluator3 helix_yz(helix_params);
+    trajectory::HelixYzCurveParameters3 helix_yz_params;
+    helix_yz_params.radius = 2.0;
+    helix_yz_params.omega = 0.5;
+    helix_yz_params.linear_scale = 10.0;
+    trajectory::HelixYzCurveEvaluator3 helix_yz(helix_yz_params);
     ASSERT_TRUE(helix_yz.evaluate(0.0, output));
     EXPECT_TRUE(output.position.isApprox(Eigen::Vector3d(0.0, 2.0, 0.0), 1e-12));
     EXPECT_TRUE(output.velocity.isApprox(Eigen::Vector3d(0.1, 0.0, 1.0), 1e-12));
 
-    trajectory::HelixXyCurveEvaluator3 helix_xy(helix_params);
+    trajectory::HelixXyCurveParameters3 helix_xy_params;
+    helix_xy_params.radius = 2.0;
+    helix_xy_params.omega = 0.5;
+    helix_xy_params.linear_scale = 10.0;
+    trajectory::HelixXyCurveEvaluator3 helix_xy(helix_xy_params);
     ASSERT_TRUE(helix_xy.evaluate(0.0, output));
     EXPECT_TRUE(output.position.isApprox(Eigen::Vector3d(2.0, 0.0, 0.0), 1e-12));
     EXPECT_TRUE(output.velocity.isApprox(Eigen::Vector3d(0.0, 1.0, 0.1), 1e-12));

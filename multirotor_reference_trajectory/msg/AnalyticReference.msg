@@ -20,7 +20,7 @@ float64 duration
 geometry_msgs/Pose origin
 # Existing circle params:
 #   [radius, line_speed, height, z_amplitude, z_frequency, entry_duration, center_x, center_y]
-# Koopman params:
+# Additional analytic curve params:
 #   LINE: [target_x, target_y, target_z, target_vx, target_vy, target_vz,
 #          start_vx, start_vy, start_vz]
 #   LEMNISCATE: [radius, omega, height]

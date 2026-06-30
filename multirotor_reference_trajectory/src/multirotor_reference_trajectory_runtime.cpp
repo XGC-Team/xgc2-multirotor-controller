@@ -696,7 +696,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(const AnalyticReference& msg,
             break;
         }
         case AnalyticReference::ANALYTIC_HELIX_YZ: {
-            trajectory::HelixCurveParameters3 params;
+            trajectory::HelixYzCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
             params.origin = origin;
@@ -707,7 +707,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(const AnalyticReference& msg,
             break;
         }
         case AnalyticReference::ANALYTIC_HELIX_XY: {
-            trajectory::HelixCurveParameters3 params;
+            trajectory::HelixXyCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
             params.origin = origin;

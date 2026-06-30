@@ -35,7 +35,8 @@ multirotor_reference_trajectory::WaypointReferenceRequest makeWaypointRequest() 
     return msg;
 }
 
-multirotor_reference_trajectory::AnalyticReference makeKoopmanReference(uint16_t analytic_type) {
+multirotor_reference_trajectory::AnalyticReference makeAnalyticCurveReference(
+    uint16_t analytic_type) {
     multirotor_reference_trajectory::AnalyticReference msg;
     msg.header.stamp = ros::Time(1.0);
     msg.trajectory_id = 100U + analytic_type;
@@ -76,7 +77,7 @@ void post(multirotor_reference_trajectory::ReferenceTrajectoryRuntime& runtime, 
 
 }  // namespace
 
-TEST(ReferenceTrajectoryRuntime, KoopmanAnalyticReferencesActivate) {
+TEST(ReferenceTrajectoryRuntime, AnalyticCurveReferencesActivate) {
     const uint16_t analytic_types[] = {
         multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE,
         multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE,
@@ -93,7 +94,7 @@ TEST(ReferenceTrajectoryRuntime, KoopmanAnalyticReferencesActivate) {
         runtime.setConfig(config);
         runtime.update(0.0);
 
-        const auto msg = makeKoopmanReference(analytic_type);
+        const auto msg = makeAnalyticCurveReference(analytic_type);
         ASSERT_TRUE(runtime.acceptAnalytic(msg)) << "analytic_type=" << analytic_type;
         ASSERT_TRUE(runtime.activatePending()) << "analytic_type=" << analytic_type;
         ASSERT_NE(runtime.evaluator(), nullptr) << "analytic_type=" << analytic_type;
@@ -122,8 +123,8 @@ TEST(ReferenceTrajectoryRuntime, ActiveAnalyticCanSwitchToAnotherAnalytic) {
     ASSERT_EQ(runtime.currentState(),
               multirotor_reference_trajectory::ReferenceStatus::STATE_READY);
 
-    const auto line =
-        makeKoopmanReference(multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE);
+    const auto line = makeAnalyticCurveReference(
+        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE);
     ASSERT_TRUE(runtime.acceptAnalytic(line));
     post(runtime, multirotor_reference_trajectory::event_type::ANALYTIC_RECEIVED, 0.02);
     runtime.update(0.02);
@@ -132,7 +133,7 @@ TEST(ReferenceTrajectoryRuntime, ActiveAnalyticCanSwitchToAnotherAnalytic) {
               multirotor_reference_trajectory::ReferenceStatus::STATE_ACTIVE);
     ASSERT_EQ(runtime.activeTrajectoryId(), line.trajectory_id);
 
-    auto lemniscate = makeKoopmanReference(
+    auto lemniscate = makeAnalyticCurveReference(
         multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE);
     lemniscate.trajectory_id = line.trajectory_id + 100U;
     lemniscate.revision = line.revision + 1U;
