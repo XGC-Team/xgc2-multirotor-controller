@@ -43,8 +43,7 @@ jobs:
 
   cpp-quality:
     name: C++ quality
-    if: github.event_name == 'workflow_dispatch' && inputs.run_cpp_quality
-    continue-on-error: true
+    if: github.event_name == 'push' || inputs.run_cpp_quality
     runs-on: ubuntu-latest
     container: ros:noetic-ros-base-focal
     steps:
@@ -83,7 +82,7 @@ jobs:
 
   source-tests:
     name: Source build and tests
-    if: github.event_name == 'workflow_dispatch' && inputs.run_source_tests
+    if: github.event_name == 'push' || inputs.run_source_tests
     runs-on: ubuntu-latest
     container: ros:noetic-ros-base-focal
     steps:
