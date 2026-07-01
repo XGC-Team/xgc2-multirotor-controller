@@ -33,7 +33,8 @@ fi
 required_files=(
   .clang-format
   .clang-tidy
-  .github/workflows/build-debs.yml
+  .github/workflows/ci.yml
+  .github/workflows/release.yml
   .xgc2/product.yml
   .xgc2/scripts/build_debs_in_docker.sh
   .xgc2/scripts/check_core_libraries.sh
@@ -70,9 +71,10 @@ grep -q "id: xgc2-multirotor-controller" .xgc2/product.yml
 grep -Eq '^version: [0-9]+\.[0-9]+\.[0-9]+-[0-9]+$' .xgc2/product.yml
 grep -q "<name>px4_multirotor_controller</name>" px4_multirotor_controller/package.xml
 grep -q "<name>multirotor_reference_trajectory</name>" multirotor_reference_trajectory/package.xml
-grep -q "run_tests_multirotor_reference_trajectory" .github/workflows/build-debs.yml
-grep -q "run_tests_px4_multirotor_controller" .github/workflows/build-debs.yml
-grep -q "check_version_bump.sh --ci" .github/workflows/build-debs.yml
+grep -q "run_tests_multirotor_reference_trajectory" .github/workflows/ci.yml
+grep -q "run_tests_px4_multirotor_controller" .github/workflows/ci.yml
+grep -q "expected_version" .github/workflows/release.yml
+grep -q "expected_source_sha" .github/workflows/release.yml
 grep -q "PACKAGE=\"ros-\${ROS_DISTRO}-xgc2-multirotor-controller\"" .xgc2/scripts/package_debs.sh
 grep -q "px4_multirotor_controller" .xgc2/scripts/package_debs.sh
 grep -q "multirotor_reference_trajectory" .xgc2/scripts/package_debs.sh
