@@ -43,7 +43,7 @@ class ReferenceOutputConsumer final : public ::state_machine::runtime::EventCons
     ros::Publisher active_polynomial_pub_;
     ros::Publisher active_sampled_pub_;
     ros::Publisher reference_path_pub_;
-    double reference_path_sample_dt_{0.5};
+    double reference_path_sample_dt_{0.02};
     double reference_path_preview_duration_{20.0};
 };
 

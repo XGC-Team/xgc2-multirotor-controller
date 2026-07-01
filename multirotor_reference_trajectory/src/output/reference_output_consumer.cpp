@@ -25,7 +25,7 @@ ReferenceOutputConsumer::ReferenceOutputConsumer(
     double reference_path_sample_dt, double reference_path_preview_duration, uint32_t queue_size)
     : executor_(executor),
       runtime_(runtime),
-      reference_path_sample_dt_(reference_path_sample_dt > 0.0 ? reference_path_sample_dt : 0.5),
+      reference_path_sample_dt_(reference_path_sample_dt > 0.0 ? reference_path_sample_dt : 0.02),
       reference_path_preview_duration_(
           reference_path_preview_duration > 0.0 ? reference_path_preview_duration : 20.0) {
     status_pub_ = nh.advertise<ReferenceStatus>(status_topic, queue_size, true);

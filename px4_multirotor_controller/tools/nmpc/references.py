@@ -44,7 +44,7 @@ class BaseTrajectory:
         angular_acceleration = self._angular_acceleration_at(time)
         thrust_specific = np.linalg.norm(flat.acceleration + self.params.g * self.params.e3)
 
-        xref = pack_state(flat.position, flat.velocity, rotation, omega)
+        xref = pack_state(flat.position, flat.velocity, rotation, omega, thrust_specific)
         uref = np.concatenate(([thrust_specific], angular_acceleration))
         return xref, uref
 
@@ -106,7 +106,13 @@ class HoverTrajectory(BaseTrajectory):
         return self.target_pos.copy(), np.zeros(3)
 
     def get_reference(self, time: float) -> tuple[np.ndarray, np.ndarray]:
-        xref = pack_state(self.target_pos, np.zeros(3), np.eye(3), np.zeros(3))
+        xref = pack_state(
+            self.target_pos,
+            np.zeros(3),
+            np.eye(3),
+            np.zeros(3),
+            self.params.g,
+        )
         return xref, np.array([self.params.g, 0.0, 0.0, 0.0], dtype=float)
 
 

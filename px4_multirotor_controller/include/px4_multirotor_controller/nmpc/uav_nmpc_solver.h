@@ -17,6 +17,7 @@ namespace control = xgc2_math::control;
 using Se3ControlVector = control::Se3ControlVector;
 using Se3Reference = control::Se3Reference;
 using Se3StateVector = control::Se3StateVector;
+using UavNmpcStateVector = Eigen::Matrix<double, UAV_NMPC_NX, 1>;
 
 class UavNmpcSolver {
    public:
@@ -31,7 +32,8 @@ class UavNmpcSolver {
                               double max_roll_pitch_angular_acceleration,
                               double max_yaw_angular_acceleration);
     void resetWarmStart();
-    bool solve(const Se3StateVector& x0, const std::vector<Se3Reference>& references);
+    bool solve(const Se3StateVector& x0, double thrust_actual, double last_commanded_specific_thrust,
+               const std::vector<Se3Reference>& references);
 
     Se3ControlVector optimalControl() const {
         return optimal_control_;
@@ -40,7 +42,7 @@ class UavNmpcSolver {
         return predicted_body_rate_;
     }
     const std::array<Se3StateVector, UAV_NMPC_N + 1>& predictedStates() const {
-        return x_solution_;
+        return predicted_states_;
     }
     size_t predictedStateCount() const {
         return static_cast<size_t>(UAV_NMPC_N + 1);
@@ -73,12 +75,16 @@ class UavNmpcSolver {
 
    private:
     bool applyInputBounds();
-    bool setInitialState(const Se3StateVector& x0);
-    bool setReference(int stage, const Se3Reference& reference);
-    void setGuesses(const Se3StateVector& x0, const std::vector<Se3Reference>& references);
+    bool setInitialState(const UavNmpcStateVector& x0);
+    bool setReference(int stage, const Se3Reference& reference, double last_commanded_specific_thrust);
+    void setGuesses(const UavNmpcStateVector& x0, const std::vector<Se3Reference>& references);
     void readSolution();
     void shiftWarmStart(const std::vector<Se3Reference>& references);
     void cleanup();
+    UavNmpcStateVector packInternalState(const Se3StateVector& state, double thrust_actual) const;
+    UavNmpcStateVector packInternalReference(const Se3Reference& reference) const;
+    Se3StateVector projectSe3State(const UavNmpcStateVector& state) const;
+    Se3ControlVector clampInputGuess(const Se3ControlVector& input) const;
 
     uav_nmpc_solver_capsule* capsule_{nullptr};
     bool initialized_{false};
@@ -87,9 +93,10 @@ class UavNmpcSolver {
     double solve_time_ms_{0.0};
     double max_quaternion_norm_error_{0.0};
 
-    std::array<Se3StateVector, UAV_NMPC_N + 1> x_guess_{};
+    std::array<UavNmpcStateVector, UAV_NMPC_N + 1> x_guess_{};
     std::array<Se3ControlVector, UAV_NMPC_N> u_guess_{};
-    std::array<Se3StateVector, UAV_NMPC_N + 1> x_solution_{};
+    std::array<UavNmpcStateVector, UAV_NMPC_N + 1> x_solution_{};
+    std::array<Se3StateVector, UAV_NMPC_N + 1> predicted_states_{};
     std::array<Se3ControlVector, UAV_NMPC_N> u_solution_{};
     std::array<double, UAV_NMPC_NU> input_lower_bounds_{{5.0, -10.0, -10.0, -10.0}};
     std::array<double, UAV_NMPC_NU> input_upper_bounds_{{20.373, 10.0, 10.0, 10.0}};

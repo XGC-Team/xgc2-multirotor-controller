@@ -13,7 +13,7 @@
     <arg name="active_polynomial_topic" default="alg/multirotor_reference_trajectory/active/polynomial"/>
     <arg name="active_sampled_topic" default="alg/multirotor_reference_trajectory/active/sampled"/>
     <arg name="reference_path_topic" default="alg/multirotor_reference_trajectory/visualization/reference_path"/>
-    <arg name="reference_path_sample_dt" default="0.5"/>
+    <arg name="reference_path_sample_dt" default="0.02"/>
     <arg name="reference_path_preview_duration" default="60.0"/>
     <arg name="status_rate" default="10.0"/>
     <arg name="active_publish_rate" default="10.0"/>

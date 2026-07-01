@@ -12,6 +12,7 @@ namespace px4_multirotor_controller {
 namespace {
 
 constexpr double kMaxYawReferenceErrorRad = 0.01;
+constexpr double kThrustTimeConstant = 0.15;
 
 double yawFromStateVector(const Se3StateVector& x0) {
     const double qw = x0(6);
@@ -98,6 +99,10 @@ bool UavNmpcTrackingBackend::enter(const SensorData& sensor) {
     initial_hover_thrust_ = 0.0;
     effective_specific_thrust_min_ = 0.0;
     effective_specific_thrust_max_ = 0.0;
+    thrust_actual_initialized_ = false;
+    thrust_actual_estimate_ = config_.nmpc.gravity;
+    last_commanded_specific_thrust_initialized_ = false;
+    last_commanded_specific_thrust_ = config_.nmpc.gravity;
     entered_ = true;
 
     ROS_INFO(
@@ -163,7 +168,12 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
         limitYawAuthority(tracking_references, current_yaw, stage_dt);
     }
 
-    const bool success = solver_.solve(x0, tracking_references);
+    ensureThrustActualEstimate(tracking_references.front());
+    ensureLastCommandedSpecificThrust(tracking_references.front());
+    const double thrust_actual_before_solve = thrust_actual_estimate_;
+    const double last_commanded_thrust_before_solve = last_commanded_specific_thrust_;
+    const bool success = solver_.solve(x0, thrust_actual_before_solve,
+                                       last_commanded_thrust_before_solve, tracking_references);
     if (success) {
         const Se3ControlVector u = solver_.optimalControl();
         const Eigen::Vector3d body_rate = bodyRateCommandFromPredictedBodyRate(
@@ -173,6 +183,8 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
         target.body_rate_y = body_rate.y();
         target.body_rate_z = body_rate.z();
         target.thrust = mapSpecificThrustToNormalized(u(0), initial_hover_thrust_);
+        updateLastCommandedSpecificThrust(u(0));
+        updateThrustActualEstimate(u(0));
     } else {
         const Se3StateVector ref0_x = control::packState(tracking_references.front().state);
         const Se3ControlVector ref0_u = control::packControl(tracking_references.front().control);
@@ -209,7 +221,8 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
         ROS_INFO(
             "[UavNmpcTrackingBackend] solve %.2f ms status=%d u=[%.3f %.3f "
             "%.3f %.3f] omega_cmd=[%.3f %.3f %.3f] omega_pred=[%.3f %.3f %.3f] hover=%.3f "
-            "initial_hover=%.3f thrust_norm=%.3f thrust_bounds=[%.3f %.3f] "
+            "initial_hover=%.3f thrust_norm=%.3f thrust_bounds=[%.3f %.3f] thrust_actual=%.3f "
+            "last_thrust_cmd=%.3f "
             "alpha_cmd=[%.3f %.3f %.3f] q_norm_err=%.3e success=%s "
             "x0_p=[%.3f %.3f %.3f] ref0_p=[%.3f %.3f %.3f] refN_p=[%.3f %.3f %.3f] "
             "e_p=[%.3f %.3f %.3f] e_v=[%.3f %.3f %.3f] ref0_u=[%.3f %.3f %.3f "
@@ -217,7 +230,8 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
             solver_.solveTimeMs(), solver_.status(), u(0), u(1), u(2), u(3), omega_cmd.x(),
             omega_cmd.y(), omega_cmd.z(), omega_pred.x(), omega_pred.y(), omega_pred.z(),
             sensor.hover_thrust_estimate, initial_hover_thrust_, thrust_norm,
-            effective_specific_thrust_min_, effective_specific_thrust_max_, alpha_cmd.x(),
+            effective_specific_thrust_min_, effective_specific_thrust_max_,
+            thrust_actual_before_solve, last_commanded_thrust_before_solve, alpha_cmd.x(),
             alpha_cmd.y(), alpha_cmd.z(), solver_.maxQuaternionNormError(),
             success ? "true" : "false", x0(0), x0(1), x0(2), ref0_x(0), ref0_x(1), ref0_x(2),
             refn_x(0), refn_x(1), refn_x(2), pos_err.x(), pos_err.y(), pos_err.z(), vel_err.x(),
@@ -353,6 +367,53 @@ bool UavNmpcTrackingBackend::lockInputBounds(double hover_thrust) {
         config_.nmpc.normalized_thrust_max, effective_specific_thrust_min_,
         effective_specific_thrust_max_);
     return true;
+}
+
+void UavNmpcTrackingBackend::ensureThrustActualEstimate(const Se3Reference& reference) {
+    if (thrust_actual_initialized_ && std::isfinite(thrust_actual_estimate_)) {
+        return;
+    }
+    double thrust_actual = reference.control.body_z_specific_force;
+    if (!std::isfinite(thrust_actual) || thrust_actual <= 0.0) {
+        thrust_actual = config_.nmpc.gravity;
+    }
+    thrust_actual_estimate_ = thrust_actual;
+    thrust_actual_initialized_ = true;
+}
+
+void UavNmpcTrackingBackend::updateThrustActualEstimate(double commanded_specific_thrust) {
+    if (!std::isfinite(commanded_specific_thrust)) {
+        return;
+    }
+    if (!thrust_actual_initialized_ || !std::isfinite(thrust_actual_estimate_)) {
+        thrust_actual_estimate_ = commanded_specific_thrust;
+        thrust_actual_initialized_ = true;
+        return;
+    }
+    const double dt = std::max(0.0, config_.nmpc.control_period);
+    const double response = 1.0 - std::exp(-dt / kThrustTimeConstant);
+    thrust_actual_estimate_ += response * (commanded_specific_thrust - thrust_actual_estimate_);
+}
+
+void UavNmpcTrackingBackend::ensureLastCommandedSpecificThrust(const Se3Reference& reference) {
+    if (last_commanded_specific_thrust_initialized_ &&
+        std::isfinite(last_commanded_specific_thrust_)) {
+        return;
+    }
+    double commanded_thrust = reference.control.body_z_specific_force;
+    if (!std::isfinite(commanded_thrust) || commanded_thrust <= 0.0) {
+        commanded_thrust = config_.nmpc.gravity;
+    }
+    last_commanded_specific_thrust_ = commanded_thrust;
+    last_commanded_specific_thrust_initialized_ = true;
+}
+
+void UavNmpcTrackingBackend::updateLastCommandedSpecificThrust(double commanded_specific_thrust) {
+    if (!std::isfinite(commanded_specific_thrust)) {
+        return;
+    }
+    last_commanded_specific_thrust_ = commanded_specific_thrust;
+    last_commanded_specific_thrust_initialized_ = true;
 }
 
 double UavNmpcTrackingBackend::mapSpecificThrustToNormalized(double specific_thrust,

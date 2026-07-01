@@ -18,6 +18,7 @@ from .math_utils import (
     POS,
     QUAT,
     STATE_SIZE,
+    THRUST_ACT,
     VEL,
     as_vector,
     project_state_rotation,
@@ -67,11 +68,14 @@ class CostWeights:
     thrust_direction: np.ndarray = field(default_factory=lambda: 40.0 * np.ones(3))
     yaw: float = 1.0
     omega: np.ndarray = field(default_factory=lambda: 3.0 * np.ones(3))
+    thrust_actual: float = 2.0
+    thrust_command_delta: float = 0.35
     terminal_position: np.ndarray = field(default_factory=lambda: 300.0 * np.ones(3))
     terminal_velocity: np.ndarray = field(default_factory=lambda: 80.0 * np.ones(3))
     terminal_thrust_direction: np.ndarray = field(default_factory=lambda: 80.0 * np.ones(3))
     terminal_yaw: float = 2.0
     terminal_omega: np.ndarray = field(default_factory=lambda: 6.0 * np.ones(3))
+    terminal_thrust_actual: float = 4.0
     control: np.ndarray = field(default_factory=lambda: np.array([0.08, 0.20, 0.20, 1.00]))
     unit_quat_penalty: float = 10.0
     input_slack: np.ndarray = field(default_factory=lambda: np.array([1.0e8, 1.0e6, 1.0e6, 1.0e6]))
@@ -336,9 +340,14 @@ class AcadosNMPCController:
         state = project_state_rotation(state)
         self._set_x0_constraint(state)
 
+        _, current_uref = self.reference.get_reference(time)
+        last_commanded_thrust = (
+            float(self.last_u[0]) if self.last_u is not None else float(current_uref[0])
+        )
+
         for stage in range(self.config.steps + 1):
             xref, uref = self.reference.get_reference(time + stage * self.config.dt)
-            parameter = np.concatenate((xref, uref))
+            parameter = np.concatenate((xref, uref, np.array([last_commanded_thrust])))
             self.ocp_solver.set(stage, "p", parameter)
             if self.x_guess is not None:
                 self.ocp_solver.set(stage, "x", self.x_guess[min(stage, self.x_guess.shape[0] - 1)])
@@ -460,7 +469,7 @@ class AcadosNMPCController:
 
         nx = STATE_SIZE
         nu = 4
-        np_param = nx + nu
+        np_param = nx + nu + 1
         x = ca.SX.sym("x", nx)
         xdot = ca.SX.sym("xdot", nx)
         u = ca.SX.sym("u", nu)
@@ -470,16 +479,21 @@ class AcadosNMPCController:
         vel = x[3:6]
         quat = x[6:10]
         omega = x[10:13]
-        thrust = u[0]
+        thrust_command = u[0]
+        thrust_actual = x[THRUST_ACT]
         alpha = u[1:4]
         quat_dot = self._casadi_quat_derivative(ca, quat, omega)
         rotation = self._casadi_quat_to_rotation(ca, quat)
         e3 = ca.vertcat(0.0, 0.0, 1.0)
+        thrust_actual_dot = (
+            thrust_command - thrust_actual
+        ) / self.params.thrust_time_constant
         f_expl = ca.vertcat(
             vel,
-            -self.params.g * e3 + thrust * (rotation @ e3),
+            -self.params.g * e3 + thrust_actual * (rotation @ e3),
             quat_dot,
             alpha,
+            thrust_actual_dot,
         )
 
         model = AcadosModel()
@@ -490,9 +504,15 @@ class AcadosNMPCController:
         model.p = p
         model.f_expl_expr = f_expl
         model.f_impl_expr = xdot - f_expl
-        cost_y_expr, cost_weights = self._casadi_residual(ca, x, u, p, terminal=False)
+        cost_y_expr, cost_weights = self._casadi_residual(
+            ca, x, u, p, terminal=False, initial=False
+        )
+        cost_y_expr_0, cost_weights_0 = self._casadi_residual(
+            ca, x, u, p, terminal=False, initial=True
+        )
         cost_y_expr_e, cost_weights_e = self._casadi_residual(ca, x, u, p, terminal=True)
         model.cost_y_expr = cost_y_expr
+        model.cost_y_expr_0 = cost_y_expr_0
         model.cost_y_expr_e = cost_y_expr_e
         tilt_expr = ca.vertcat(rotation[2, 2])
         model.con_h_expr = tilt_expr
@@ -518,10 +538,13 @@ class AcadosNMPCController:
         ocp.solver_options.N_horizon = self.config.steps
         ocp.solver_options.tf = self.config.horizon
         ocp.cost.cost_type = "NONLINEAR_LS"
+        ocp.cost.cost_type_0 = "NONLINEAR_LS"
         ocp.cost.cost_type_e = "NONLINEAR_LS"
         ocp.cost.W = np.diag(cost_weights)
+        ocp.cost.W_0 = np.diag(cost_weights_0)
         ocp.cost.W_e = np.diag(cost_weights_e)
         ocp.cost.yref = np.zeros(cost_y_expr.shape[0])
+        ocp.cost.yref_0 = np.zeros(cost_y_expr_0.shape[0])
         ocp.cost.yref_e = np.zeros(cost_y_expr_e.shape[0])
 
         ocp.constraints.x0 = np.zeros(nx)
@@ -601,9 +624,10 @@ class AcadosNMPCController:
         ocp, AcadosOcpSolver = self._build_ocp()
         AcadosOcpSolver.generate(ocp, json_file=ocp.json_file, verbose=False)
 
-    def _casadi_residual(self, ca, x, u, p, *, terminal: bool):
+    def _casadi_residual(self, ca, x, u, p, *, terminal: bool, initial: bool = False):
         xref = p[0:STATE_SIZE]
         uref = p[STATE_SIZE : STATE_SIZE + 4]
+        last_commanded_thrust = p[STATE_SIZE + 4]
         rotation = self._casadi_quat_to_rotation(ca, x[6:10])
         rotation_ref = self._casadi_quat_to_rotation(ca, xref[6:10])
         e_thrust_direction = self._casadi_thrust_direction_error(ca, rotation, rotation_ref)
@@ -611,9 +635,18 @@ class AcadosNMPCController:
         e_pos = x[0:3] - xref[0:3]
         e_vel = x[3:6] - xref[3:6]
         e_omega = x[10:13] - xref[10:13]
+        e_thrust_actual = x[THRUST_ACT] - xref[THRUST_ACT]
         unit_error = ca.dot(x[6:10], x[6:10]) - 1.0
         if terminal:
-            residual = ca.vertcat(e_pos, e_vel, e_thrust_direction, e_yaw, e_omega, unit_error)
+            residual = ca.vertcat(
+                e_pos,
+                e_vel,
+                e_thrust_direction,
+                e_yaw,
+                e_omega,
+                e_thrust_actual,
+                unit_error,
+            )
             weights = np.concatenate(
                 (
                     self.weights.terminal_position,
@@ -621,22 +654,41 @@ class AcadosNMPCController:
                     self.weights.terminal_thrust_direction,
                     np.array([self.weights.terminal_yaw]),
                     self.weights.terminal_omega,
+                    np.array([self.weights.terminal_thrust_actual]),
                     np.array([self.weights.unit_quat_penalty]),
                 )
             )
         else:
             e_u = u - uref
-            residual = ca.vertcat(e_pos, e_vel, e_thrust_direction, e_yaw, e_omega, e_u, unit_error)
+            residual_parts = [
+                e_pos,
+                e_vel,
+                e_thrust_direction,
+                e_yaw,
+                e_omega,
+                e_thrust_actual,
+                e_u,
+            ]
+            weight_parts = [
+                self.weights.position,
+                self.weights.velocity,
+                self.weights.thrust_direction,
+                np.array([self.weights.yaw]),
+                self.weights.omega,
+                np.array([self.weights.thrust_actual]),
+                self.weights.control,
+            ]
+            if initial:
+                e_thrust_command_delta = u[0] - last_commanded_thrust
+                residual_parts.append(e_thrust_command_delta)
+                weight_parts.append(np.array([self.weights.thrust_command_delta]))
+            residual_parts.append(unit_error)
+            weight_parts.append(np.array([self.weights.unit_quat_penalty]))
+            residual = ca.vertcat(
+                *residual_parts,
+            )
             weights = np.concatenate(
-                (
-                    self.weights.position,
-                    self.weights.velocity,
-                    self.weights.thrust_direction,
-                    np.array([self.weights.yaw]),
-                    self.weights.omega,
-                    self.weights.control,
-                    np.array([self.weights.unit_quat_penalty]),
-                )
+                tuple(weight_parts)
             )
         return residual, weights
 

@@ -32,7 +32,7 @@ class CoreMathTests(unittest.TestCase):
     def test_state_is_quaternion_based(self) -> None:
         state = pack_state(np.zeros(3), np.zeros(3), np.eye(3), np.zeros(3))
         self.assertEqual(state.size, STATE_SIZE)
-        self.assertEqual(STATE_SIZE, 13)
+        self.assertEqual(STATE_SIZE, 14)
         _, _, quat, _ = unpack_state_quat(state)
         self.assertAlmostEqual(float(np.linalg.norm(quat)), 1.0)
         np.testing.assert_allclose(quat_to_rotation(quat), np.eye(3), atol=1e-12)
@@ -109,11 +109,34 @@ class ControllerTests(unittest.TestCase):
         )
         self.assertAlmostEqual(weights.yaw, 1.0)
         np.testing.assert_allclose(weights.omega, 3.0 * np.ones(3), atol=1e-12)
+        self.assertAlmostEqual(weights.thrust_actual, 2.0)
+        self.assertAlmostEqual(weights.thrust_command_delta, 0.35)
         np.testing.assert_allclose(
             weights.control,
             np.array([0.08, 0.20, 0.20, 1.00]),
             atol=1e-12,
         )
+
+    def test_ocp_cost_dimensions_use_initial_thrust_command_delta(self) -> None:
+        self.require_acados()
+        params = default_quadrotor_params()
+        traj = HoverTrajectory(params=params)
+        ctrl = AcadosNMPCController(
+            traj,
+            params=params,
+            config=MPCConfig(horizon=0.2, steps=2, max_iter=3, control_interval=0.1),
+            build_solver=False,
+        )
+
+        ocp, _ = ctrl._build_ocp()
+
+        self.assertEqual(int(ocp.parameter_values.size), STATE_SIZE + 5)
+        self.assertEqual(ocp.cost.W_0.shape, (20, 20))
+        self.assertEqual(ocp.cost.W.shape, (19, 19))
+        self.assertEqual(ocp.cost.W_e.shape, (15, 15))
+        self.assertAlmostEqual(float(ocp.cost.W_0[18, 18]), 0.35)
+        self.assertAlmostEqual(float(ocp.cost.W_0[19, 19]), 10.0)
+        self.assertAlmostEqual(float(ocp.cost.W[18, 18]), 10.0)
 
     def test_exact_hover_equilibrium(self) -> None:
         self.require_acados()
@@ -205,6 +228,28 @@ class ControllerTests(unittest.TestCase):
         self.assertAlmostEqual(info.res_comp, 4e-4)
         np.testing.assert_allclose(command, previous)
 
+    def test_update_passes_previous_thrust_command_as_parameter(self) -> None:
+        self.require_acados()
+        params = default_quadrotor_params()
+        traj = HoverTrajectory(params=params)
+        ctrl = AcadosNMPCController(
+            traj,
+            params=params,
+            config=MPCConfig(horizon=0.2, steps=2, max_iter=3, control_interval=0.1),
+            build_solver=False,
+        )
+        previous = np.array([params.g + 1.25, 0.1, -0.1, 0.0])
+        ctrl.last_u = previous.copy()
+        fake_solver = _FiniteFailingSolver(params.g)
+        ctrl.ocp_solver = fake_solver
+
+        ctrl.update(0.0, hover_state(np.array([1.0, 1.0, 1.0])))
+
+        self.assertEqual(set(fake_solver.parameters.keys()), {0, 1, 2})
+        for parameter in fake_solver.parameters.values():
+            self.assertEqual(parameter.size, STATE_SIZE + 5)
+            self.assertAlmostEqual(float(parameter[-1]), previous[0])
+
 
 class RunnerConfigTests(unittest.TestCase):
     def test_dt_ctrl_must_be_integer_multiple_of_dt_sim(self) -> None:
@@ -218,11 +263,14 @@ class RunnerConfigTests(unittest.TestCase):
 class _FiniteFailingSolver:
     def __init__(self, gravity: float) -> None:
         self.gravity = gravity
+        self.parameters: dict[int, np.ndarray] = {}
 
     def constraints_set(self, *_args) -> None:
         return None
 
-    def set(self, *_args) -> None:
+    def set(self, *args) -> None:
+        if len(args) == 3 and args[1] == "p":
+            self.parameters[int(args[0])] = np.asarray(args[2], dtype=float).copy()
         return None
 
     def solve(self) -> int:

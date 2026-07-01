@@ -3,11 +3,11 @@
 The Python controller now uses a quaternion state rather than the MATLAB
 draft's 9-element rotation-matrix state:
 
-    x = [pos(3); vel(3); quat_wxyz(4); omega(3)]
+    x = [pos(3); vel(3); quat_wxyz(4); omega(3); thrust_actual]
 
 The public packing helpers still accept a 3x3 rotation matrix, so the reference
 generators and runner can stay close to the MATLAB notation while the stored
-state is the 13D quaternion form used by the Python implementation.
+state is the 14D quaternion form used by the Python implementation.
 """
 
 from __future__ import annotations
@@ -17,13 +17,15 @@ from typing import Callable, Optional, Tuple
 import numpy as np
 
 
-STATE_SIZE = 13
+STATE_SIZE = 14
 CONTROL_SIZE = 4
 
 POS = slice(0, 3)
 VEL = slice(3, 6)
 QUAT = slice(6, 10)
 OMEGA = slice(10, 13)
+THRUST_ACT = 13
+DEFAULT_HOVER_SPECIFIC_THRUST = 9.8066
 
 
 def as_vector(value: np.ndarray, size: int, name: str) -> np.ndarray:
@@ -190,8 +192,9 @@ def pack_state(
     velocity: np.ndarray,
     attitude: np.ndarray,
     omega: np.ndarray,
+    thrust_actual: float = DEFAULT_HOVER_SPECIFIC_THRUST,
 ) -> np.ndarray:
-    """Pack position, velocity, attitude, and body rate into the 13D state.
+    """Pack position, velocity, attitude, body rate, and actual thrust into the state.
 
     ``attitude`` may be either a 3x3 rotation matrix or a 4-element
     ``[w, x, y, z]`` quaternion.
@@ -207,11 +210,14 @@ def pack_state(
     else:
         raise ValueError("attitude must be a 4D quaternion or 3x3 rotation matrix")
     omega = as_vector(omega, 3, "omega")
-    return np.concatenate([position, velocity, quat, omega])
+    thrust_actual = float(thrust_actual)
+    if not np.isfinite(thrust_actual):
+        raise ValueError("thrust_actual must be finite")
+    return np.concatenate([position, velocity, quat, omega, np.array([thrust_actual])])
 
 
 def unpack_state_quat(state: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Unpack the 13D state into position, velocity, quaternion, and body rate."""
+    """Unpack the state into position, velocity, quaternion, and body rate."""
 
     state = as_vector(state, STATE_SIZE, "state")
     position = state[POS].copy()
@@ -222,7 +228,7 @@ def unpack_state_quat(state: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.nda
 
 
 def unpack_state(state: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Unpack the 13D state into position, velocity, rotation, and body rate."""
+    """Unpack the state into position, velocity, rotation, and body rate."""
 
     position, velocity, quat, omega = unpack_state_quat(state)
     return position, velocity, quat_to_rotation(quat), omega
@@ -234,8 +240,9 @@ def project_state_rotation(state: np.ndarray) -> np.ndarray:
     The name is kept for compatibility with the earlier rotation-matrix draft.
     """
 
+    state = as_vector(state, STATE_SIZE, "state")
     position, velocity, quat, omega = unpack_state_quat(state)
-    return pack_state(position, velocity, quat, omega)
+    return pack_state(position, velocity, quat, omega, state[THRUST_ACT])
 
 
 def rotation_from_body_z(body_z: np.ndarray, yaw: float = 0.0) -> np.ndarray:

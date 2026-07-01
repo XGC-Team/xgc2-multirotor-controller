@@ -5,7 +5,7 @@ wrapper must still mirror the Python solver interaction sequence every control
 cycle:
 
 1. set the fixed x0 lower/upper bounds;
-2. set stage parameters p = [xref(13); uref(4)] for stages 0..N;
+2. set stage parameters p = [xref(14); uref(4)] for stages 0..N;
 3. seed x/u warm starts;
 4. call solve and reject nonzero status;
 5. read u0 and predicted x1;
@@ -50,8 +50,12 @@ def repo_root() -> Path:
 
 
 def default_generated_dir() -> Path:
+    root = repo_root()
+    current_layout = root / "px4_multirotor_controller"
+    if current_layout.exists():
+        return current_layout / "generated" / "nmpc" / "uav_nmpc"
     return (
-        repo_root()
+        root
         / "source"
         / "ros1_ws"
         / "src"

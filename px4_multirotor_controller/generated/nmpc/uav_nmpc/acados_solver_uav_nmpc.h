@@ -36,13 +36,13 @@
 #include "acados_c/ocp_nlp_interface.h"
 #include "acados_c/external_function_interface.h"
 
-#define UAV_NMPC_NX     13
+#define UAV_NMPC_NX     14
 #define UAV_NMPC_NZ     0
 #define UAV_NMPC_NU     4
-#define UAV_NMPC_NP     17
+#define UAV_NMPC_NP     19
 #define UAV_NMPC_NP_GLOBAL     0
 #define UAV_NMPC_NBX    9
-#define UAV_NMPC_NBX0   13
+#define UAV_NMPC_NBX0   14
 #define UAV_NMPC_NBU    4
 #define UAV_NMPC_NSBX   9
 #define UAV_NMPC_NSBU   4
@@ -61,9 +61,9 @@
 #define UAV_NMPC_NG     0
 #define UAV_NMPC_NBXN   9
 #define UAV_NMPC_NGN    0
-#define UAV_NMPC_NY0    18
-#define UAV_NMPC_NY     18
-#define UAV_NMPC_NYN    14
+#define UAV_NMPC_NY0    20
+#define UAV_NMPC_NY     19
+#define UAV_NMPC_NYN    15
 #define UAV_NMPC_N      10
 #define UAV_NMPC_NH     1
 #define UAV_NMPC_NHN    1

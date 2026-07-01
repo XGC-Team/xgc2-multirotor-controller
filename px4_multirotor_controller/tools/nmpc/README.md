@@ -72,8 +72,8 @@ The acados OCP includes:
 input hard bounds:       T/m and angular acceleration
 state hard bounds:       position, velocity, omega
 nonlinear hard bounds:   R33(q) >= cos(tilt_max)
-stage parameters:        [xref(13); uref(4)]
-cost:                    NONLINEAR_LS tracking with SO(3) log attitude error
+stage parameters:        [xref(14); uref(4)]
+cost:                    NONLINEAR_LS tracking with thrust-direction and yaw residuals
 quaternion handling:     normalized simulation state plus unit-norm residual
 ```
 
@@ -200,7 +200,7 @@ The generated C solver does not include Python-side runtime interactions. The
 C++ wrapper must continue to mirror the Python update sequence:
 
 1. set the fixed `x0` lower/upper bounds every cycle;
-2. set `p=[xref(13); uref(4)]` for stages `0..N`;
+2. set `p=[xref(14); uref(4)]` for stages `0..N`;
 3. seed `x/u` warm starts;
 4. call solve and reject nonzero status;
 5. read `u0` and predicted `x1`;

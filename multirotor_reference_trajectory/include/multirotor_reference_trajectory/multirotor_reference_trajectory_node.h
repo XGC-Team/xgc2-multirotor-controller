@@ -43,7 +43,7 @@ class ReferenceTrajectoryNode {
     std::string active_sampled_topic_{"alg/multirotor_reference_trajectory/active/sampled"};
     std::string reference_path_topic_{
         "alg/multirotor_reference_trajectory/visualization/reference_path"};
-    double reference_path_sample_dt_{0.5};
+    double reference_path_sample_dt_{0.02};
     double reference_path_preview_duration_{20.0};
     ReferenceTrajectoryConfig config_{};
 };

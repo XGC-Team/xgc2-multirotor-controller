@@ -58,7 +58,7 @@ void ReferenceTrajectoryNode::loadParams() {
     private_nh_.param("reference_path_sample_dt", reference_path_sample_dt_,
                       reference_path_sample_dt_);
     if (!std::isfinite(reference_path_sample_dt_) || reference_path_sample_dt_ <= 0.0) {
-        reference_path_sample_dt_ = 0.5;
+        reference_path_sample_dt_ = 0.02;
     }
     private_nh_.param("reference_path_preview_duration", reference_path_preview_duration_,
                       reference_path_preview_duration_);

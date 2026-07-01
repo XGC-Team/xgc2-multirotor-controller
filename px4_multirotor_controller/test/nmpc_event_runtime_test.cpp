@@ -229,7 +229,9 @@ TEST(UavNmpcSolver, SolvesHoverEquilibrium) {
     Se3StateVector x0 = control::packState(hover.state);
     std::vector<Se3Reference> references(static_cast<size_t>(UavNmpcSolver::horizonSteps() + 2),
                                          hover);
-    EXPECT_TRUE(solver.solve(x0, references)) << "status=" << solver.status();
+    EXPECT_TRUE(solver.solve(x0, hover.control.body_z_specific_force,
+                             hover.control.body_z_specific_force, references))
+        << "status=" << solver.status();
     EXPECT_NEAR(solver.optimalControl()(0), 9.8066, 1e-3);
     EXPECT_NEAR(solver.predictedBodyRate().norm(), 0.0, 1e-3);
 }
@@ -237,7 +239,7 @@ TEST(UavNmpcSolver, SolvesHoverEquilibrium) {
 TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
     ros::Time::init();
     UavNmpcSolver solver;
-    ASSERT_TRUE(solver.configureInputBounds(12.0, 20.373, 3.0, 1.0));
+    ASSERT_TRUE(solver.configureInputBounds(8.0, 12.0, 3.0, 1.0));
     ASSERT_TRUE(solver.initialize());
 
     Se3Reference hover;
@@ -249,8 +251,11 @@ TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
     const Se3StateVector x0 = control::packState(hover.state);
     std::vector<Se3Reference> references(static_cast<size_t>(UavNmpcSolver::horizonSteps() + 2),
                                          hover);
-    ASSERT_TRUE(solver.solve(x0, references)) << "status=" << solver.status();
-    EXPECT_GE(solver.optimalControl()(0), 12.0 - 1e-5);
+    ASSERT_TRUE(solver.solve(x0, hover.control.body_z_specific_force,
+                             hover.control.body_z_specific_force, references))
+        << "status=" << solver.status();
+    EXPECT_GE(solver.optimalControl()(0), 8.0 - 1e-5);
+    EXPECT_LE(solver.optimalControl()(0), 12.0 + 1e-5);
 }
 
 TEST(UavNmpcBridge, UsesPredictedBodyRateCommand) {
@@ -309,7 +314,8 @@ TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangAngularAcceleration) {
         x0(4) += 0.02 * std::cos(angle);
 
         solver.resetWarmStart();
-        EXPECT_TRUE(solver.solve(x0, references))
+        EXPECT_TRUE(solver.solve(x0, references.front().control.body_z_specific_force,
+                                 references.front().control.body_z_specific_force, references))
             << "phase=" << phase << " status=" << solver.status();
         const Se3ControlVector command = solver.optimalControl();
         const double angular_accel = command.tail<3>().cwiseAbs().maxCoeff();

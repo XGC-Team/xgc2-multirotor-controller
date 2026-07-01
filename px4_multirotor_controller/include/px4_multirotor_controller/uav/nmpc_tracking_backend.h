@@ -43,6 +43,10 @@ class UavNmpcTrackingBackend {
     bool hoverThrustReady(const SensorData& sensor, const ros::Time& now) const;
     bool lockInputBounds(double hover_thrust);
     double mapSpecificThrustToNormalized(double specific_thrust, double hover_thrust) const;
+    void ensureThrustActualEstimate(const Se3Reference& reference);
+    void updateThrustActualEstimate(double commanded_specific_thrust);
+    void ensureLastCommandedSpecificThrust(const Se3Reference& reference);
+    void updateLastCommandedSpecificThrust(double commanded_specific_thrust);
 
     ControllerConfig config_{};
     UavNmpcSolver solver_;
@@ -52,6 +56,10 @@ class UavNmpcTrackingBackend {
     double initial_hover_thrust_{0.0};
     double effective_specific_thrust_min_{0.0};
     double effective_specific_thrust_max_{0.0};
+    bool thrust_actual_initialized_{false};
+    double thrust_actual_estimate_{0.0};
+    bool last_commanded_specific_thrust_initialized_{false};
+    double last_commanded_specific_thrust_{0.0};
 
     ros::Time last_control_time_;
     ros::Time last_log_time_;

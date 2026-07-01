@@ -56,20 +56,20 @@ extern "C" {
 
 casadi_real casadi_sq(casadi_real x) { return x*x;}
 
-static const casadi_int casadi_s0[3] = {13, 1, 1};
+static const casadi_int casadi_s0[3] = {14, 1, 1};
 static const casadi_int casadi_s1[3] = {4, 1, 1};
 static const casadi_int casadi_s2[3] = {0, 1, 1};
-static const casadi_int casadi_s3[3] = {18, 1, 1};
+static const casadi_int casadi_s3[3] = {20, 1, 1};
 static const casadi_int casadi_s4[3] = {0, 0, 1};
-static const casadi_int casadi_s5[3] = {17, 1, 1};
-static const casadi_int casadi_s6[36] =
-  {17, 17, 0, 0, 0, 0, 0, 0,
+static const casadi_int casadi_s5[3] = {19, 1, 1};
+static const casadi_int casadi_s6[37] =
+  {18, 18, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 4, 8, 12,
-  16, 16, 16, 16, 10, 11, 12, 13,
-  10, 11, 12, 13, 10, 11, 12, 13,
-  10, 11, 12, 13};
+  16, 16, 16, 16, 16, 10, 11, 12,
+  13, 10, 11, 12, 13, 10, 11, 12,
+  13, 10, 11, 12, 13};
 
-/* uav_nmpc_cost_y_0_hess:(i0[13],i1[4],i2[0],i3[18],i4[],i5[17])->(o0[17x17,16nz]) */
+/* uav_nmpc_cost_y_0_hess:(i0[14],i1[4],i2[0],i3[20],i4[],i5[19])->(o0[18x18,16nz]) */
 static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem) {
   casadi_real a00, a01, a02, a03, a04, a05, a06, a07, a08, a09, a10, a11;
   casadi_real a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23;
@@ -79,7 +79,7 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   casadi_real a60, a61, a62, a63, a64, a65, a66, a67, a68, a69, a70, a71;
   casadi_real a72, a73, a74;
   a00=2.;
-  a01=arg[3]? arg[3][17] : 0;
+  a01=arg[3]? arg[3][19] : 0;
   a01=(a00*a01);
   a02=arg[0]? arg[0][9] : 0;
   a03=arg[0]? arg[0][6] : 0;
