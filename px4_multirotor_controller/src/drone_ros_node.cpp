@@ -6,6 +6,7 @@
 #include <cmath>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "px4_multirotor_controller/output/control_output_consumer.h"
 #include "px4_multirotor_controller/output/debug_output_consumer.h"
@@ -20,6 +21,28 @@ constexpr uint32_t kRosQueueSize = 5;
 
 std::string resolveTopicName(const ros::NodeHandle& nh, const std::string& topic) {
     return nh.resolveName(topic);
+}
+
+Eigen::Vector3d getVector3Param(const ros::NodeHandle& nh, const std::string& name,
+                                const Eigen::Vector3d& fallback) {
+    std::vector<double> values;
+    if (!nh.getParam(name, values)) {
+        return fallback;
+    }
+    if (values.size() != 3U) {
+        ROS_WARN("[DroneRosNode] Parameter %s must have 3 values; keeping [%.3f %.3f %.3f]",
+                 name.c_str(), fallback.x(), fallback.y(), fallback.z());
+        return fallback;
+    }
+    Eigen::Vector3d result(values[0], values[1], values[2]);
+    if (!result.array().isFinite().all()) {
+        ROS_WARN("[DroneRosNode] Parameter %s contains non-finite values; keeping [%.3f %.3f %.3f]",
+                 name.c_str(), fallback.x(), fallback.y(), fallback.z());
+        return fallback;
+    }
+    ROS_INFO("[DroneRosNode] %s: [%.3f %.3f %.3f]", name.c_str(), result.x(), result.y(),
+             result.z());
+    return result;
 }
 
 }  // namespace
@@ -238,6 +261,10 @@ void DroneRosNode::loadControllerConfig() {
         config.tracking_backend = TrackingBackend::LEGACY_MPC_LIFTER;
     } else if (tracking_backend == "nmpc_attitude_rate" || tracking_backend == "nmpc") {
         config.tracking_backend = TrackingBackend::NMPC_ATTITUDE_RATE;
+    } else if (tracking_backend == "dfbc_attitude_rate" || tracking_backend == "dfbc") {
+        config.tracking_backend = TrackingBackend::DFBC_ATTITUDE_RATE;
+    } else if (tracking_backend == "px4_local_raw" || tracking_backend == "px4") {
+        config.tracking_backend = TrackingBackend::PX4_LOCAL_RAW;
     } else {
         ROS_WARN("[DroneRosNode] Unknown tracking_backend=%s, using legacy_mpc_lifter",
                  tracking_backend.c_str());
@@ -249,6 +276,35 @@ void DroneRosNode::loadControllerConfig() {
     // ========== 偏航角控制开关 ==========
     ros1_utils::getParamWithLog(nh_private_, "enable_yaw_control", config.enable_yaw_control,
                                 "Enable yaw control");
+
+    // ========== DFBC attitude-rate 策略参数 ==========
+    config.dfbc.position_natural_frequency = getVector3Param(
+        nh_private_, "dfbc/position_natural_frequency", config.dfbc.position_natural_frequency);
+    config.dfbc.position_damping_ratio = getVector3Param(nh_private_, "dfbc/position_damping_ratio",
+                                                         config.dfbc.position_damping_ratio);
+    nh_private_.param("dfbc/tilt_gain", config.dfbc.tilt_gain, config.dfbc.tilt_gain);
+    nh_private_.param("dfbc/tilt_rate_damping", config.dfbc.tilt_rate_damping,
+                      config.dfbc.tilt_rate_damping);
+    nh_private_.param("dfbc/yaw_gain", config.dfbc.yaw_gain, config.dfbc.yaw_gain);
+    nh_private_.param("dfbc/yaw_rate_damping", config.dfbc.yaw_rate_damping,
+                      config.dfbc.yaw_rate_damping);
+    nh_private_.param("dfbc/use_body_rate_feedforward", config.dfbc.use_body_rate_feedforward,
+                      config.dfbc.use_body_rate_feedforward);
+    nh_private_.param("dfbc/acceleration_correction_enabled",
+                      config.dfbc.acceleration_correction_enabled,
+                      config.dfbc.acceleration_correction_enabled);
+    config.dfbc.acceleration_correction_gain = getVector3Param(
+        nh_private_, "dfbc/acceleration_correction_gain", config.dfbc.acceleration_correction_gain);
+    config.dfbc.acceleration_correction_limit =
+        getVector3Param(nh_private_, "dfbc/acceleration_correction_limit",
+                        config.dfbc.acceleration_correction_limit);
+    nh_private_.param("dfbc/acceleration_correction_filter_tau",
+                      config.dfbc.acceleration_correction_filter_tau,
+                      config.dfbc.acceleration_correction_filter_tau);
+    nh_private_.param("dfbc/acceleration_measurement_timeout",
+                      config.dfbc.acceleration_measurement_timeout,
+                      config.dfbc.acceleration_measurement_timeout);
+    nh_private_.param("dfbc/log_period", config.dfbc.log_period, config.dfbc.log_period);
 
     // ========== UAV NMPC 后端参数 ==========
     nh_private_.param("nmpc/control_period", config.nmpc.control_period,
@@ -426,13 +482,66 @@ void DroneRosNode::loadControllerConfig() {
         ROS_WARN("[DroneRosNode] Invalid nmpc/reference_torus_scale; using 0.300 m");
         config.nmpc.reference_torus_scale = 0.3;
     }
-    if (config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
+    if (!config.dfbc.position_natural_frequency.array().isFinite().all() ||
+        (config.dfbc.position_natural_frequency.array() <= 0.0).any()) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/position_natural_frequency; using [2.0 2.0 2.2]");
+        config.dfbc.position_natural_frequency = Eigen::Vector3d(2.0, 2.0, 2.2);
+    }
+    if (!config.dfbc.position_damping_ratio.array().isFinite().all() ||
+        (config.dfbc.position_damping_ratio.array() <= 0.0).any()) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/position_damping_ratio; using [0.9 0.9 1.0]");
+        config.dfbc.position_damping_ratio = Eigen::Vector3d(0.9, 0.9, 1.0);
+    }
+    if (!std::isfinite(config.dfbc.tilt_gain) || config.dfbc.tilt_gain <= 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/tilt_gain; using 6.000");
+        config.dfbc.tilt_gain = 6.0;
+    }
+    if (!std::isfinite(config.dfbc.tilt_rate_damping) || config.dfbc.tilt_rate_damping < 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/tilt_rate_damping; using 1.000");
+        config.dfbc.tilt_rate_damping = 1.0;
+    }
+    if (!std::isfinite(config.dfbc.yaw_gain) || config.dfbc.yaw_gain < 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/yaw_gain; using 0.300");
+        config.dfbc.yaw_gain = 0.3;
+    }
+    if (!std::isfinite(config.dfbc.yaw_rate_damping) || config.dfbc.yaw_rate_damping < 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/yaw_rate_damping; using 0.200");
+        config.dfbc.yaw_rate_damping = 0.2;
+    }
+    if (!config.dfbc.acceleration_correction_gain.array().isFinite().all() ||
+        (config.dfbc.acceleration_correction_gain.array() < 0.0).any()) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/acceleration_correction_gain; using [0.35 0.35 0.0]");
+        config.dfbc.acceleration_correction_gain = Eigen::Vector3d(0.35, 0.35, 0.0);
+    }
+    if (!config.dfbc.acceleration_correction_limit.array().isFinite().all() ||
+        (config.dfbc.acceleration_correction_limit.array() < 0.0).any()) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/acceleration_correction_limit; using [2.0 2.0 0.0]");
+        config.dfbc.acceleration_correction_limit = Eigen::Vector3d(2.0, 2.0, 0.0);
+    }
+    if (!std::isfinite(config.dfbc.acceleration_correction_filter_tau) ||
+        config.dfbc.acceleration_correction_filter_tau < 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/acceleration_correction_filter_tau; using 0.000 s");
+        config.dfbc.acceleration_correction_filter_tau = 0.0;
+    }
+    if (!std::isfinite(config.dfbc.acceleration_measurement_timeout) ||
+        config.dfbc.acceleration_measurement_timeout <= 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/acceleration_measurement_timeout; using 0.050 s");
+        config.dfbc.acceleration_measurement_timeout = 0.05;
+    }
+    if (!std::isfinite(config.dfbc.log_period) || config.dfbc.log_period <= 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid dfbc/log_period; using 1.000 s");
+        config.dfbc.log_period = 1.0;
+    }
+    if (config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE ||
+        config.tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE) {
         if (!config.nmpc.hover_thrust_enabled) {
             ROS_WARN(
-                "[DroneRosNode] UAV NMPC requires hover thrust estimate; "
+                "[DroneRosNode] Attitude-rate tracking requires hover thrust estimate; "
                 "forcing hover_thrust/enabled=true");
             config.nmpc.hover_thrust_enabled = true;
         }
+    }
+    if (config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
         ROS_INFO(
             "[DroneRosNode] UAV NMPC: dt=%.3f horizon=%.3f gravity=%.4f "
             "hover=%.3f estimator=required hover_timeout=%.3f "
@@ -451,6 +560,35 @@ void DroneRosNode::loadControllerConfig() {
             config.nmpc.reference_line_speed, config.nmpc.reference_height,
             config.nmpc.reference_z_amplitude, config.nmpc.reference_torus_omega,
             config.nmpc.reference_torus_scale);
+    } else if (config.tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE) {
+        ROS_INFO(
+            "[DroneRosNode] UAV DFBC attitude-rate: dt=%.3f gravity=%.4f hover=required "
+            "thrust_norm=[%.2f, %.2f] body_rate_max=[roll_pitch %.2f yaw %.2f] "
+            "wn=[%.2f %.2f %.2f] zeta=[%.2f %.2f %.2f] tilt_gain=%.2f yaw_gain=%.2f "
+            "feedforward=%s accel_fix=%s gain=[%.2f %.2f %.2f] limit=[%.2f %.2f %.2f] tau=%.3f",
+            config.nmpc.control_period, config.nmpc.gravity, config.nmpc.normalized_thrust_min,
+            config.nmpc.normalized_thrust_max, config.nmpc.max_roll_pitch_body_rate,
+            config.nmpc.max_yaw_body_rate, config.dfbc.position_natural_frequency.x(),
+            config.dfbc.position_natural_frequency.y(), config.dfbc.position_natural_frequency.z(),
+            config.dfbc.position_damping_ratio.x(), config.dfbc.position_damping_ratio.y(),
+            config.dfbc.position_damping_ratio.z(), config.dfbc.tilt_gain, config.dfbc.yaw_gain,
+            config.dfbc.use_body_rate_feedforward ? "true" : "false",
+            config.dfbc.acceleration_correction_enabled ? "true" : "false",
+            config.dfbc.acceleration_correction_gain.x(),
+            config.dfbc.acceleration_correction_gain.y(),
+            config.dfbc.acceleration_correction_gain.z(),
+            config.dfbc.acceleration_correction_limit.x(),
+            config.dfbc.acceleration_correction_limit.y(),
+            config.dfbc.acceleration_correction_limit.z(),
+            config.dfbc.acceleration_correction_filter_tau);
+    } else if (config.tracking_backend == TrackingBackend::PX4_LOCAL_RAW) {
+        ROS_INFO(
+            "[DroneRosNode] UAV PX4 local raw tracking: dt=%.3f pos+vel+acc enabled "
+            "yaw=false yaw_rate=false reference_type=%d circle=[radius %.2f speed %.2f] "
+            "torus=[omega %.2f scale %.2f]",
+            config.nmpc.control_period, config.nmpc.reference_analytic_type,
+            config.nmpc.reference_radius, config.nmpc.reference_line_speed,
+            config.nmpc.reference_torus_omega, config.nmpc.reference_torus_scale);
     }
 
     // ========== 滑模控制器参数 ==========
@@ -506,6 +644,14 @@ void DroneRosNode::loadControllerConfig() {
                                 "Acc saturation XY (m/s²)");
     ros1_utils::getParamWithLog(nh_private_, "acc_saturation_z", config.safety.acc_saturation_z,
                                 "Acc saturation Z (m/s²)");
+    ros1_utils::getParamWithLog(nh_private_, "state_estimate_unusable_trip_delay",
+                                config.safety.state_estimate_unusable_trip_delay,
+                                "State estimate unusable trip delay (s)");
+    if (!std::isfinite(config.safety.state_estimate_unusable_trip_delay) ||
+        config.safety.state_estimate_unusable_trip_delay < 0.0) {
+        ROS_WARN("[DroneRosNode] Invalid state_estimate_unusable_trip_delay; using 0.150 s");
+        config.safety.state_estimate_unusable_trip_delay = 0.15;
+    }
 
     // 将配置传递给控制器
     controller_.setConfig(config);

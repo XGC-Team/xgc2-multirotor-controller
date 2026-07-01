@@ -19,7 +19,12 @@ enum class ControlMode {
 };
 
 // 跟踪后端选择。默认 legacy_mpc_lifter 保持现有 Custom1State 行为。
-enum class TrackingBackend { LEGACY_MPC_LIFTER = 0, NMPC_ATTITUDE_RATE = 1 };
+enum class TrackingBackend {
+    LEGACY_MPC_LIFTER = 0,
+    NMPC_ATTITUDE_RATE = 1,
+    DFBC_ATTITUDE_RATE = 2,
+    PX4_LOCAL_RAW = 3,
+};
 
 // 控制器配置参数
 struct ControllerConfig {
@@ -41,6 +46,23 @@ struct ControllerConfig {
 
     // ========== 偏航角控制开关 ==========
     bool enable_yaw_control{false};  // 是否启用偏航角控制（false=忽略偏航角）
+
+    // ========== DFBC 几何 attitude-rate 策略参数 ==========
+    struct DfbcParams {
+        Eigen::Vector3d position_natural_frequency{Eigen::Vector3d(2.0, 2.0, 2.2)};
+        Eigen::Vector3d position_damping_ratio{Eigen::Vector3d(0.9, 0.9, 1.0)};
+        double tilt_gain{6.0};
+        double tilt_rate_damping{1.0};
+        double yaw_gain{0.3};
+        double yaw_rate_damping{0.2};
+        bool use_body_rate_feedforward{true};
+        bool acceleration_correction_enabled{false};
+        Eigen::Vector3d acceleration_correction_gain{Eigen::Vector3d(0.35, 0.35, 0.0)};
+        Eigen::Vector3d acceleration_correction_limit{Eigen::Vector3d(2.0, 2.0, 0.0)};
+        double acceleration_correction_filter_tau{0.0};
+        double acceleration_measurement_timeout{0.05};
+        double log_period{1.0};
+    } dfbc;
 
     // ========== UAV NMPC 后端参数 ==========
     struct UavNmpcParams {
@@ -112,6 +134,9 @@ struct ControllerConfig {
         // 控制饱和检测（m/s²）
         double acc_saturation_xy{3.0};
         double acc_saturation_z{3.0};
+
+        // 状态估计不可用需要持续多久才触发安全事件（秒）
+        double state_estimate_unusable_trip_delay{0.15};
 
         // 电池（百分比，0.0-1.0）
         double battery_low{0.3};        // 30%
@@ -281,6 +306,13 @@ struct SensorData {
 
     // 角速度 (rad/s)
     double wx{0.0}, wy{0.0}, wz{0.0};
+
+    // 世界系线加速度 (m/s^2)、重力向量和体轴加速度 bias
+    // 来自 estimator_vrpn_px4_rotor_state/RigidStateEstimate
+    double ax{0.0}, ay{0.0}, az{0.0};
+    double gx{0.0}, gy{0.0}, gz{-9.8066};
+    double accel_bias_x{0.0}, accel_bias_y{0.0}, accel_bias_z{0.0};
+
     uint8_t uav_state_estimator_state{0};
     uint32_t uav_state_estimator_flags{0};
     double uav_state_estimate_stamp{0.0};

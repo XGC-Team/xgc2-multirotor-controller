@@ -20,9 +20,9 @@ bool UavNmpcSolver::initialize() {
     }
     if (UAV_NMPC_NX != 14 || UAV_NMPC_NU != 4 || UAV_NMPC_NP != 19 || UAV_NMPC_N <= 0 ||
         UAV_NMPC_NY0 != 20 || UAV_NMPC_NY != 19 || UAV_NMPC_NYN != 15 || UAV_NMPC_NH != 1 ||
-        UAV_NMPC_NHN != 1 || UAV_NMPC_NSBU != 4 || UAV_NMPC_NSBX != 9 ||
-        UAV_NMPC_NSH != 1 || UAV_NMPC_NS != 14 || UAV_NMPC_NS0 != 4 || UAV_NMPC_NSBXN != 9 ||
-        UAV_NMPC_NSHN != 1 || UAV_NMPC_NSN != 10) {
+        UAV_NMPC_NHN != 1 || UAV_NMPC_NSBU != 4 || UAV_NMPC_NSBX != 9 || UAV_NMPC_NSH != 1 ||
+        UAV_NMPC_NS != 14 || UAV_NMPC_NS0 != 4 || UAV_NMPC_NSBXN != 9 || UAV_NMPC_NSHN != 1 ||
+        UAV_NMPC_NSN != 10) {
         ROS_ERROR("[UavNmpcSolver] Unexpected generated solver dimensions");
         return false;
     }

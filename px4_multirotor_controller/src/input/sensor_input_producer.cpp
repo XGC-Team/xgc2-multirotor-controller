@@ -123,6 +123,15 @@ void SensorInputProducer::stateEstimateCallback(
     sensor_data_.wx = msg->angular_velocity.x;
     sensor_data_.wy = msg->angular_velocity.y;
     sensor_data_.wz = msg->angular_velocity.z;
+    sensor_data_.ax = msg->linear_acceleration.x;
+    sensor_data_.ay = msg->linear_acceleration.y;
+    sensor_data_.az = msg->linear_acceleration.z;
+    sensor_data_.gx = msg->gravity.x;
+    sensor_data_.gy = msg->gravity.y;
+    sensor_data_.gz = msg->gravity.z;
+    sensor_data_.accel_bias_x = msg->accel_bias.x;
+    sensor_data_.accel_bias_y = msg->accel_bias.y;
+    sensor_data_.accel_bias_z = msg->accel_bias.z;
     sensor_data_.uav_state_estimator_state = msg->estimator_state;
     sensor_data_.uav_state_estimator_flags = msg->flags;
     sensor_data_.uav_state_estimate_stamp = msg->header.stamp.toSec();

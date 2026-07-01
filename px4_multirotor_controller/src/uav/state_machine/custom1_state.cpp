@@ -1,5 +1,6 @@
 #include "px4_multirotor_controller/uav/state_machine/custom1_state.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <utility>
 
@@ -22,8 +23,20 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
     const auto& config = controller_.getConfig();
     trajectory_lifter_ = TrajectoryLifter(TrajectoryLifterConfig{config.planning_period});
 
-    if (config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
-        controller_.logInfo("[Custom1State] Entering UAV NMPC Attitude-Rate Tracking Mode");
+    if (config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE ||
+        config.tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE ||
+        config.tracking_backend == TrackingBackend::PX4_LOCAL_RAW) {
+        if (config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
+            controller_.logInfo("[Custom1State] Entering UAV NMPC Attitude-Rate Tracking Mode");
+        } else if (config.tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE) {
+            controller_.logInfo("[Custom1State] Entering UAV DFBC Attitude-Rate Tracking Mode");
+            dfbc_strategy_.configure(config);
+            sync_strategy_entered_ = false;
+        } else {
+            controller_.logInfo("[Custom1State] Entering PX4 Local Raw pos+vel+acc Tracking Mode");
+            px4_local_raw_strategy_.configure(config);
+            sync_strategy_entered_ = false;
+        }
         controller_.activeTrajectoryCache().clear();
         request_sequence_ = 0;
         in_flight_sequence_ = 0;
@@ -36,6 +49,7 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
         consecutive_failures_ = 0;
         nmpc_reference_seen_ = false;
         reference_exit_event_posted_ = false;
+        nmpc_stale_output_log_timer_.reset();
 
         ::state_machine::Event activation_event(
             output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION,
@@ -92,6 +106,11 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
     const double current_time = controller_.getCurrentTime();
     if (controller_.getConfig().tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
         handleNmpcEventMode(ctx, current_time);
+        return {};
+    }
+    if (controller_.getConfig().tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE ||
+        controller_.getConfig().tracking_backend == TrackingBackend::PX4_LOCAL_RAW) {
+        handleSynchronousAttitudeRateMode(ctx, current_time);
         return {};
     }
 
@@ -162,9 +181,115 @@ void Custom1State::handleNmpcEventMode(::state_machine::StateContext& ctx, doubl
         return;
     }
 
+    const double result_timeout = controller_.getConfig().nmpc.result_timeout;
+    if (last_success_time_ > 0.0 && result_timeout > 0.0 &&
+        current_time - last_success_time_ > result_timeout) {
+        if (shouldRunEvery(nmpc_stale_output_log_timer_, 1.0, true)) {
+            controller_.logWarn(
+                "[Custom1State] NMPC attitude-rate output stale for %.3f s; "
+                "publishing backup local setpoint",
+                current_time - last_success_time_);
+        }
+        if (shouldPublish(current_time)) {
+            publishBackupSetpoint(ctx, current_time);
+        }
+    }
+
     if (shouldDispatchNmpc(current_time)) {
         dispatchNmpcRequest(ctx, current_time);
     }
+}
+
+void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateContext& ctx,
+                                                     double current_time) {
+    const ControllerConfig config = controller_.getConfig();
+    const ros::Time now(current_time);
+
+    if (config.tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE) {
+        dfbc_strategy_.configure(config);
+    } else {
+        px4_local_raw_strategy_.configure(config);
+    }
+    if (!sync_strategy_entered_) {
+        if (config.tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE) {
+            sync_strategy_entered_ = dfbc_strategy_.enter(controller_.getSensorData(), now);
+        } else {
+            sync_strategy_entered_ =
+                px4_local_raw_strategy_.enter(controller_.getSensorData(), now);
+        }
+    }
+
+    if (!controller_.activeTrajectoryCache().valid(now, config.nmpc.reference_timeout)) {
+        if (nmpc_reference_seen_) {
+            postReferenceExit(ctx, current_time, event_type::INPUT_REFERENCE_TRAJECTORY_LOST,
+                              "reference stream stopped or became stale");
+        } else {
+            if (shouldRunEvery(nmpc_wait_log_timer_, 1.0, true)) {
+                controller_.logWarn(
+                    "[Custom1State] Waiting for UAV reference trajectory before synchronous "
+                    "tracking");
+            }
+            if (shouldPublish(current_time)) {
+                publishCurrentHoverSetpoint(ctx, current_time);
+            }
+        }
+        return;
+    }
+    nmpc_reference_seen_ = true;
+
+    if (referenceWillFinishBeforeNextSynchronousUpdate(current_time)) {
+        postReferenceExit(ctx, current_time, event_type::REFERENCE_TRAJECTORY_FINISHED,
+                          "reference horizon reached planned trajectory end");
+        return;
+    }
+
+    if (!shouldRunSynchronousStrategy(current_time)) {
+        return;
+    }
+
+    UavReferencePoint reference;
+    if (!controller_.activeTrajectoryCache().sample(now, config.nmpc.reference_timeout,
+                                                    reference)) {
+        postReferenceExit(ctx, current_time, event_type::INPUT_REFERENCE_TRAJECTORY_LOST,
+                          "reference sampling failed");
+        return;
+    }
+
+    if (!sync_strategy_entered_) {
+        publishCurrentHoverSetpoint(ctx, current_time);
+        return;
+    }
+
+    TrackingStrategyInput input;
+    input.sensor = controller_.getSensorData();
+    input.reference = reference;
+    input.now = now;
+    TrackingStrategyResult result;
+    const bool update_ok = config.tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE
+                               ? dfbc_strategy_.update(input, result)
+                               : px4_local_raw_strategy_.update(input, result);
+    if (!update_ok) {
+        ++consecutive_failures_;
+        if (shouldRunEvery(trajectory_wait_log_timer_, 1.0, true)) {
+            controller_.logWarn("[Custom1State] synchronous tracking update failed: %s",
+                                result.message.c_str());
+        }
+        publishBackupSetpoint(ctx, current_time);
+        return;
+    }
+
+    consecutive_failures_ = 0;
+    last_success_time_ = current_time;
+    if (result.output_kind == TrackingStrategyResult::OutputKind::LocalSetpoint) {
+        controller_.getSetpoint() = result.local_setpoint;
+        ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
+                                              ::state_machine::EventTimestamp{current_time}));
+    } else {
+        controller_.getAttitudeRateTarget() = result.attitude_rate_target;
+        ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_ATTITUDE_RATE_TARGET,
+                                              ::state_machine::EventTimestamp{current_time}));
+    }
+    last_publish_time_ = current_time;
 }
 
 void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double current_time) {
@@ -205,6 +330,7 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
             current_time - last_success_time_ <= controller_.getConfig().nmpc.result_timeout) {
             ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_ATTITUDE_RATE_TARGET,
                                                   ::state_machine::EventTimestamp{current_time}));
+            last_publish_time_ = current_time;
             return;
         }
         publishBackupSetpoint(ctx, current_time);
@@ -216,6 +342,7 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
     controller_.getAttitudeRateTarget() = result.target;
     ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_ATTITUDE_RATE_TARGET,
                                           ::state_machine::EventTimestamp{current_time}));
+    last_publish_time_ = current_time;
 }
 
 void Custom1State::dispatchNmpcRequest(::state_machine::StateContext& ctx, double current_time) {
@@ -343,12 +470,36 @@ bool Custom1State::referenceWillFinishBeforeNextHorizon(double current_time) con
     return remaining <= horizon_sample_span + 1.0e-6;
 }
 
+bool Custom1State::referenceWillFinishBeforeNextSynchronousUpdate(double current_time) const {
+    double remaining = 0.0;
+    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(
+            ros::Time(current_time), controller_.getConfig().nmpc.reference_timeout, remaining)) {
+        return false;
+    }
+
+    const double period = std::max(1.0e-3, synchronousStrategyPeriod());
+    return remaining <= period + 1.0e-6;
+}
+
 bool Custom1State::shouldDispatchNmpc(double current_time) const {
     if (request_in_flight_) {
         return false;
     }
     const double period = controller_.getConfig().nmpc.control_period;
     return last_request_time_ <= 0.0 || current_time - last_request_time_ >= period;
+}
+
+bool Custom1State::shouldRunSynchronousStrategy(double current_time) const {
+    const double period = std::max(1.0e-3, synchronousStrategyPeriod());
+    return last_publish_time_ <= 0.0 || current_time - last_publish_time_ >= period;
+}
+
+double Custom1State::synchronousStrategyPeriod() const {
+    const auto backend = controller_.getConfig().tracking_backend;
+    if (backend == TrackingBackend::PX4_LOCAL_RAW) {
+        return px4_local_raw_strategy_.period();
+    }
+    return dfbc_strategy_.period();
 }
 
 bool Custom1State::updateActiveMpcFrame(double current_time) {
@@ -483,8 +634,21 @@ void Custom1State::setTypeMask(ControlMode mode, bool enable_yaw) {
     nmpc_wait_log_timer_.stop();
     trajectory_wait_log_timer_.stop();
 
-    if (controller_.getConfig().tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
-        controller_.logInfo("[Custom1State] Exiting UAV NMPC Attitude-Rate Tracking Mode");
+    if (controller_.getConfig().tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE ||
+        controller_.getConfig().tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE ||
+        controller_.getConfig().tracking_backend == TrackingBackend::PX4_LOCAL_RAW) {
+        if (controller_.getConfig().tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
+            controller_.logInfo("[Custom1State] Exiting UAV NMPC Attitude-Rate Tracking Mode");
+        } else if (controller_.getConfig().tracking_backend ==
+                   TrackingBackend::DFBC_ATTITUDE_RATE) {
+            controller_.logInfo("[Custom1State] Exiting UAV DFBC Attitude-Rate Tracking Mode");
+            dfbc_strategy_.exit();
+            sync_strategy_entered_ = false;
+        } else {
+            controller_.logInfo("[Custom1State] Exiting PX4 Local Raw Tracking Mode");
+            px4_local_raw_strategy_.exit();
+            sync_strategy_entered_ = false;
+        }
         request_in_flight_ = false;
         return {};
     }

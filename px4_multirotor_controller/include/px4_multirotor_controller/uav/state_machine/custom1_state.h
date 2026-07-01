@@ -6,6 +6,8 @@
 #include "px4_multirotor_controller/control/sliding_mode_controller.h"
 #include "px4_multirotor_controller/control/trajectory_lifter.h"
 #include "px4_multirotor_controller/state_machine/timing.h"
+#include "px4_multirotor_controller/tracking/dfbc_attitude_rate_strategy.h"
+#include "px4_multirotor_controller/tracking/px4_local_raw_strategy.h"
 
 namespace px4_multirotor_controller {
 
@@ -61,10 +63,15 @@ class Custom1State : public ::state_machine::State {
     bool nmpc_reference_seen_{false};
     bool reference_exit_event_posted_{false};
     ::state_machine::runtime::Timer<> nmpc_wait_log_timer_;
+    ::state_machine::runtime::Timer<> nmpc_stale_output_log_timer_;
     ::state_machine::runtime::Timer<> trajectory_wait_log_timer_;
+    DfbcAttitudeRateStrategy dfbc_strategy_;
+    Px4LocalRawStrategy px4_local_raw_strategy_;
+    bool sync_strategy_entered_{false};
 
     // ========== 辅助函数 ==========
     void handleNmpcEventMode(::state_machine::StateContext& ctx, double current_time);
+    void handleSynchronousAttitudeRateMode(::state_machine::StateContext& ctx, double current_time);
     void consumeNmpcResult(::state_machine::StateContext& ctx, double current_time);
     void dispatchNmpcRequest(::state_machine::StateContext& ctx, double current_time);
     void publishBackupSetpoint(::state_machine::StateContext& ctx, double current_time);
@@ -72,7 +79,10 @@ class Custom1State : public ::state_machine::State {
     void postReferenceExit(::state_machine::StateContext& ctx, double current_time,
                            uint32_t event_id, const char* reason);
     bool referenceWillFinishBeforeNextHorizon(double current_time) const;
+    bool referenceWillFinishBeforeNextSynchronousUpdate(double current_time) const;
     bool shouldDispatchNmpc(double current_time) const;
+    bool shouldRunSynchronousStrategy(double current_time) const;
+    double synchronousStrategyPeriod() const;
 
     /// @brief 按 MPC 规划周期边界将 pending 轨迹帧切换为 active
     bool updateActiveMpcFrame(double current_time);

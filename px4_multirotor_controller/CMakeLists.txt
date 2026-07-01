@@ -355,6 +355,8 @@ add_executable(${PROJECT_NAME}_node
   src/output/nmpc_output_consumer.cpp
   src/output/px4_service_output_consumer.cpp
   src/output/reference_activation_output_consumer.cpp
+  src/tracking/dfbc_attitude_rate_strategy.cpp
+  src/tracking/px4_local_raw_strategy.cpp
   src/uav/nmpc_result_buffer.cpp
   src/uav/active_trajectory_cache.cpp
   src/uav/state_machine/debug_monitor_state.cpp
@@ -426,6 +428,8 @@ install(DIRECTORY tools
 if(CATKIN_ENABLE_TESTING)
   catkin_add_gtest(px4_multirotor_controller_nmpc_event_runtime_test
     test/nmpc_event_runtime_test.cpp
+    src/tracking/dfbc_attitude_rate_strategy.cpp
+    src/tracking/px4_local_raw_strategy.cpp
     src/uav/nmpc_result_buffer.cpp
     src/uav/active_trajectory_cache.cpp
   )

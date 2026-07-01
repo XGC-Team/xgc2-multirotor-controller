@@ -36,6 +36,7 @@ class HealthMonitorState final : public ::state_machine::State {
         bool control_saturated_xy{false};
         bool control_saturated_z{false};
         bool state_estimate_unusable{false};
+        double state_estimate_unusable_since{-1.0};
     };
 
     void postSafetyEvent(::state_machine::StateContext& ctx, ::state_machine::EventId event_id,

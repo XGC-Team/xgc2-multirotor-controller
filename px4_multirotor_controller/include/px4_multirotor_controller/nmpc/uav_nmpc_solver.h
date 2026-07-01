@@ -32,8 +32,8 @@ class UavNmpcSolver {
                               double max_roll_pitch_angular_acceleration,
                               double max_yaw_angular_acceleration);
     void resetWarmStart();
-    bool solve(const Se3StateVector& x0, double thrust_actual, double last_commanded_specific_thrust,
-               const std::vector<Se3Reference>& references);
+    bool solve(const Se3StateVector& x0, double thrust_actual,
+               double last_commanded_specific_thrust, const std::vector<Se3Reference>& references);
 
     Se3ControlVector optimalControl() const {
         return optimal_control_;
@@ -76,7 +76,8 @@ class UavNmpcSolver {
    private:
     bool applyInputBounds();
     bool setInitialState(const UavNmpcStateVector& x0);
-    bool setReference(int stage, const Se3Reference& reference, double last_commanded_specific_thrust);
+    bool setReference(int stage, const Se3Reference& reference,
+                      double last_commanded_specific_thrust);
     void setGuesses(const UavNmpcStateVector& x0, const std::vector<Se3Reference>& references);
     void readSolution();
     void shiftWarmStart(const std::vector<Se3Reference>& references);

@@ -6,8 +6,11 @@
 #include "px4_multirotor_controller/common/sensor_checks.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
+#include "px4_multirotor_controller/tracking/dfbc_attitude_rate_strategy.h"
+#include "px4_multirotor_controller/tracking/px4_local_raw_strategy.h"
 #include "px4_multirotor_controller/uav/active_trajectory_cache.h"
 #include "px4_multirotor_controller/uav/nmpc_result_buffer.h"
+#include "xgc2_math/control.hpp"
 
 namespace px4_multirotor_controller {
 namespace {
@@ -75,6 +78,41 @@ multirotor_reference_trajectory::SampledReference makeSampledReference() {
         msg.points.push_back(point);
     }
     return msg;
+}
+
+xgc2_math::trajectory::FlatOutput3 makeHoverFlatReference(double yaw = 0.0) {
+    xgc2_math::trajectory::FlatOutput3 flat;
+    flat.position = Eigen::Vector3d(0.0, 0.0, 3.0);
+    flat.velocity.setZero();
+    flat.acceleration.setZero();
+    flat.jerk.setZero();
+    flat.snap.setZero();
+    flat.yaw = yaw;
+    return flat;
+}
+
+SensorData makeDfbcSensor() {
+    SensorData sensor;
+    sensor.z = 3.0;
+    sensor.qw = 1.0;
+    sensor.uav_state_estimate_stats.is_active = true;
+    sensor.uav_state_estimator_state =
+        estimator_vrpn_px4_rotor_state::RigidStateEstimate::STATE_RUNNING;
+    sensor.hover_thrust_estimate = 0.3;
+    sensor.hover_thrust_estimate_stamp = 10.0;
+    sensor.hover_thrust_estimate_available = true;
+    return sensor;
+}
+
+UavReferencePoint makeDfbcReference() {
+    UavReferencePoint reference;
+    reference.position = Eigen::Vector3d(0.0, 0.0, 3.0);
+    reference.velocity.setZero();
+    reference.acceleration.setZero();
+    reference.jerk.setZero();
+    reference.snap.setZero();
+    reference.yaw = 0.0;
+    return reference;
 }
 
 TEST(ActiveTrajectoryCache, AnalyticReferenceSamplesAndBuildsHorizon) {
@@ -213,6 +251,137 @@ TEST(SensorChecks, StateEstimateGateIsOnlyControlStateSource) {
     sensor.uav_state_estimator_state =
         estimator_vrpn_px4_rotor_state::RigidStateEstimate::STATE_SELF_CHECK;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
+}
+
+TEST(DfbcGeometricController, HoverReferenceOutputsGravityThrust) {
+    xgc2_math::control::DfbcGeometricController controller;
+    xgc2_math::control::DfbcGeometricInput input;
+    input.current.position = Eigen::Vector3d(0.0, 0.0, 3.0);
+    input.current.attitude = Eigen::Quaterniond::Identity();
+    input.reference = makeHoverFlatReference();
+
+    const auto output = controller.compute(input);
+    ASSERT_TRUE(output.success);
+    EXPECT_NEAR(output.specific_thrust, 9.8066, 1e-6);
+    EXPECT_NEAR(output.thrust_direction_error.norm(), 0.0, 1e-12);
+}
+
+TEST(DfbcGeometricController, PureYawDifferenceDoesNotCreateTiltError) {
+    xgc2_math::control::DfbcGeometricConfig config;
+    config.enable_yaw_control = true;
+    xgc2_math::control::DfbcGeometricController controller(config);
+    xgc2_math::control::DfbcGeometricInput input;
+    input.current.position = Eigen::Vector3d(0.0, 0.0, 3.0);
+    input.current.attitude = Eigen::Quaterniond::Identity();
+    input.reference = makeHoverFlatReference(M_PI_2);
+
+    const auto output = controller.compute(input);
+    ASSERT_TRUE(output.success);
+    EXPECT_NEAR(output.thrust_direction_error.norm(), 0.0, 1e-12);
+    EXPECT_GT(output.body_rate_command.z(), 0.0);
+}
+
+TEST(DfbcGeometricController, PositionErrorCommandsTiltTowardReference) {
+    xgc2_math::control::DfbcGeometricController controller;
+    xgc2_math::control::DfbcGeometricInput input;
+    input.current.position = Eigen::Vector3d::Zero();
+    input.current.attitude = Eigen::Quaterniond::Identity();
+    input.reference = makeHoverFlatReference();
+    input.reference.position.x() = 1.0;
+
+    const auto output = controller.compute(input);
+    ASSERT_TRUE(output.success);
+    EXPECT_GT(output.thrust_direction_error.y(), 0.0);
+    EXPECT_GT(output.body_rate_command.y(), 0.0);
+}
+
+TEST(DfbcGeometricController, AccelerationCorrectionAddsFilteredAccelerationDeficit) {
+    xgc2_math::control::DfbcGeometricConfig config;
+    config.acceleration_correction_enabled = true;
+    config.acceleration_correction_gain = Eigen::Vector3d(0.5, 0.0, 0.0);
+    config.acceleration_correction_limit = Eigen::Vector3d(2.0, 0.0, 0.0);
+    config.acceleration_correction_filter_tau = 0.0;
+    xgc2_math::control::DfbcGeometricController controller(config);
+    xgc2_math::control::DfbcGeometricInput input;
+    input.current.attitude = Eigen::Quaterniond::Identity();
+    input.reference = makeHoverFlatReference();
+    input.reference.acceleration.x() = 1.0;
+    input.has_measured_acceleration = true;
+    input.measured_acceleration = Eigen::Vector3d::Zero();
+    input.dt = 0.01;
+
+    const auto output = controller.compute(input);
+    ASSERT_TRUE(output.success);
+    ASSERT_TRUE(output.acceleration_correction_active);
+    EXPECT_NEAR(output.nominal_acceleration.x(), 1.0, 1e-12);
+    EXPECT_NEAR(output.acceleration_error.x(), 1.0, 1e-12);
+    EXPECT_NEAR(output.acceleration_correction.x(), 0.5, 1e-12);
+    EXPECT_NEAR(output.corrected_acceleration.x(), 1.5, 1e-12);
+}
+
+TEST(DfbcAttitudeRateStrategy, DisablesYawAndClampsBodyRates) {
+    ControllerConfig config;
+    config.tracking_backend = TrackingBackend::DFBC_ATTITUDE_RATE;
+    config.enable_yaw_control = false;
+    config.nmpc.hover_thrust_enabled = true;
+    config.nmpc.max_roll_pitch_body_rate = 0.2;
+    config.nmpc.max_yaw_body_rate = 0.1;
+    config.dfbc.tilt_gain = 20.0;
+
+    DfbcAttitudeRateStrategy strategy;
+    strategy.configure(config);
+    const ros::Time now(10.0);
+    ASSERT_TRUE(strategy.enter(makeDfbcSensor(), now));
+
+    TrackingStrategyInput input;
+    input.sensor = makeDfbcSensor();
+    input.now = now;
+    input.reference = makeDfbcReference();
+    input.reference.position.x() = 10.0;
+    input.reference.yaw = M_PI_2;
+
+    TrackingStrategyResult result;
+    ASSERT_TRUE(strategy.update(input, result)) << result.message;
+    EXPECT_NEAR(result.attitude_rate_target.body_rate_z, 0.0, 1e-12);
+    EXPECT_LE(std::abs(result.attitude_rate_target.body_rate_x), 0.2 + 1e-12);
+    EXPECT_LE(std::abs(result.attitude_rate_target.body_rate_y), 0.2 + 1e-12);
+    EXPECT_GE(result.attitude_rate_target.thrust, config.nmpc.normalized_thrust_min);
+    EXPECT_LE(result.attitude_rate_target.thrust, config.nmpc.normalized_thrust_max);
+}
+
+TEST(Px4LocalRawStrategy, OutputsPositionVelocityAccelerationAndIgnoresYaw) {
+    ControllerConfig config;
+    config.tracking_backend = TrackingBackend::PX4_LOCAL_RAW;
+    config.nmpc.control_period = 0.01;
+
+    Px4LocalRawStrategy strategy;
+    strategy.configure(config);
+    ASSERT_TRUE(strategy.enter(makeDfbcSensor(), ros::Time(10.0)));
+
+    TrackingStrategyInput input;
+    input.sensor = makeDfbcSensor();
+    input.now = ros::Time(10.0);
+    input.reference = makeDfbcReference();
+    input.reference.position = Eigen::Vector3d(1.0, 2.0, 3.0);
+    input.reference.velocity = Eigen::Vector3d(0.4, 0.5, 0.6);
+    input.reference.acceleration = Eigen::Vector3d(0.7, 0.8, 0.9);
+    input.reference.yaw = 1.2;
+    input.reference.yaw_rate = 0.3;
+
+    TrackingStrategyResult result;
+    ASSERT_TRUE(strategy.update(input, result)) << result.message;
+    EXPECT_EQ(result.output_kind, TrackingStrategyResult::OutputKind::LocalSetpoint);
+    EXPECT_NEAR(result.local_setpoint.x, 1.0, 1e-12);
+    EXPECT_NEAR(result.local_setpoint.y, 2.0, 1e-12);
+    EXPECT_NEAR(result.local_setpoint.z, 3.0, 1e-12);
+    EXPECT_NEAR(result.local_setpoint.vx, 0.4, 1e-12);
+    EXPECT_NEAR(result.local_setpoint.vy, 0.5, 1e-12);
+    EXPECT_NEAR(result.local_setpoint.vz, 0.6, 1e-12);
+    EXPECT_NEAR(result.local_setpoint.ax, 0.7, 1e-12);
+    EXPECT_NEAR(result.local_setpoint.ay, 0.8, 1e-12);
+    EXPECT_NEAR(result.local_setpoint.az, 0.9, 1e-12);
+    EXPECT_EQ(result.local_setpoint.type_mask, static_cast<uint16_t>((1U << 10U) | (1U << 11U)));
+    EXPECT_EQ(result.local_setpoint.coordinate_frame, 1);
 }
 
 TEST(UavNmpcSolver, SolvesHoverEquilibrium) {

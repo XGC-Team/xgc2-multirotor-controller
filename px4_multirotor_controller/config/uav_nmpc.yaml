@@ -1,4 +1,19 @@
-tracking_backend: nmpc_attitude_rate
+tracking_backend: dfbc_attitude_rate
+
+dfbc:
+  position_natural_frequency: [2.0, 2.0, 2.2]
+  position_damping_ratio: [0.9, 0.9, 1.0]
+  tilt_gain: 6.0
+  tilt_rate_damping: 1.0
+  yaw_gain: 0.3
+  yaw_rate_damping: 0.2
+  use_body_rate_feedforward: true
+  acceleration_correction_enabled: true
+  acceleration_correction_gain: [0.35, 0.35, 0.0]
+  acceleration_correction_limit: [2.0, 2.0, 0.0]
+  acceleration_correction_filter_tau: 0.0
+  acceleration_measurement_timeout: 0.05
+  log_period: 1.0
 
 nmpc:
   control_period: 0.01
