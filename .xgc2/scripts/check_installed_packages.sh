@@ -15,7 +15,7 @@ dpkg -s libxgc2-state-machine-dev >/dev/null
 dpkg -s libxgc2-math-dev >/dev/null
 dpkg -s xgc2-acados >/dev/null
 xgc2_acados_version="$(dpkg-query -W -f='${Version}' xgc2-acados)"
-dpkg --compare-versions "${xgc2_acados_version}" ge "0.1.0-3~focal"
+dpkg --compare-versions "${xgc2_acados_version}" ge "0.1.0-5~focal"
 test "$(rospack find multirotor_reference_trajectory)" = "/opt/ros/${ROS_DISTRO}/share/multirotor_reference_trajectory"
 test "$(rospack find px4_multirotor_controller)" = "/opt/ros/${ROS_DISTRO}/share/px4_multirotor_controller"
 test "$(rospack find estimator_vrpn_px4_rotor_state)" = "/opt/ros/${ROS_DISTRO}/share/estimator_vrpn_px4_rotor_state"
