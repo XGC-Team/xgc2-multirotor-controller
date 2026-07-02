@@ -78,12 +78,12 @@ grep -q "expected_source_sha" .github/workflows/release.yml
 grep -q "PACKAGE=\"ros-\${ROS_DISTRO}-xgc2-multirotor-controller\"" .xgc2/scripts/package_debs.sh
 grep -q "px4_multirotor_controller" .xgc2/scripts/package_debs.sh
 grep -q "multirotor_reference_trajectory" .xgc2/scripts/package_debs.sh
-grep -q "libxgc2-state-machine-dev (>= 0.1.2-3~focal)" .xgc2/scripts/package_debs.sh
-grep -q "libxgc2-math-dev (>= 0.5.5-3)" .xgc2/scripts/package_debs.sh
-grep -q "xgc2-acados (>= 0.1.0-5~focal)" .xgc2/product.yml
-grep -q "xgc2-acados (>= 0.1.0-5~focal)" .xgc2/scripts/package_debs.sh
-grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-hover-thrust (>= 1.1.22-4)" .xgc2/scripts/package_debs.sh
-grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-rigid-state (>= 1.1.3-4)" .xgc2/scripts/package_debs.sh
+grep -q "libxgc2-state-machine-dev (>= 0.1.2-4~focal)" .xgc2/scripts/package_debs.sh
+grep -q "libxgc2-math-dev (>= 0.5.5-4)" .xgc2/scripts/package_debs.sh
+grep -q "xgc2-acados (>= 0.1.0-6~focal)" .xgc2/product.yml
+grep -q "xgc2-acados (>= 0.1.0-6~focal)" .xgc2/scripts/package_debs.sh
+grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-hover-thrust (>= 1.1.22-5)" .xgc2/scripts/package_debs.sh
+grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-rigid-state (>= 1.1.3-5)" .xgc2/scripts/package_debs.sh
 
 if grep -R --exclude='check_package_compliance.sh' "ros-noetic-xgc2-reference" \
   .github .xgc2 README.md px4_multirotor_controller multirotor_reference_trajectory >/dev/null; then
