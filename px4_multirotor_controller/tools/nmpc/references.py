@@ -41,11 +41,10 @@ class BaseTrajectory:
         flat = self.flat_output(float(time))
         rotation = self._rotation_at(time)
         omega = self._omega_at(time)
-        angular_acceleration = self._angular_acceleration_at(time)
         thrust_specific = np.linalg.norm(flat.acceleration + self.params.g * self.params.e3)
 
         xref = pack_state(flat.position, flat.velocity, rotation, omega, thrust_specific)
-        uref = np.concatenate(([thrust_specific], angular_acceleration))
+        uref = np.concatenate(([thrust_specific], omega))
         return xref, uref
 
     def _rotation_at(self, time: float) -> np.ndarray:

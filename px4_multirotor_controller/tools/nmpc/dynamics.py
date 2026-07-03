@@ -27,6 +27,7 @@ class QuadrotorParams:
     mass: float = 1.5
     g: float = 9.8066
     thrust_time_constant: float = 0.15
+    body_rate_time_constant: float = 0.08
     e3: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0, 1.0]))
     disturbance_accel_I: np.ndarray = field(default_factory=lambda: np.zeros(3))
     disturbance_alpha_B: np.ndarray = field(default_factory=lambda: np.zeros(3))
@@ -40,6 +41,8 @@ class QuadrotorParams:
     def __post_init__(self) -> None:
         if not np.isfinite(self.thrust_time_constant) or self.thrust_time_constant <= 1.0e-6:
             raise ValueError("thrust_time_constant must be positive")
+        if not np.isfinite(self.body_rate_time_constant) or self.body_rate_time_constant <= 1.0e-6:
+            raise ValueError("body_rate_time_constant must be positive")
         object.__setattr__(self, "e3", as_vector(self.e3, 3, "e3"))
         for name in (
             "disturbance_accel_I",
@@ -91,7 +94,7 @@ def quadrotor_dynamics(
     control: np.ndarray,
     params: QuadrotorParams | None = None,
 ) -> np.ndarray:
-    """Continuous dynamics for ``u = [T_cmd/m; angular_acceleration(3)]``.
+    """Continuous dynamics for ``u = [T_cmd/m; body_rate_command(3)]``.
 
     The model intentionally bypasses motor allocation and torque dynamics. It
     matches the high-level MATLAB dynamics:
@@ -99,7 +102,7 @@ def quadrotor_dynamics(
     ``p_dot = v``
     ``v_dot = -g e3 + (T_act/m) R e3``
     ``q_dot = 0.5 * q * [0, omega]``
-    ``omega_dot = angular_acceleration``
+    ``omega_dot = (omega_cmd - omega) / tau_omega``
     ``T_act_dot = (T_cmd - T_act) / tau_T``
     """
 
@@ -112,7 +115,7 @@ def quadrotor_dynamics(
 
     thrust_command = control[0]
     thrust_actual = state[THRUST_ACT]
-    angular_acceleration = control[1:4]
+    body_rate_command = control[1:4]
     accel_dist, alpha_dist = evaluate_disturbance(params, time)
 
     position_dot = velocity
@@ -120,7 +123,7 @@ def quadrotor_dynamics(
     velocity_dot = -params.g * params.e3 + thrust_actual * (rotation @ params.e3)
     velocity_dot += accel_dist
     quat_dot = quat_derivative(quat, omega)
-    omega_dot = angular_acceleration + alpha_dist
+    omega_dot = (body_rate_command - omega) / params.body_rate_time_constant + alpha_dist
     thrust_actual_dot = (thrust_command - thrust_actual) / params.thrust_time_constant
 
     state_dot = np.zeros(STATE_SIZE, dtype=float)

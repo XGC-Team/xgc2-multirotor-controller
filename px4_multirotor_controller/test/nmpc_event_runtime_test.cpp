@@ -399,7 +399,8 @@ TEST(UavNmpcSolver, SolvesHoverEquilibrium) {
     std::vector<Se3Reference> references(static_cast<size_t>(UavNmpcSolver::horizonSteps() + 2),
                                          hover);
     EXPECT_TRUE(solver.solve(x0, hover.control.body_z_specific_force,
-                             hover.control.body_z_specific_force, references))
+                             hover.control.body_z_specific_force, Eigen::Vector3d::Zero(),
+                             references))
         << "status=" << solver.status();
     EXPECT_NEAR(solver.optimalControl()(0), 9.8066, 1e-3);
     EXPECT_NEAR(solver.predictedBodyRate().norm(), 0.0, 1e-3);
@@ -408,7 +409,7 @@ TEST(UavNmpcSolver, SolvesHoverEquilibrium) {
 TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
     ros::Time::init();
     UavNmpcSolver solver;
-    ASSERT_TRUE(solver.configureInputBounds(8.0, 12.0, 3.0, 1.0));
+    ASSERT_TRUE(solver.configureInputBounds(8.0, 12.0, 3.0, 1.0, 15.0, 2.0));
     ASSERT_TRUE(solver.initialize());
 
     Se3Reference hover;
@@ -421,24 +422,27 @@ TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
     std::vector<Se3Reference> references(static_cast<size_t>(UavNmpcSolver::horizonSteps() + 2),
                                          hover);
     ASSERT_TRUE(solver.solve(x0, hover.control.body_z_specific_force,
-                             hover.control.body_z_specific_force, references))
+                             hover.control.body_z_specific_force, Eigen::Vector3d::Zero(),
+                             references))
         << "status=" << solver.status();
     EXPECT_GE(solver.optimalControl()(0), 8.0 - 1e-5);
     EXPECT_LE(solver.optimalControl()(0), 12.0 + 1e-5);
 }
 
-TEST(UavNmpcBridge, UsesPredictedBodyRateCommand) {
-    const Eigen::Vector3d predicted_rate(0.80, -0.40, 0.30);
-    const Eigen::Vector3d command = bodyRateCommandFromPredictedBodyRate(predicted_rate, 3.5, 0.9);
+TEST(UavNmpcBridge, IntegratesAngularAccelerationOverControlPeriod) {
+    const Eigen::Vector3d current_rate(0.10, -0.20, 0.05);
+    const Eigen::Vector3d alpha(2.0, -1.0, 0.5);
+    const Eigen::Vector3d command =
+        bodyRateCommandFromAngularAcceleration(current_rate, alpha, 0.01, 3.5, 0.9);
 
-    EXPECT_NEAR(command.x(), 0.80, 1e-12);
-    EXPECT_NEAR(command.y(), -0.40, 1e-12);
-    EXPECT_NEAR(command.z(), 0.30, 1e-12);
+    EXPECT_NEAR(command.x(), 0.12, 1e-12);
+    EXPECT_NEAR(command.y(), -0.21, 1e-12);
+    EXPECT_NEAR(command.z(), 0.055, 1e-12);
 }
 
 TEST(UavNmpcBridge, ClampsBodyRateCommand) {
-    const Eigen::Vector3d command =
-        bodyRateCommandFromPredictedBodyRate(Eigen::Vector3d(4.0, -4.0, 1.2), 3.5, 0.9);
+    const Eigen::Vector3d command = bodyRateCommandFromAngularAcceleration(
+        Eigen::Vector3d(3.4, -3.4, 0.85), Eigen::Vector3d(20.0, -20.0, 10.0), 0.01, 3.5, 0.9);
 
     EXPECT_NEAR(command.x(), 3.5, 1e-12);
     EXPECT_NEAR(command.y(), -3.5, 1e-12);
@@ -457,7 +461,7 @@ TEST(UavNmpcBridge, RecoversBodyRateFromReferenceAttitudeDelta) {
     EXPECT_NEAR(body_rate.z(), yaw_rate, 1e-12);
 }
 
-TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangAngularAcceleration) {
+TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangBodyRate) {
     ros::Time::init();
     UavNmpcSolver solver;
     ASSERT_TRUE(solver.initialize());
@@ -466,9 +470,9 @@ TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangAngularAcceleration) {
     ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), ros::Time(10.0)));
 
     constexpr double kStageDt = 0.1;
-    constexpr double kSaturationGuard = 8.5;
+    constexpr double kSaturationGuard = 3.0;
     int near_saturation_count = 0;
-    double max_angular_accel = 0.0;
+    double max_body_rate = 0.0;
     for (int phase = 0; phase < 360; phase += 30) {
         const double t0 = static_cast<double>(phase) * M_PI / 180.0;
         std::vector<Se3Reference> references;
@@ -484,17 +488,18 @@ TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangAngularAcceleration) {
 
         solver.resetWarmStart();
         EXPECT_TRUE(solver.solve(x0, references.front().control.body_z_specific_force,
-                                 references.front().control.body_z_specific_force, references))
+                                 references.front().control.body_z_specific_force,
+                                 Eigen::Vector3d::Zero(), references))
             << "phase=" << phase << " status=" << solver.status();
         const Se3ControlVector command = solver.optimalControl();
-        const double angular_accel = command.tail<3>().cwiseAbs().maxCoeff();
-        max_angular_accel = std::max(max_angular_accel, angular_accel);
-        if (angular_accel > kSaturationGuard) {
+        const double body_rate = command.tail<3>().cwiseAbs().maxCoeff();
+        max_body_rate = std::max(max_body_rate, body_rate);
+        if (body_rate > kSaturationGuard) {
             ++near_saturation_count;
         }
     }
 
-    EXPECT_LE(max_angular_accel, kSaturationGuard);
+    EXPECT_LE(max_body_rate, kSaturationGuard);
     EXPECT_EQ(near_saturation_count, 0);
 }
 

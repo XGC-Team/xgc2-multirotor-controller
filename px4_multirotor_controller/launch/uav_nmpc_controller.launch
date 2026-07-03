@@ -27,6 +27,7 @@
     <arg name="max_yaw_body_rate" default="0.8726646"/>
     <arg name="max_roll_pitch_angular_acceleration" default="15.0"/>
     <arg name="max_yaw_angular_acceleration" default="2.0"/>
+    <arg name="body_rate_time_constant" default="0.08"/>
     <arg name="reference_start_delay" default="0.2"/>
     <arg name="reference_duration" default="60.0"/>
     <arg name="reference_radius" default="3.0"/>
@@ -83,6 +84,7 @@
                    value="$(arg max_roll_pitch_angular_acceleration)"/>
             <param name="nmpc/max_yaw_angular_acceleration"
                    value="$(arg max_yaw_angular_acceleration)"/>
+            <param name="nmpc/body_rate_time_constant" value="$(arg body_rate_time_constant)"/>
             <param name="nmpc/reference_start_delay" value="$(arg reference_start_delay)"/>
             <param name="nmpc/reference_duration" value="$(arg reference_duration)"/>
             <param name="nmpc/reference_radius" value="$(arg reference_radius)"/>

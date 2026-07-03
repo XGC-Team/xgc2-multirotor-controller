@@ -10,7 +10,7 @@ cycle:
 4. call solve and reject nonzero status;
 5. read u0 and predicted x1;
 6. shift warm start with the next terminal reference;
-7. map [T/m; angular_acceleration] to PX4 body-rate plus normalized thrust.
+7. map [T/m; body_rate_command] to PX4 body-rate plus normalized thrust.
 """
 
 from __future__ import annotations

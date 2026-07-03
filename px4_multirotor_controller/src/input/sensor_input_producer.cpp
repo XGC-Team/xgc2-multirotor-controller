@@ -135,6 +135,9 @@ void SensorInputProducer::stateEstimateCallback(
     sensor_data_.uav_state_estimator_state = msg->estimator_state;
     sensor_data_.uav_state_estimator_flags = msg->flags;
     sensor_data_.uav_state_estimate_stamp = msg->header.stamp.toSec();
+    sensor_data_.uav_state_filter_inertial_stamp = msg->filter_inertial_stamp_sec;
+    sensor_data_.uav_state_filter_pose_stamp = msg->filter_pose_stamp_sec;
+    sensor_data_.uav_state_last_vrpn_pose_stamp = msg->last_vrpn_pose_stamp_sec;
     postInputEvent(event_type::INPUT_UAV_STATE_ESTIMATE_UPDATED, "alg/state_estimator/state");
 }
 

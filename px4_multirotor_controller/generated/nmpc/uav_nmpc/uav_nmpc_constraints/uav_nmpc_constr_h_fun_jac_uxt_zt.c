@@ -36,7 +36,6 @@ extern "C" {
 #define casadi_s3 CASADI_PREFIX(s3)
 #define casadi_s4 CASADI_PREFIX(s4)
 #define casadi_s5 CASADI_PREFIX(s5)
-#define casadi_s6 CASADI_PREFIX(s6)
 #define casadi_sq CASADI_PREFIX(sq)
 
 /* Symbol visibility in DLLs */
@@ -59,12 +58,14 @@ casadi_real casadi_sq(casadi_real x) { return x*x;}
 static const casadi_int casadi_s0[3] = {14, 1, 1};
 static const casadi_int casadi_s1[3] = {4, 1, 1};
 static const casadi_int casadi_s2[3] = {0, 1, 1};
-static const casadi_int casadi_s3[3] = {19, 1, 1};
-static const casadi_int casadi_s4[3] = {1, 1, 1};
-static const casadi_int casadi_s5[8] = {18, 1, 0, 4, 10, 11, 12, 13};
-static const casadi_int casadi_s6[3] = {1, 0, 1};
+static const casadi_int casadi_s3[3] = {22, 1, 1};
+static const casadi_int casadi_s4[17] = 
+  {18, 4, 0, 4, 6, 8, 10, 10,
+  11, 12, 13, 1, 14, 2, 15, 3,
+  16};
+static const casadi_int casadi_s5[3] = {4, 0, 1};
 
-/* uav_nmpc_constr_h_fun_jac_uxt_zt:(i0[14],i1[4],i2[0],i3[19])->(o0,o1[18x1,4nz],o2[1x0]) */
+/* uav_nmpc_constr_h_fun_jac_uxt_zt:(i0[14],i1[4],i2[0],i3[22])->(o0[4],o1[18x4,10nz],o2[4x0]) */
 static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem) {
   casadi_real a00, a01, a02, a03, a04, a05, a06, a07, a08, a09, a10;
   a00=1.;
@@ -91,6 +92,22 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   a01=(a01*a08);
   a00=(a00-a01);
   if (res[0]!=0) res[0][0]=a00;
+  a00=arg[1]? arg[1][1] : 0;
+  a01=arg[0]? arg[0][10] : 0;
+  a00=(a00-a01);
+  a01=8.0000000000000002e-02;
+  a00=(a00/a01);
+  if (res[0]!=0) res[0][1]=a00;
+  a00=arg[1]? arg[1][2] : 0;
+  a08=arg[0]? arg[0][11] : 0;
+  a00=(a00-a08);
+  a00=(a00/a01);
+  if (res[0]!=0) res[0][2]=a00;
+  a00=arg[1]? arg[1][3] : 0;
+  a08=arg[0]? arg[0][12] : 0;
+  a00=(a00-a08);
+  a00=(a00/a01);
+  if (res[0]!=0) res[0][3]=a00;
   a03=(a03+a03);
   a00=(a09/a04);
   a01=-2.;
@@ -121,6 +138,14 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   a06=(a06*a00);
   a06=(-a06);
   if (res[1]!=0) res[1][3]=a06;
+  a06=1.2500000000000000e+01;
+  if (res[1]!=0) res[1][4]=a06;
+  a00=-1.2500000000000000e+01;
+  if (res[1]!=0) res[1][5]=a00;
+  if (res[1]!=0) res[1][6]=a06;
+  if (res[1]!=0) res[1][7]=a00;
+  if (res[1]!=0) res[1][8]=a06;
+  if (res[1]!=0) res[1][9]=a00;
   return 0;
 }
 
@@ -193,9 +218,9 @@ CASADI_SYMBOL_EXPORT const casadi_int* uav_nmpc_constr_h_fun_jac_uxt_zt_sparsity
 
 CASADI_SYMBOL_EXPORT const casadi_int* uav_nmpc_constr_h_fun_jac_uxt_zt_sparsity_out(casadi_int i) {
   switch (i) {
-    case 0: return casadi_s4;
-    case 1: return casadi_s5;
-    case 2: return casadi_s6;
+    case 0: return casadi_s1;
+    case 1: return casadi_s4;
+    case 2: return casadi_s5;
     default: return 0;
   }
 }

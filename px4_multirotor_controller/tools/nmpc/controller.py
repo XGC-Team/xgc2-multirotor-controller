@@ -30,14 +30,16 @@ from .references import BaseTrajectory
 class Bounds:
     """Default state and input bounds for the UAV NMPC OCP."""
 
-    u_min: np.ndarray = field(default_factory=lambda: np.array([5.0, -10.0, -10.0, -10.0]))
-    u_max: np.ndarray = field(default_factory=lambda: np.array([20.373, 10.0, 10.0, 10.0]))
+    u_min: np.ndarray = field(default_factory=lambda: np.array([5.0, -3.4906585, -3.4906585, -0.8726646]))
+    u_max: np.ndarray = field(default_factory=lambda: np.array([20.373, 3.4906585, 3.4906585, 0.8726646]))
     p_min: np.ndarray = field(default_factory=lambda: np.array([-100.0, -100.0, 0.2]))
     p_max: np.ndarray = field(default_factory=lambda: np.array([100.0, 100.0, 6.0]))
     v_min: np.ndarray = field(default_factory=lambda: np.array([-10.0, -10.0, -10.0]))
     v_max: np.ndarray = field(default_factory=lambda: np.array([10.0, 10.0, 10.0]))
     omega_min: np.ndarray = field(default_factory=lambda: np.array([-6.0, -6.0, -6.0]))
     omega_max: np.ndarray = field(default_factory=lambda: np.array([6.0, 6.0, 6.0]))
+    alpha_min: np.ndarray = field(default_factory=lambda: np.array([-15.0, -15.0, -2.0]))
+    alpha_max: np.ndarray = field(default_factory=lambda: np.array([15.0, 15.0, 2.0]))
     tilt_max_deg: float = 45.0
 
     def input_pairs(self, horizon_steps: int) -> list[tuple[float, float]]:
@@ -67,16 +69,17 @@ class CostWeights:
     velocity: np.ndarray = field(default_factory=lambda: 30.0 * np.ones(3))
     thrust_direction: np.ndarray = field(default_factory=lambda: 40.0 * np.ones(3))
     yaw: float = 1.0
-    omega: np.ndarray = field(default_factory=lambda: 3.0 * np.ones(3))
+    omega: np.ndarray = field(default_factory=lambda: 0.5 * np.ones(3))
     thrust_actual: float = 2.0
     thrust_command_delta: float = 0.35
+    body_rate_command_delta: np.ndarray = field(default_factory=lambda: np.array([8.0, 8.0, 16.0]))
     terminal_position: np.ndarray = field(default_factory=lambda: 300.0 * np.ones(3))
     terminal_velocity: np.ndarray = field(default_factory=lambda: 80.0 * np.ones(3))
     terminal_thrust_direction: np.ndarray = field(default_factory=lambda: 80.0 * np.ones(3))
     terminal_yaw: float = 2.0
-    terminal_omega: np.ndarray = field(default_factory=lambda: 6.0 * np.ones(3))
+    terminal_omega: np.ndarray = field(default_factory=lambda: 1.0 * np.ones(3))
     terminal_thrust_actual: float = 4.0
-    control: np.ndarray = field(default_factory=lambda: np.array([0.08, 0.20, 0.20, 1.00]))
+    control: np.ndarray = field(default_factory=lambda: np.array([0.08, 0.80, 0.80, 2.00]))
     unit_quat_penalty: float = 10.0
     input_slack: np.ndarray = field(default_factory=lambda: np.array([1.0e8, 1.0e6, 1.0e6, 1.0e6]))
     state_slack_position: np.ndarray = field(default_factory=lambda: 1.0e4 * np.ones(3))
@@ -341,13 +344,18 @@ class AcadosNMPCController:
         self._set_x0_constraint(state)
 
         _, current_uref = self.reference.get_reference(time)
-        last_commanded_thrust = (
-            float(self.last_u[0]) if self.last_u is not None else float(current_uref[0])
-        )
+        if self.last_u is not None:
+            last_commanded_thrust = float(self.last_u[0])
+            last_commanded_body_rate = self.last_u[1:4].copy()
+        else:
+            last_commanded_thrust = float(current_uref[0])
+            last_commanded_body_rate = current_uref[1:4].copy()
 
         for stage in range(self.config.steps + 1):
             xref, uref = self.reference.get_reference(time + stage * self.config.dt)
-            parameter = np.concatenate((xref, uref, np.array([last_commanded_thrust])))
+            parameter = np.concatenate(
+                (xref, uref, np.array([last_commanded_thrust]), last_commanded_body_rate)
+            )
             self.ocp_solver.set(stage, "p", parameter)
             if self.x_guess is not None:
                 self.ocp_solver.set(stage, "x", self.x_guess[min(stage, self.x_guess.shape[0] - 1)])
@@ -469,7 +477,7 @@ class AcadosNMPCController:
 
         nx = STATE_SIZE
         nu = 4
-        np_param = nx + nu + 1
+        np_param = nx + nu + 4
         x = ca.SX.sym("x", nx)
         xdot = ca.SX.sym("xdot", nx)
         u = ca.SX.sym("u", nu)
@@ -481,7 +489,7 @@ class AcadosNMPCController:
         omega = x[10:13]
         thrust_command = u[0]
         thrust_actual = x[THRUST_ACT]
-        alpha = u[1:4]
+        body_rate_command = u[1:4]
         quat_dot = self._casadi_quat_derivative(ca, quat, omega)
         rotation = self._casadi_quat_to_rotation(ca, quat)
         e3 = ca.vertcat(0.0, 0.0, 1.0)
@@ -492,7 +500,7 @@ class AcadosNMPCController:
             vel,
             -self.params.g * e3 + thrust_actual * (rotation @ e3),
             quat_dot,
-            alpha,
+            (body_rate_command - omega) / self.params.body_rate_time_constant,
             thrust_actual_dot,
         )
 
@@ -515,7 +523,10 @@ class AcadosNMPCController:
         model.cost_y_expr_0 = cost_y_expr_0
         model.cost_y_expr_e = cost_y_expr_e
         tilt_expr = ca.vertcat(rotation[2, 2])
-        model.con_h_expr = tilt_expr
+        equivalent_alpha = (body_rate_command - omega) / self.params.body_rate_time_constant
+        path_constraint_expr = ca.vertcat(tilt_expr, equivalent_alpha)
+        model.con_h_expr_0 = path_constraint_expr
+        model.con_h_expr = path_constraint_expr
         model.con_h_expr_e = tilt_expr
 
         ocp = AcadosOcp()
@@ -564,8 +575,12 @@ class AcadosNMPCController:
         ocp.constraints.ubx_e = ubx[idxbx]
         ocp.constraints.idxsbx_e = np.arange(idxbx.size)
         tilt_min = float(np.cos(np.deg2rad(self.bounds.tilt_max_deg)))
-        ocp.constraints.lh = np.array([tilt_min])
-        ocp.constraints.uh = np.array([1.0e3])
+        alpha_min = as_vector(self.bounds.alpha_min, 3, "alpha_min")
+        alpha_max = as_vector(self.bounds.alpha_max, 3, "alpha_max")
+        ocp.constraints.lh_0 = np.concatenate((np.array([tilt_min]), alpha_min))
+        ocp.constraints.uh_0 = np.concatenate((np.array([1.0e3]), alpha_max))
+        ocp.constraints.lh = np.concatenate((np.array([tilt_min]), alpha_min))
+        ocp.constraints.uh = np.concatenate((np.array([1.0e3]), alpha_max))
         ocp.constraints.idxsh = np.array([0])
         ocp.constraints.lh_e = np.array([tilt_min])
         ocp.constraints.uh_e = np.array([1.0e3])
@@ -628,6 +643,7 @@ class AcadosNMPCController:
         xref = p[0:STATE_SIZE]
         uref = p[STATE_SIZE : STATE_SIZE + 4]
         last_commanded_thrust = p[STATE_SIZE + 4]
+        last_commanded_body_rate = p[STATE_SIZE + 5 : STATE_SIZE + 8]
         rotation = self._casadi_quat_to_rotation(ca, x[6:10])
         rotation_ref = self._casadi_quat_to_rotation(ca, xref[6:10])
         e_thrust_direction = self._casadi_thrust_direction_error(ca, rotation, rotation_ref)
@@ -680,8 +696,11 @@ class AcadosNMPCController:
             ]
             if initial:
                 e_thrust_command_delta = u[0] - last_commanded_thrust
+                e_body_rate_command_delta = u[1:4] - last_commanded_body_rate
                 residual_parts.append(e_thrust_command_delta)
+                residual_parts.append(e_body_rate_command_delta)
                 weight_parts.append(np.array([self.weights.thrust_command_delta]))
+                weight_parts.append(self.weights.body_rate_command_delta)
             residual_parts.append(unit_error)
             weight_parts.append(np.array([self.weights.unit_quat_penalty]))
             residual = ca.vertcat(

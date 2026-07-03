@@ -37,6 +37,7 @@ extern "C" {
 #define casadi_s4 CASADI_PREFIX(s4)
 #define casadi_s5 CASADI_PREFIX(s5)
 #define casadi_s6 CASADI_PREFIX(s6)
+#define casadi_s7 CASADI_PREFIX(s7)
 #define casadi_sq CASADI_PREFIX(sq)
 
 /* Symbol visibility in DLLs */
@@ -60,8 +61,9 @@ static const casadi_int casadi_s0[3] = {14, 1, 1};
 static const casadi_int casadi_s1[3] = {4, 1, 1};
 static const casadi_int casadi_s2[3] = {0, 1, 1};
 static const casadi_int casadi_s3[3] = {0, 0, 1};
-static const casadi_int casadi_s4[3] = {19, 1, 1};
-static const casadi_int casadi_s5[56] = 
+static const casadi_int casadi_s4[3] = {22, 1, 1};
+static const casadi_int casadi_s5[3] = {19, 1, 1};
+static const casadi_int casadi_s6[56] = 
   {18, 19, 0, 1, 2, 3, 4, 5,
   6, 10, 14, 18, 22, 23, 24, 25,
   26, 27, 28, 29, 30, 34, 4, 5,
@@ -69,9 +71,9 @@ static const casadi_int casadi_s5[56] =
   10, 11, 12, 13, 10, 11, 12, 13,
   10, 11, 12, 13, 14, 15, 16, 17,
   0, 1, 2, 3, 10, 11, 12, 13};
-static const casadi_int casadi_s6[3] = {19, 0, 1};
+static const casadi_int casadi_s7[3] = {19, 0, 1};
 
-/* uav_nmpc_cost_y_fun_jac_ut_xt:(i0[14],i1[4],i2[0],i3[],i4[19])->(o0[19],o1[18x19,34nz],o2[19x0]) */
+/* uav_nmpc_cost_y_fun_jac_ut_xt:(i0[14],i1[4],i2[0],i3[],i4[22])->(o0[19],o1[18x19,34nz],o2[19x0]) */
 static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem) {
   casadi_real a00, a01, a02, a03, a04, a05, a06, a07, a08, a09, a10, a11;
   casadi_real a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23;
@@ -767,9 +769,9 @@ CASADI_SYMBOL_EXPORT const casadi_int* uav_nmpc_cost_y_fun_jac_ut_xt_sparsity_in
 
 CASADI_SYMBOL_EXPORT const casadi_int* uav_nmpc_cost_y_fun_jac_ut_xt_sparsity_out(casadi_int i) {
   switch (i) {
-    case 0: return casadi_s4;
-    case 1: return casadi_s5;
-    case 2: return casadi_s6;
+    case 0: return casadi_s5;
+    case 1: return casadi_s6;
+    case 2: return casadi_s7;
     default: return 0;
   }
 }

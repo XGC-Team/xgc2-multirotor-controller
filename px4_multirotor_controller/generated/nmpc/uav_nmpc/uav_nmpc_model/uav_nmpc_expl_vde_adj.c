@@ -55,10 +55,10 @@ casadi_real casadi_sq(casadi_real x) { return x*x;}
 
 static const casadi_int casadi_s0[3] = {14, 1, 1};
 static const casadi_int casadi_s1[3] = {4, 1, 1};
-static const casadi_int casadi_s2[3] = {19, 1, 1};
+static const casadi_int casadi_s2[3] = {22, 1, 1};
 static const casadi_int casadi_s3[3] = {18, 1, 1};
 
-/* uav_nmpc_expl_vde_adj:(i0[14],i1[14],i2[4],i3[19])->(o0[18]) */
+/* uav_nmpc_expl_vde_adj:(i0[14],i1[14],i2[4],i3[22])->(o0[18]) */
 static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem) {
   casadi_real a00, a01, a02, a03, a04, a05, a06, a07, a08, a09, a10, a11;
   casadi_real a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23;
@@ -210,22 +210,32 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   a18=(a18-a12);
   if (res[0]!=0) res[0][9]=a18;
   a18=(a16*a05);
-  a12=(a19*a02);
-  a18=(a18-a12);
-  a12=(a08*a07);
-  a18=(a18+a12);
-  a12=(a22*a01);
-  a18=(a18-a12);
+  a12=1.2500000000000000e+01;
+  a15=arg[1]? arg[1][10] : 0;
+  a15=(a12*a15);
+  a20=(a19*a02);
+  a20=(a15+a20);
+  a18=(a18-a20);
+  a20=(a08*a07);
+  a18=(a18+a20);
+  a20=(a22*a01);
+  a18=(a18-a20);
   if (res[0]!=0) res[0][10]=a18;
   a18=(a22*a02);
-  a12=(a08*a05);
-  a18=(a18+a12);
-  a12=(a16*a07);
-  a18=(a18-a12);
-  a12=(a19*a01);
-  a18=(a18-a12);
+  a20=arg[1]? arg[1][11] : 0;
+  a20=(a12*a20);
+  a18=(a18-a20);
+  a09=(a08*a05);
+  a18=(a18+a09);
+  a09=(a16*a07);
+  a18=(a18-a09);
+  a09=(a19*a01);
+  a18=(a18-a09);
   if (res[0]!=0) res[0][11]=a18;
   a02=(a08*a02);
+  a18=arg[1]? arg[1][12] : 0;
+  a12=(a12*a18);
+  a02=(a02-a12);
   a05=(a22*a05);
   a02=(a02-a05);
   a07=(a19*a07);
@@ -258,12 +268,9 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   a02=(a02+a00);
   if (res[0]!=0) res[0][13]=a02;
   if (res[0]!=0) res[0][14]=a31;
-  a31=arg[1]? arg[1][10] : 0;
-  if (res[0]!=0) res[0][15]=a31;
-  a31=arg[1]? arg[1][11] : 0;
-  if (res[0]!=0) res[0][16]=a31;
-  a31=arg[1]? arg[1][12] : 0;
-  if (res[0]!=0) res[0][17]=a31;
+  if (res[0]!=0) res[0][15]=a15;
+  if (res[0]!=0) res[0][16]=a20;
+  if (res[0]!=0) res[0][17]=a12;
   return 0;
 }
 

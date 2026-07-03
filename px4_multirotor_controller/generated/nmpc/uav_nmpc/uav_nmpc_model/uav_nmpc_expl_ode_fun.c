@@ -54,9 +54,9 @@ casadi_real casadi_sq(casadi_real x) { return x*x;}
 
 static const casadi_int casadi_s0[3] = {14, 1, 1};
 static const casadi_int casadi_s1[3] = {4, 1, 1};
-static const casadi_int casadi_s2[3] = {19, 1, 1};
+static const casadi_int casadi_s2[3] = {22, 1, 1};
 
-/* uav_nmpc_expl_ode_fun:(i0[14],i1[4],i2[19])->(o0[14]) */
+/* uav_nmpc_expl_ode_fun:(i0[14],i1[4],i2[22])->(o0[14]) */
 static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem) {
   casadi_real a00, a01, a02, a03, a04, a05, a06, a07, a08, a09, a10;
   a00=arg[0]? arg[0][3] : 0;
@@ -141,10 +141,17 @@ static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw,
   a07=(a07*a03);
   if (res[0]!=0) res[0][9]=a07;
   a07=arg[1]? arg[1][1] : 0;
+  a07=(a07-a04);
+  a04=8.0000000000000002e-02;
+  a07=(a07/a04);
   if (res[0]!=0) res[0][10]=a07;
   a07=arg[1]? arg[1][2] : 0;
+  a07=(a07-a08);
+  a07=(a07/a04);
   if (res[0]!=0) res[0][11]=a07;
   a07=arg[1]? arg[1][3] : 0;
+  a07=(a07-a09);
+  a07=(a07/a04);
   if (res[0]!=0) res[0][12]=a07;
   a07=arg[1]? arg[1][0] : 0;
   a07=(a07-a00);

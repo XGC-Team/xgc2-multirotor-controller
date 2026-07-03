@@ -29,11 +29,14 @@ class UavNmpcSolver {
 
     bool initialize();
     bool configureInputBounds(double specific_thrust_min, double specific_thrust_max,
+                              double max_roll_pitch_body_rate, double max_yaw_body_rate,
                               double max_roll_pitch_angular_acceleration,
                               double max_yaw_angular_acceleration);
     void resetWarmStart();
     bool solve(const Se3StateVector& x0, double thrust_actual,
-               double last_commanded_specific_thrust, const std::vector<Se3Reference>& references);
+               double last_commanded_specific_thrust,
+               const Eigen::Vector3d& last_commanded_body_rate,
+               const std::vector<Se3Reference>& references);
 
     Se3ControlVector optimalControl() const {
         return optimal_control_;
@@ -74,10 +77,11 @@ class UavNmpcSolver {
     }
 
    private:
-    bool applyInputBounds();
+    bool applyRuntimeBounds();
     bool setInitialState(const UavNmpcStateVector& x0);
     bool setReference(int stage, const Se3Reference& reference,
-                      double last_commanded_specific_thrust);
+                      double last_commanded_specific_thrust,
+                      const Eigen::Vector3d& last_commanded_body_rate);
     void setGuesses(const UavNmpcStateVector& x0, const std::vector<Se3Reference>& references);
     void readSolution();
     void shiftWarmStart(const std::vector<Se3Reference>& references);
@@ -99,8 +103,10 @@ class UavNmpcSolver {
     std::array<UavNmpcStateVector, UAV_NMPC_N + 1> x_solution_{};
     std::array<Se3StateVector, UAV_NMPC_N + 1> predicted_states_{};
     std::array<Se3ControlVector, UAV_NMPC_N> u_solution_{};
-    std::array<double, UAV_NMPC_NU> input_lower_bounds_{{5.0, -10.0, -10.0, -10.0}};
-    std::array<double, UAV_NMPC_NU> input_upper_bounds_{{20.373, 10.0, 10.0, 10.0}};
+    std::array<double, UAV_NMPC_NU> input_lower_bounds_{{5.0, -3.4906585, -3.4906585, -0.8726646}};
+    std::array<double, UAV_NMPC_NU> input_upper_bounds_{{20.373, 3.4906585, 3.4906585, 0.8726646}};
+    std::array<double, UAV_NMPC_NH> path_lower_bounds_{{0.7071067811865476, -15.0, -15.0, -2.0}};
+    std::array<double, UAV_NMPC_NH> path_upper_bounds_{{1.0e3, 15.0, 15.0, 2.0}};
     Se3ControlVector optimal_control_{Se3ControlVector::Zero()};
     Eigen::Vector3d predicted_body_rate_{Eigen::Vector3d::Zero()};
 };
