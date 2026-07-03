@@ -3,8 +3,18 @@
 #include <cmath>
 #include <utility>
 
+#include <px4_multirotor_controller/NmpcDebugSample.h>
+
 namespace px4_multirotor_controller {
 namespace {
+
+geometry_msgs::Vector3 vector3FromEigen(const Eigen::Vector3d& vector) {
+    geometry_msgs::Vector3 value;
+    value.x = vector.x();
+    value.y = vector.y();
+    value.z = vector.z();
+    return value;
+}
 
 geometry_msgs::Pose poseFromState(const Se3StateVector& state) {
     geometry_msgs::Pose pose;
@@ -30,11 +40,24 @@ geometry_msgs::Pose poseFromState(const Se3StateVector& state) {
     return pose;
 }
 
+geometry_msgs::Twist twistFromState(const Se3StateVector& state) {
+    geometry_msgs::Twist twist;
+    twist.linear.x = state(3);
+    twist.linear.y = state(4);
+    twist.linear.z = state(5);
+    twist.angular.x = state(10);
+    twist.angular.y = state(11);
+    twist.angular.z = state(12);
+    return twist;
+}
+
 }  // namespace
 
 NmpcOutputConsumer::NmpcOutputConsumer(ros::NodeHandle& nh, DroneController& controller,
                                        EventSink event_sink, uint32_t queue_size)
     : nh_(nh), controller_(controller), event_sink_(std::move(event_sink)) {
+    debug_pub_ = nh_.advertise<px4_multirotor_controller::NmpcDebugSample>(
+        "alg/nmpc/debug_sample", queue_size);
     predicted_path_pub_ = nh_.advertise<nav_msgs::Path>("alg/nmpc/predicted_path", queue_size);
     predicted_poses_pub_ =
         nh_.advertise<geometry_msgs::PoseArray>("alg/nmpc/predicted_poses", queue_size);
@@ -120,6 +143,7 @@ void NmpcOutputConsumer::workerLoop() {
                 backend_.compute(request.sensor, request.references, request.now, result.target);
             result.solver_status = backend_.status();
             result.solve_time_ms = backend_.solveTimeMs();
+            publishDebug(request.sequence, request.now);
             if (result.success) {
                 publishPrediction(request.now);
             }
@@ -158,6 +182,57 @@ void NmpcOutputConsumer::postResultEvent(uint64_t sequence, bool success) {
     event.source = "nmpc_output_consumer";
     event.correlation_id = sequence;
     (void)event_sink_(std::move(event));
+}
+
+void NmpcOutputConsumer::publishDebug(uint64_t sequence, const ros::Time& stamp) {
+    const NmpcDebugData& debug = backend_.lastDebugData();
+    if (!debug.valid) {
+        return;
+    }
+
+    px4_multirotor_controller::NmpcDebugSample msg;
+    msg.header.stamp = stamp;
+    msg.header.frame_id = "world";
+    msg.sequence = sequence;
+    msg.success = debug.success;
+    msg.solver_status = debug.solver_status;
+    msg.solve_time_ms = debug.solve_time_ms;
+    msg.state_estimate_stamp_sec = debug.state_estimate_stamp_sec;
+    msg.filter_inertial_stamp_sec = debug.filter_inertial_stamp_sec;
+    msg.filter_pose_stamp_sec = debug.filter_pose_stamp_sec;
+    msg.last_vrpn_pose_stamp_sec = debug.last_vrpn_pose_stamp_sec;
+    msg.state_pose = poseFromState(debug.state);
+    msg.state_twist = twistFromState(debug.state);
+    msg.reference_pose = poseFromState(debug.reference);
+    msg.reference_twist = twistFromState(debug.reference);
+    msg.horizon_pose = poseFromState(debug.horizon_reference);
+    msg.reference_acceleration = vector3FromEigen(debug.reference_acceleration);
+    msg.position_error = vector3FromEigen(debug.position_error);
+    msg.velocity_error = vector3FromEigen(debug.velocity_error);
+    msg.omega_error = vector3FromEigen(debug.omega_error);
+    msg.body_rate_command = vector3FromEigen(debug.body_rate_command);
+    msg.predicted_body_rate = vector3FromEigen(debug.predicted_body_rate);
+    msg.alpha_command = vector3FromEigen(debug.angular_acceleration_command);
+    msg.reference_alpha = vector3FromEigen(debug.reference_control.segment<3>(1));
+    msg.specific_thrust_command = debug.optimal_control(0);
+    msg.normalized_thrust_raw = debug.normalized_thrust_raw;
+    msg.normalized_thrust_command = debug.normalized_thrust_command;
+    msg.reference_specific_thrust = debug.reference_control(0);
+    msg.hover_thrust = debug.hover_thrust;
+    msg.initial_hover_thrust = debug.initial_hover_thrust;
+    msg.thrust_actual_estimate = debug.thrust_actual_estimate;
+    msg.last_commanded_specific_thrust = debug.last_commanded_specific_thrust;
+    msg.effective_specific_thrust_min = debug.effective_specific_thrust_min;
+    msg.effective_specific_thrust_max = debug.effective_specific_thrust_max;
+    msg.normalized_thrust_min_saturated = debug.normalized_thrust_min_saturated;
+    msg.normalized_thrust_max_saturated = debug.normalized_thrust_max_saturated;
+    msg.roll_rate_saturated = debug.roll_rate_saturated;
+    msg.pitch_rate_saturated = debug.pitch_rate_saturated;
+    msg.yaw_rate_saturated = debug.yaw_rate_saturated;
+    msg.roll_alpha_saturated = debug.roll_alpha_saturated;
+    msg.pitch_alpha_saturated = debug.pitch_alpha_saturated;
+    msg.yaw_alpha_saturated = debug.yaw_alpha_saturated;
+    debug_pub_.publish(msg);
 }
 
 void NmpcOutputConsumer::publishPrediction(const ros::Time& stamp) {

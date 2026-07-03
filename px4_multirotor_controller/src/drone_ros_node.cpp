@@ -311,6 +311,8 @@ void DroneRosNode::loadControllerConfig() {
                       config.nmpc.control_period);
     nh_private_.param("nmpc/prediction_horizon", config.nmpc.prediction_horizon,
                       config.nmpc.prediction_horizon);
+    nh_private_.param("nmpc/body_rate_time_constant", config.nmpc.body_rate_time_constant,
+                      config.nmpc.body_rate_time_constant);
     nh_private_.param("nmpc/gravity", config.nmpc.gravity, config.nmpc.gravity);
     nh_private_.param("nmpc/hover_thrust_ratio", config.nmpc.hover_thrust_ratio,
                       config.nmpc.hover_thrust_ratio);
@@ -378,6 +380,11 @@ void DroneRosNode::loadControllerConfig() {
     if (!std::isfinite(config.nmpc.prediction_horizon) || config.nmpc.prediction_horizon <= 0.0) {
         ROS_WARN("[DroneRosNode] Invalid nmpc/prediction_horizon; using 1.000 s");
         config.nmpc.prediction_horizon = 1.0;
+    }
+    if (!std::isfinite(config.nmpc.body_rate_time_constant) ||
+        config.nmpc.body_rate_time_constant <= 1.0e-6) {
+        ROS_WARN("[DroneRosNode] Invalid nmpc/body_rate_time_constant; using 0.080 s");
+        config.nmpc.body_rate_time_constant = 0.08;
     }
     if (!std::isfinite(config.nmpc.gravity) || config.nmpc.gravity <= 1e-6) {
         ROS_WARN("[DroneRosNode] Invalid nmpc/gravity; using 9.8066");
@@ -545,15 +552,15 @@ void DroneRosNode::loadControllerConfig() {
         ROS_INFO(
             "[DroneRosNode] UAV NMPC: dt=%.3f horizon=%.3f gravity=%.4f "
             "hover=%.3f estimator=required hover_timeout=%.3f "
-            "thrust_norm=[%.2f, %.2f] alpha_max=[roll_pitch %.2f yaw %.2f] "
+            "rate_tau=%.3f thrust_norm=[%.2f, %.2f] alpha_diag=[roll_pitch %.2f yaw %.2f] "
             "body_rate_max=[roll_pitch %.2f yaw %.2f] "
             "solve_timeout=%.3f reference_timeout=%.3f "
             "reference_type=%d circle_entry=[radius %.2f speed %.2f height %.2f z_amp %.2f] "
             "torus=[omega %.2f scale %.2f]",
             config.nmpc.control_period, config.nmpc.prediction_horizon, config.nmpc.gravity,
             config.nmpc.hover_thrust_ratio, config.nmpc.hover_thrust_timeout,
-            config.nmpc.normalized_thrust_min, config.nmpc.normalized_thrust_max,
-            config.nmpc.max_roll_pitch_angular_acceleration,
+            config.nmpc.body_rate_time_constant, config.nmpc.normalized_thrust_min,
+            config.nmpc.normalized_thrust_max, config.nmpc.max_roll_pitch_angular_acceleration,
             config.nmpc.max_yaw_angular_acceleration, config.nmpc.max_roll_pitch_body_rate,
             config.nmpc.max_yaw_body_rate, config.nmpc.solve_timeout, config.nmpc.reference_timeout,
             config.nmpc.reference_analytic_type, config.nmpc.reference_radius,

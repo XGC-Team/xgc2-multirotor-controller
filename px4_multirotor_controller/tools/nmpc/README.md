@@ -21,33 +21,31 @@ supported interpreter target.
 The Python state is quaternion based:
 
 ```text
-x = [pos(3); vel(3); quat_wxyz(4); omega(3)]
-u = [T/m; angular_acceleration(3)]
+x = [pos(3); vel(3); quat_wxyz(4); omega(3); thrust_actual]
+u = [T_cmd/m; body_rate_command(3)]
 ```
 
-The high-level dynamics are intentionally one layer above PX4's direct
-body-rate interface:
+The high-level dynamics include the PX4 body-rate interface as a first-order
+rate actuator:
 
 ```text
 p_dot     = v
 v_dot     = -g e3 + (T/m) R(q) e3
 q_dot     = 0.5 * q * [0, omega]
-omega_dot = angular_acceleration
+omega_dot = (omega_cmd - omega) / tau_omega
 ```
 
-The NMPC command is therefore not sent to PX4 raw. Use
-`to_px4_bodyrate_thrust()` or the ROS C++ tracking backend bridge:
+The NMPC command is sent to PX4 as the body-rate setpoint:
 
 ```text
-body_rate_cmd = x_solution[1].omega
+body_rate_cmd = u0[1:4]
 thrust_norm   = hover_thrust_norm * (T/m) / g
 ```
 
-This bridge still does not model the PX4 body-rate loop dynamics inside the
-OCP; it maps the high-level angular-acceleration input through the first
-predicted NMPC state onto the runtime body-rate setpoint. A future deployment-oriented model can make the NMPC
-input `[normalized_thrust; body_rate_cmd]` and approximate the inner loop with
-first-order body-rate dynamics.
+The first shooting node also penalizes the change from the previously published
+body-rate command. That keeps the command compatible with the measured PX4 rate
+loop bandwidth instead of allowing SQP-RTI to jump between opposite rate
+setpoints every control tick.
 
 Attitude tracking cost uses the Lie algebra error
 `log(R_ref.T @ R)^vee`; it does not use raw `R - R_ref` element error.
@@ -69,10 +67,10 @@ fully converged SQP NLP.
 The acados OCP includes:
 
 ```text
-input hard bounds:       T/m and angular acceleration
+input hard bounds:       T/m and body-rate command
 state hard bounds:       position, velocity, omega
 nonlinear hard bounds:   R33(q) >= cos(tilt_max)
-stage parameters:        [xref(14); uref(4)]
+stage parameters:        [xref(14); uref(4); last_thrust_cmd; last_body_rate_cmd(3)]
 cost:                    NONLINEAR_LS tracking with thrust-direction and yaw residuals
 quaternion handling:     normalized simulation state plus unit-norm residual
 ```
@@ -200,9 +198,9 @@ The generated C solver does not include Python-side runtime interactions. The
 C++ wrapper must continue to mirror the Python update sequence:
 
 1. set the fixed `x0` lower/upper bounds every cycle;
-2. set `p=[xref(14); uref(4)]` for stages `0..N`;
+2. set `p=[xref(14); uref(4); last_thrust_cmd; last_body_rate_cmd(3)]` for stages `0..N`;
 3. seed `x/u` warm starts;
 4. call solve and reject nonzero status;
 5. read `u0` and predicted `x1`;
 6. shift warm start with the next terminal reference;
-7. map predicted `x1.omega` and `u0.T/m` to PX4 body-rate plus normalized thrust.
+7. map `u0.omega_cmd` and `u0.T/m` to PX4 body-rate plus normalized thrust.

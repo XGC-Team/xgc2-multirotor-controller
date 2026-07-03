@@ -60,6 +60,8 @@ const std::unordered_map<std::string, DoubleSetter>& doubleSetters() {
          [](ControllerConfig& cfg, double value) { cfg.planning_period = value; }},
         {"nmpc/control_period",
          [](ControllerConfig& cfg, double value) { cfg.nmpc.control_period = value; }},
+        {"nmpc/body_rate_time_constant",
+         [](ControllerConfig& cfg, double value) { cfg.nmpc.body_rate_time_constant = value; }},
         {"nmpc/gravity", [](ControllerConfig& cfg, double value) { cfg.nmpc.gravity = value; }},
         {"nmpc/hover_thrust_ratio",
          [](ControllerConfig& cfg, double value) { cfg.nmpc.hover_thrust_ratio = value; }},
@@ -310,6 +312,9 @@ bool RuntimeParameterService::validate(const ControllerConfig& config, std::stri
         !positive(config.nmpc.max_yaw_body_rate, "nmpc/max_yaw_body_rate")) {
         return false;
     }
+    if (!positive(config.nmpc.body_rate_time_constant, "nmpc/body_rate_time_constant")) {
+        return false;
+    }
     if (config.safety.fence_x_min >= config.safety.fence_x_max ||
         config.safety.fence_y_min >= config.safety.fence_y_max ||
         config.safety.fence_z_min >= config.safety.fence_z_max) {
@@ -336,6 +341,7 @@ std::vector<std::string> RuntimeParameterService::currentValues(
         "nmpc/control_period=" + formatDouble(config.nmpc.control_period),
         "nmpc/prediction_horizon=" + formatDouble(config.nmpc.prediction_horizon),
         "nmpc/gravity=" + formatDouble(config.nmpc.gravity),
+        "nmpc/body_rate_time_constant=" + formatDouble(config.nmpc.body_rate_time_constant),
         "nmpc/hover_thrust_ratio=" + formatDouble(config.nmpc.hover_thrust_ratio),
         "nmpc/min_hover_thrust=" + formatDouble(config.nmpc.min_hover_thrust),
         "nmpc/max_hover_thrust=" + formatDouble(config.nmpc.max_hover_thrust),

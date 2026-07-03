@@ -39,7 +39,7 @@
 #define UAV_NMPC_NX     14
 #define UAV_NMPC_NZ     0
 #define UAV_NMPC_NU     4
-#define UAV_NMPC_NP     19
+#define UAV_NMPC_NP     22
 #define UAV_NMPC_NP_GLOBAL     0
 #define UAV_NMPC_NBX    9
 #define UAV_NMPC_NBX0   14
@@ -61,13 +61,13 @@
 #define UAV_NMPC_NG     0
 #define UAV_NMPC_NBXN   9
 #define UAV_NMPC_NGN    0
-#define UAV_NMPC_NY0    20
+#define UAV_NMPC_NY0    23
 #define UAV_NMPC_NY     19
 #define UAV_NMPC_NYN    15
 #define UAV_NMPC_N      10
-#define UAV_NMPC_NH     1
+#define UAV_NMPC_NH     4
 #define UAV_NMPC_NHN    1
-#define UAV_NMPC_NH0    0
+#define UAV_NMPC_NH0    4
 #define UAV_NMPC_NPHI0  0
 #define UAV_NMPC_NPHI   0
 #define UAV_NMPC_NPHIN  0
@@ -128,6 +128,10 @@ typedef struct uav_nmpc_solver_capsule
 
 
 
+
+
+    external_function_external_param_casadi nl_constr_h_0_fun_jac;
+    external_function_external_param_casadi nl_constr_h_0_fun;
 
 
 

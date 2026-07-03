@@ -8,6 +8,17 @@
 
 namespace px4_multirotor_controller {
 
+namespace {
+
+Se3ControlVector packBodyRateInputReference(const Se3Reference& reference) {
+    Se3ControlVector value = Se3ControlVector::Zero();
+    value(0) = reference.control.body_z_specific_force;
+    value.segment<3>(1) = reference.state.body_rate;
+    return value;
+}
+
+}  // namespace
+
 UavNmpcSolver::UavNmpcSolver() = default;
 
 UavNmpcSolver::~UavNmpcSolver() {
@@ -18,8 +29,9 @@ bool UavNmpcSolver::initialize() {
     if (initialized_) {
         return true;
     }
-    if (UAV_NMPC_NX != 14 || UAV_NMPC_NU != 4 || UAV_NMPC_NP != 19 || UAV_NMPC_N <= 0 ||
-        UAV_NMPC_NY0 != 20 || UAV_NMPC_NY != 19 || UAV_NMPC_NYN != 15 || UAV_NMPC_NH != 1 ||
+    if (UAV_NMPC_NX != 14 || UAV_NMPC_NU != 4 || UAV_NMPC_NP != 22 || UAV_NMPC_N <= 0 ||
+        UAV_NMPC_NY0 != 23 || UAV_NMPC_NY != 19 || UAV_NMPC_NYN != 15 || UAV_NMPC_NH0 != 4 ||
+        UAV_NMPC_NH != 4 ||
         UAV_NMPC_NHN != 1 || UAV_NMPC_NSBU != 4 || UAV_NMPC_NSBX != 9 || UAV_NMPC_NSH != 1 ||
         UAV_NMPC_NS != 14 || UAV_NMPC_NS0 != 4 || UAV_NMPC_NSBXN != 9 || UAV_NMPC_NSHN != 1 ||
         UAV_NMPC_NSN != 10) {
@@ -40,7 +52,7 @@ bool UavNmpcSolver::initialize() {
         return false;
     }
     initialized_ = true;
-    if (!applyInputBounds()) {
+    if (!applyRuntimeBounds()) {
         cleanup();
         return false;
     }
@@ -52,6 +64,8 @@ bool UavNmpcSolver::initialize() {
 }
 
 bool UavNmpcSolver::configureInputBounds(double specific_thrust_min, double specific_thrust_max,
+                                         double max_roll_pitch_body_rate,
+                                         double max_yaw_body_rate,
                                          double max_roll_pitch_angular_acceleration,
                                          double max_yaw_angular_acceleration) {
     if (!std::isfinite(specific_thrust_min) || !std::isfinite(specific_thrust_max) ||
@@ -60,24 +74,36 @@ bool UavNmpcSolver::configureInputBounds(double specific_thrust_min, double spec
                   specific_thrust_max);
         return false;
     }
+    if (!std::isfinite(max_roll_pitch_body_rate) || max_roll_pitch_body_rate <= 0.0 ||
+        !std::isfinite(max_yaw_body_rate) || max_yaw_body_rate <= 0.0) {
+        ROS_ERROR("[UavNmpcSolver] Invalid body-rate bounds roll_pitch=%.3f yaw=%.3f",
+                  max_roll_pitch_body_rate, max_yaw_body_rate);
+        return false;
+    }
     if (!std::isfinite(max_roll_pitch_angular_acceleration) ||
         max_roll_pitch_angular_acceleration <= 0.0 ||
         !std::isfinite(max_yaw_angular_acceleration) || max_yaw_angular_acceleration <= 0.0) {
-        ROS_ERROR("[UavNmpcSolver] Invalid angular acceleration bounds roll_pitch=%.3f yaw=%.3f",
+        ROS_ERROR("[UavNmpcSolver] Invalid angular-acceleration bounds roll_pitch=%.3f yaw=%.3f",
                   max_roll_pitch_angular_acceleration, max_yaw_angular_acceleration);
         return false;
     }
 
     input_lower_bounds_[0] = specific_thrust_min;
     input_upper_bounds_[0] = specific_thrust_max;
-    input_lower_bounds_[1] = -max_roll_pitch_angular_acceleration;
-    input_upper_bounds_[1] = max_roll_pitch_angular_acceleration;
-    input_lower_bounds_[2] = -max_roll_pitch_angular_acceleration;
-    input_upper_bounds_[2] = max_roll_pitch_angular_acceleration;
-    input_lower_bounds_[3] = -max_yaw_angular_acceleration;
-    input_upper_bounds_[3] = max_yaw_angular_acceleration;
+    input_lower_bounds_[1] = -max_roll_pitch_body_rate;
+    input_upper_bounds_[1] = max_roll_pitch_body_rate;
+    input_lower_bounds_[2] = -max_roll_pitch_body_rate;
+    input_upper_bounds_[2] = max_roll_pitch_body_rate;
+    input_lower_bounds_[3] = -max_yaw_body_rate;
+    input_upper_bounds_[3] = max_yaw_body_rate;
+    path_lower_bounds_[1] = -max_roll_pitch_angular_acceleration;
+    path_upper_bounds_[1] = max_roll_pitch_angular_acceleration;
+    path_lower_bounds_[2] = -max_roll_pitch_angular_acceleration;
+    path_upper_bounds_[2] = max_roll_pitch_angular_acceleration;
+    path_lower_bounds_[3] = -max_yaw_angular_acceleration;
+    path_upper_bounds_[3] = max_yaw_angular_acceleration;
     if (capsule_) {
-        return applyInputBounds();
+        return applyRuntimeBounds();
     }
     return true;
 }
@@ -99,6 +125,7 @@ void UavNmpcSolver::resetWarmStart() {
 
 bool UavNmpcSolver::solve(const Se3StateVector& x0, double thrust_actual,
                           double last_commanded_specific_thrust,
+                          const Eigen::Vector3d& last_commanded_body_rate,
                           const std::vector<Se3Reference>& references) {
     if (!initialized_ && !initialize()) {
         return false;
@@ -109,7 +136,8 @@ bool UavNmpcSolver::solve(const Se3StateVector& x0, double thrust_actual,
         return false;
     }
     if (!control::isFinite(x0) || !std::isfinite(thrust_actual) ||
-        !std::isfinite(last_commanded_specific_thrust)) {
+        !std::isfinite(last_commanded_specific_thrust) ||
+        !last_commanded_body_rate.array().isFinite().all()) {
         ROS_WARN_THROTTLE(1.0, "[UavNmpcSolver] Non-finite initial state");
         return false;
     }
@@ -120,7 +148,8 @@ bool UavNmpcSolver::solve(const Se3StateVector& x0, double thrust_actual,
     }
 
     for (int i = 0; i <= UAV_NMPC_N; ++i) {
-        if (!setReference(i, references[static_cast<size_t>(i)], last_commanded_specific_thrust)) {
+        if (!setReference(i, references[static_cast<size_t>(i)],
+                          last_commanded_specific_thrust, last_commanded_body_rate)) {
             return false;
         }
     }
@@ -141,7 +170,7 @@ bool UavNmpcSolver::solve(const Se3StateVector& x0, double thrust_actual,
     return true;
 }
 
-bool UavNmpcSolver::applyInputBounds() {
+bool UavNmpcSolver::applyRuntimeBounds() {
     if (!capsule_) {
         return false;
     }
@@ -157,9 +186,13 @@ bool UavNmpcSolver::applyInputBounds() {
                                                 input_lower_bounds_.data());
         status |= ocp_nlp_constraints_model_set(config, dims, in, out, i, "ubu",
                                                 input_upper_bounds_.data());
+        status |= ocp_nlp_constraints_model_set(config, dims, in, out, i, "lh",
+                                                path_lower_bounds_.data());
+        status |= ocp_nlp_constraints_model_set(config, dims, in, out, i, "uh",
+                                                path_upper_bounds_.data());
     }
     if (status != 0) {
-        ROS_ERROR("[UavNmpcSolver] Failed to apply input bounds");
+        ROS_ERROR("[UavNmpcSolver] Failed to apply input/path bounds");
         return false;
     }
     return true;
@@ -182,12 +215,14 @@ bool UavNmpcSolver::setInitialState(const UavNmpcStateVector& x0) {
 }
 
 bool UavNmpcSolver::setReference(int stage, const Se3Reference& reference,
-                                 double last_commanded_specific_thrust) {
+                                 double last_commanded_specific_thrust,
+                                 const Eigen::Vector3d& last_commanded_body_rate) {
     Eigen::Matrix<double, UAV_NMPC_NP, 1> p;
     p.setZero();
     p.segment<UAV_NMPC_NX>(0) = packInternalReference(reference);
-    p.segment<4>(UAV_NMPC_NX) = control::packControl(reference.control);
+    p.segment<4>(UAV_NMPC_NX) = packBodyRateInputReference(reference);
     p(UAV_NMPC_NX + 4) = last_commanded_specific_thrust;
+    p.segment<3>(UAV_NMPC_NX + 5) = last_commanded_body_rate;
     const int status = uav_nmpc_acados_update_params(capsule_, stage, p.data(), UAV_NMPC_NP);
     if (status != 0) {
         ROS_ERROR("[UavNmpcSolver] Failed to update params at stage %d", stage);
@@ -210,7 +245,7 @@ void UavNmpcSolver::setGuesses(const UavNmpcStateVector& x0,
         }
         for (int i = 0; i < UAV_NMPC_N; ++i) {
             u_guess_[static_cast<size_t>(i)] =
-                clampInputGuess(control::packControl(references[static_cast<size_t>(i)].control));
+                clampInputGuess(packBodyRateInputReference(references[static_cast<size_t>(i)]));
         }
     }
     x_guess_[0] = x0;

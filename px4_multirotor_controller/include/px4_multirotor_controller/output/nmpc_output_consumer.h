@@ -40,12 +40,14 @@ class NmpcOutputConsumer final : public ::state_machine::runtime::EventConsumer 
     void workerLoop();
     void reject(uint64_t sequence, int solver_status);
     void postResultEvent(uint64_t sequence, bool success);
+    void publishDebug(uint64_t sequence, const ros::Time& stamp);
     void publishPrediction(const ros::Time& stamp);
 
     ros::NodeHandle nh_;
     DroneController& controller_;
     EventSink event_sink_;
     UavNmpcTrackingBackend backend_;
+    ros::Publisher debug_pub_;
     ros::Publisher predicted_path_pub_;
     ros::Publisher predicted_poses_pub_;
 

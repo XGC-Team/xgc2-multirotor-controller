@@ -68,6 +68,7 @@ struct ControllerConfig {
     struct UavNmpcParams {
         double control_period{0.01};
         double prediction_horizon{1.0};
+        double body_rate_time_constant{0.08};
         double gravity{9.8066};
         double hover_thrust_ratio{0.5};
         double min_hover_thrust{0.05};
@@ -316,6 +317,9 @@ struct SensorData {
     uint8_t uav_state_estimator_state{0};
     uint32_t uav_state_estimator_flags{0};
     double uav_state_estimate_stamp{0.0};
+    double uav_state_filter_inertial_stamp{0.0};
+    double uav_state_filter_pose_stamp{0.0};
+    double uav_state_last_vrpn_pose_stamp{0.0};
 
     // 悬停推力估计 - 来自 hover_thrust_estimator/hover_thrust/estimate_state
     double hover_thrust_estimate{0.0};

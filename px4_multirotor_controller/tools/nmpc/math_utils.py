@@ -317,18 +317,13 @@ def to_px4_bodyrate_thrust(
 ) -> tuple[float, np.ndarray]:
     """Map current NMPC state and ``u0`` to PX4 body-rate and thrust.
 
-    The OCP input contains specific thrust and angular acceleration, while PX4's
-    attitude setpoint interface expects normalized thrust and body-rate
-    setpoints. Use the first predicted OCP body-rate state for the command so
-    the bridge matches the OCP model rather than re-integrating angular
-    acceleration over the runtime control interval.
+    The OCP input contains specific thrust and the PX4 body-rate setpoint, so
+    the bridge only maps thrust units and forwards ``u_mpc[1:4]``.
     """
 
     current_state = as_vector(current_state, STATE_SIZE, "current_state")
     u_mpc = as_vector(u_mpc, CONTROL_SIZE, "u_mpc")
-    if predicted_body_rate is None:
-        raise ValueError("predicted_body_rate is required for the PX4 body-rate bridge")
-    body_rate_cmd = as_vector(predicted_body_rate, 3, "predicted_body_rate")
+    body_rate_cmd = u_mpc[1:4].copy()
     if control_interval < 0.0 or not np.isfinite(control_interval):
         raise ValueError("control_interval must be finite and non-negative")
     if hover_specific_thrust <= 1e-9:

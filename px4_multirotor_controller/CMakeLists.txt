@@ -219,11 +219,10 @@ endif()
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
+add_message_files(
+  FILES
+  NmpcDebugSample.msg
+)
 
 ## Generate services in the 'srv' folder
 add_service_files(
@@ -241,6 +240,7 @@ add_service_files(
 ## Generate added messages and services with any dependencies listed here
 generate_messages(
   DEPENDENCIES
+  geometry_msgs
   std_msgs
 )
 
@@ -282,9 +282,22 @@ catkin_package(
 ## Build ##
 ###########
 
+set(MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR "")
+set(MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS "")
+if(TARGET estimator_vrpn_px4_rotor_state_generate_messages_cpp)
+  add_custom_target(${PROJECT_NAME}_private_generated_headers)
+  add_dependencies(${PROJECT_NAME}_private_generated_headers
+    estimator_vrpn_px4_rotor_state_generate_messages_cpp
+  )
+  list(APPEND MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS
+    ${PROJECT_NAME}_private_generated_headers
+  )
+endif()
+
 ## Specify additional locations of header files
 include_directories(
   BEFORE
+  ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
   include
   "${CATKIN_DEVEL_PREFIX}/include"
   ${MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS}
@@ -326,6 +339,7 @@ add_library(px4_multirotor_controller_uav_nmpc_runtime
   src/uav/nmpc_tracking_backend.cpp
 )
 target_include_directories(px4_multirotor_controller_uav_nmpc_runtime BEFORE PRIVATE
+  ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CATKIN_DEVEL_PREFIX}/include
 )
@@ -373,6 +387,7 @@ add_executable(${PROJECT_NAME}_node
 )
 
 target_include_directories(${PROJECT_NAME}_node BEFORE PRIVATE
+  ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CATKIN_DEVEL_PREFIX}/include
   ${MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS}
@@ -380,6 +395,7 @@ target_include_directories(${PROJECT_NAME}_node BEFORE PRIVATE
 
 ## Add dependencies
 add_dependencies(${PROJECT_NAME}_node
+  ${MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS}
   ${${PROJECT_NAME}_EXPORTED_TARGETS}
   ${catkin_EXPORTED_TARGETS}
 )
@@ -436,10 +452,12 @@ if(CATKIN_ENABLE_TESTING)
   if(TARGET px4_multirotor_controller_nmpc_event_runtime_test)
     target_include_directories(px4_multirotor_controller_nmpc_event_runtime_test
       BEFORE PRIVATE
+      ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${CATKIN_DEVEL_PREFIX}/include
     )
     add_dependencies(px4_multirotor_controller_nmpc_event_runtime_test
+      ${MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS}
       ${catkin_EXPORTED_TARGETS}
     )
     target_link_libraries(px4_multirotor_controller_nmpc_event_runtime_test

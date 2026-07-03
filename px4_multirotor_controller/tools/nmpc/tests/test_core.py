@@ -49,18 +49,17 @@ class CoreMathTests(unittest.TestCase):
         params = default_quadrotor_params()
         current_state = hover_state(np.array([0.0, 0.0, 1.0]))
         current_state[10:13] = np.array([0.4, -0.3, 0.2])
-        command = np.array([params.g, 1.0, -2.0, 0.5])
-        predicted_body_rate = np.array([0.8, -0.4, 0.1])
+        command = np.array([params.g, 0.8, -0.4, 0.1])
         thrust_norm, body_rate = to_px4_bodyrate_thrust(
             current_state,
             command,
-            predicted_body_rate=predicted_body_rate,
+            predicted_body_rate=None,
             control_interval=0.01,
             hover_specific_thrust=params.g,
             hover_thrust_norm=0.5,
         )
         self.assertAlmostEqual(thrust_norm, 0.5)
-        np.testing.assert_allclose(body_rate, predicted_body_rate, atol=1e-12)
+        np.testing.assert_allclose(body_rate, command[1:4], atol=1e-12)
 
     def test_thrust_direction_error_ignores_pure_yaw(self) -> None:
         yaw = 0.7
@@ -94,8 +93,18 @@ class ControllerTests(unittest.TestCase):
         bounds = Bounds()
         self.assertAlmostEqual(float(bounds.u_min[0]), 5.0)
         self.assertAlmostEqual(float(bounds.u_max[0]), 20.373)
-        np.testing.assert_allclose(bounds.u_min[1:4], -10.0 * np.ones(3), atol=1e-12)
-        np.testing.assert_allclose(bounds.u_max[1:4], 10.0 * np.ones(3), atol=1e-12)
+        np.testing.assert_allclose(
+            bounds.u_min[1:4],
+            np.array([-3.4906585, -3.4906585, -0.8726646]),
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            bounds.u_max[1:4],
+            np.array([3.4906585, 3.4906585, 0.8726646]),
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(bounds.alpha_min, np.array([-15.0, -15.0, -2.0]))
+        np.testing.assert_allclose(bounds.alpha_max, np.array([15.0, 15.0, 2.0]))
 
     def test_cost_weights_match_nullspace_yaw_baseline(self) -> None:
         weights = CostWeights()
@@ -108,16 +117,21 @@ class ControllerTests(unittest.TestCase):
             atol=1e-12,
         )
         self.assertAlmostEqual(weights.yaw, 1.0)
-        np.testing.assert_allclose(weights.omega, 3.0 * np.ones(3), atol=1e-12)
+        np.testing.assert_allclose(weights.omega, 0.5 * np.ones(3), atol=1e-12)
         self.assertAlmostEqual(weights.thrust_actual, 2.0)
         self.assertAlmostEqual(weights.thrust_command_delta, 0.35)
         np.testing.assert_allclose(
+            weights.body_rate_command_delta,
+            np.array([8.0, 8.0, 16.0]),
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
             weights.control,
-            np.array([0.08, 0.20, 0.20, 1.00]),
+            np.array([0.08, 0.80, 0.80, 2.00]),
             atol=1e-12,
         )
 
-    def test_ocp_cost_dimensions_use_initial_thrust_command_delta(self) -> None:
+    def test_ocp_cost_dimensions_use_initial_command_delta(self) -> None:
         self.require_acados()
         params = default_quadrotor_params()
         traj = HoverTrajectory(params=params)
@@ -130,12 +144,21 @@ class ControllerTests(unittest.TestCase):
 
         ocp, _ = ctrl._build_ocp()
 
-        self.assertEqual(int(ocp.parameter_values.size), STATE_SIZE + 5)
-        self.assertEqual(ocp.cost.W_0.shape, (20, 20))
+        self.assertEqual(int(ocp.parameter_values.size), STATE_SIZE + 8)
+        self.assertEqual(ocp.cost.W_0.shape, (23, 23))
         self.assertEqual(ocp.cost.W.shape, (19, 19))
         self.assertEqual(ocp.cost.W_e.shape, (15, 15))
+        self.assertEqual(ocp.constraints.lh_0.shape, (4,))
+        self.assertEqual(ocp.constraints.lh.shape, (4,))
+        np.testing.assert_allclose(ocp.constraints.lh_0[1:4], np.array([-15.0, -15.0, -2.0]))
+        np.testing.assert_allclose(ocp.constraints.uh_0[1:4], np.array([15.0, 15.0, 2.0]))
+        np.testing.assert_allclose(ocp.constraints.lh[1:4], np.array([-15.0, -15.0, -2.0]))
+        np.testing.assert_allclose(ocp.constraints.uh[1:4], np.array([15.0, 15.0, 2.0]))
         self.assertAlmostEqual(float(ocp.cost.W_0[18, 18]), 0.35)
-        self.assertAlmostEqual(float(ocp.cost.W_0[19, 19]), 10.0)
+        self.assertAlmostEqual(float(ocp.cost.W_0[19, 19]), 8.0)
+        self.assertAlmostEqual(float(ocp.cost.W_0[20, 20]), 8.0)
+        self.assertAlmostEqual(float(ocp.cost.W_0[21, 21]), 16.0)
+        self.assertAlmostEqual(float(ocp.cost.W_0[22, 22]), 10.0)
         self.assertAlmostEqual(float(ocp.cost.W[18, 18]), 10.0)
 
     def test_exact_hover_equilibrium(self) -> None:
@@ -228,7 +251,7 @@ class ControllerTests(unittest.TestCase):
         self.assertAlmostEqual(info.res_comp, 4e-4)
         np.testing.assert_allclose(command, previous)
 
-    def test_update_passes_previous_thrust_command_as_parameter(self) -> None:
+    def test_update_passes_previous_command_as_parameter(self) -> None:
         self.require_acados()
         params = default_quadrotor_params()
         traj = HoverTrajectory(params=params)
@@ -247,8 +270,9 @@ class ControllerTests(unittest.TestCase):
 
         self.assertEqual(set(fake_solver.parameters.keys()), {0, 1, 2})
         for parameter in fake_solver.parameters.values():
-            self.assertEqual(parameter.size, STATE_SIZE + 5)
-            self.assertAlmostEqual(float(parameter[-1]), previous[0])
+            self.assertEqual(parameter.size, STATE_SIZE + 8)
+            self.assertAlmostEqual(float(parameter[STATE_SIZE + 4]), previous[0])
+            np.testing.assert_allclose(parameter[STATE_SIZE + 5 : STATE_SIZE + 8], previous[1:4])
 
 
 class RunnerConfigTests(unittest.TestCase):
