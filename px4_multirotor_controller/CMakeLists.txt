@@ -282,10 +282,26 @@ catkin_package(
 ## Build ##
 ###########
 
-set(MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR "")
+set(MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR
+  ${CMAKE_CURRENT_BINARY_DIR}/private_generated_include
+)
 set(MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS "")
 if(TARGET estimator_vrpn_px4_rotor_state_generate_messages_cpp)
-  add_custom_target(${PROJECT_NAME}_private_generated_headers)
+  set(MULTIROTOR_PRIVATE_RIGID_STATE_HEADER
+    ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}/estimator_vrpn_px4_rotor_state/RigidStateEstimate.h
+  )
+  add_custom_command(
+    OUTPUT ${MULTIROTOR_PRIVATE_RIGID_STATE_HEADER}
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}/estimator_vrpn_px4_rotor_state
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CATKIN_DEVEL_PREFIX}/include/estimator_vrpn_px4_rotor_state/RigidStateEstimate.h
+            ${MULTIROTOR_PRIVATE_RIGID_STATE_HEADER}
+    DEPENDS ${CATKIN_DEVEL_PREFIX}/include/estimator_vrpn_px4_rotor_state/RigidStateEstimate.h
+  )
+  add_custom_target(${PROJECT_NAME}_private_generated_headers
+    DEPENDS ${MULTIROTOR_PRIVATE_RIGID_STATE_HEADER}
+  )
   add_dependencies(${PROJECT_NAME}_private_generated_headers
     estimator_vrpn_px4_rotor_state_generate_messages_cpp
   )
