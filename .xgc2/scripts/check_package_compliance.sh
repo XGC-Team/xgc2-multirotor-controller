@@ -84,7 +84,7 @@ grep -q "libxgc2-math-dev (>= 0.5.5-6)" .xgc2/scripts/package_debs.sh
 grep -q "xgc2-acados (>= 0.1.0-7~focal)" .xgc2/product.yml
 grep -q "xgc2-acados (>= 0.1.0-7~focal)" .xgc2/scripts/package_debs.sh
 grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-hover-thrust (>= 1.1.22-6)" .xgc2/scripts/package_debs.sh
-grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-rigid-state (>= 1.1.3-7)" .xgc2/scripts/package_debs.sh
+grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-rigid-state (>= 1.1.3-8)" .xgc2/scripts/package_debs.sh
 
 if grep -R --exclude='check_package_compliance.sh' "ros-noetic-xgc2-reference" \
   .github .xgc2 README.md px4_multirotor_controller multirotor_reference_trajectory >/dev/null; then

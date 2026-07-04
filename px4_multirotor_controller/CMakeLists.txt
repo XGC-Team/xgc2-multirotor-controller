@@ -282,33 +282,24 @@ catkin_package(
 ## Build ##
 ###########
 
-set(MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR
-  ${CMAKE_CURRENT_BINARY_DIR}/private_generated_include
-)
+set(MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR "${CATKIN_DEVEL_PREFIX}/include")
+set(MULTIROTOR_DEVEL_LIBRARY_DIR "${CATKIN_DEVEL_PREFIX}/lib")
 set(MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS "")
 if(TARGET estimator_vrpn_px4_rotor_state_generate_messages_cpp)
-  set(MULTIROTOR_PRIVATE_RIGID_STATE_HEADER
-    ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}/estimator_vrpn_px4_rotor_state/RigidStateEstimate.h
-  )
-  add_custom_command(
-    OUTPUT ${MULTIROTOR_PRIVATE_RIGID_STATE_HEADER}
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-            ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}/estimator_vrpn_px4_rotor_state
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CATKIN_DEVEL_PREFIX}/include/estimator_vrpn_px4_rotor_state/RigidStateEstimate.h
-            ${MULTIROTOR_PRIVATE_RIGID_STATE_HEADER}
-    DEPENDS ${CATKIN_DEVEL_PREFIX}/include/estimator_vrpn_px4_rotor_state/RigidStateEstimate.h
-  )
-  add_custom_target(${PROJECT_NAME}_private_generated_headers
-    DEPENDS ${MULTIROTOR_PRIVATE_RIGID_STATE_HEADER}
-  )
-  add_dependencies(${PROJECT_NAME}_private_generated_headers
+  list(APPEND MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS
     estimator_vrpn_px4_rotor_state_generate_messages_cpp
   )
-  list(APPEND MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS
-    ${PROJECT_NAME}_private_generated_headers
-  )
 endif()
+
+function(multirotor_prefer_devel_runtime target_name)
+  set_target_properties(${target_name} PROPERTIES
+    BUILD_RPATH "${MULTIROTOR_DEVEL_LIBRARY_DIR}"
+  )
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_property(TARGET ${target_name} APPEND_STRING PROPERTY
+      LINK_FLAGS " -Wl,--disable-new-dtags")
+  endif()
+endfunction()
 
 ## Specify additional locations of header files
 include_directories(
@@ -401,6 +392,7 @@ add_executable(${PROJECT_NAME}_node
   src/uav/state_machine/landing_state.cpp
   src/uav/state_machine/custom1_state.cpp
 )
+multirotor_prefer_devel_runtime(${PROJECT_NAME}_node)
 
 target_include_directories(${PROJECT_NAME}_node BEFORE PRIVATE
   ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
@@ -466,6 +458,7 @@ if(CATKIN_ENABLE_TESTING)
     src/uav/active_trajectory_cache.cpp
   )
   if(TARGET px4_multirotor_controller_nmpc_event_runtime_test)
+    multirotor_prefer_devel_runtime(px4_multirotor_controller_nmpc_event_runtime_test)
     target_include_directories(px4_multirotor_controller_nmpc_event_runtime_test
       BEFORE PRIVATE
       ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
