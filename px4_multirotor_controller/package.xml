@@ -61,8 +61,8 @@
   <build_depend version_gte="0.5.4-1">libxgc2-math-dev</build_depend>
   <build_depend>ros1_utils</build_depend>
   <build_depend>multirotor_reference_trajectory</build_depend>
-  <build_depend>hover_thrust_estimator</build_depend>
-  <build_depend>estimator_vrpn_px4_rotor_state</build_depend>
+  <build_depend>hover_thrust_estimator_msgs</build_depend>
+  <build_depend>rigid_state_estimator_msgs</build_depend>
   <build_depend>xgc2-acados</build_depend>
 
   <build_export_depend>roscpp</build_export_depend>
@@ -76,8 +76,8 @@
   <build_export_depend version_gte="0.5.4-1">libxgc2-math-dev</build_export_depend>
   <build_export_depend>ros1_utils</build_export_depend>
   <build_export_depend>multirotor_reference_trajectory</build_export_depend>
-  <build_export_depend>hover_thrust_estimator</build_export_depend>
-  <build_export_depend>estimator_vrpn_px4_rotor_state</build_export_depend>
+  <build_export_depend>hover_thrust_estimator_msgs</build_export_depend>
+  <build_export_depend>rigid_state_estimator_msgs</build_export_depend>
   <build_export_depend>xgc2-acados</build_export_depend>
 
   <exec_depend>roscpp</exec_depend>
@@ -91,8 +91,9 @@
   <exec_depend version_gte="0.5.4-1">libxgc2-math-dev</exec_depend>
   <exec_depend>ros1_utils</exec_depend>
   <exec_depend>multirotor_reference_trajectory</exec_depend>
+  <exec_depend>hover_thrust_estimator_msgs</exec_depend>
   <exec_depend>hover_thrust_estimator</exec_depend>
-  <exec_depend>estimator_vrpn_px4_rotor_state</exec_depend>
+  <exec_depend>rigid_state_estimator_msgs</exec_depend>
   <exec_depend>xgc2-acados</exec_depend>
 
 

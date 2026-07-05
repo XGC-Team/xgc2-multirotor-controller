@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-#include "estimator_vrpn_px4_rotor_state/RigidStateEstimate.h"
+#include "rigid_state_estimator_msgs/RigidStateEstimate.h"
 #include "px4_multirotor_controller/common/sensor_checks.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
@@ -97,7 +97,7 @@ SensorData makeDfbcSensor() {
     sensor.qw = 1.0;
     sensor.uav_state_estimate_stats.is_active = true;
     sensor.uav_state_estimator_state =
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::STATE_RUNNING;
+        rigid_state_estimator_msgs::RigidStateEstimate::STATE_RUNNING;
     sensor.hover_thrust_estimate = 0.3;
     sensor.hover_thrust_estimate_stamp = 10.0;
     sensor.hover_thrust_estimate_available = true;
@@ -220,36 +220,36 @@ TEST(SensorChecks, StateEstimateGateIsOnlyControlStateSource) {
     SensorData sensor;
     sensor.uav_state_estimate_stats.is_active = true;
     sensor.uav_state_estimator_state =
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::STATE_RUNNING;
+        rigid_state_estimator_msgs::RigidStateEstimate::STATE_RUNNING;
     sensor.uav_state_estimator_flags = 0u;
     EXPECT_TRUE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_state =
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::STATE_COASTING;
+        rigid_state_estimator_msgs::RigidStateEstimate::STATE_COASTING;
     EXPECT_TRUE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_flags =
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_FAULT;
+        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_FAULT;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_flags =
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_FILTER_DEGRADED |
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_VRPN_SUSPECTED |
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_POSE_TIME_ALIGNMENT_REJECTED |
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_INNOVATION_REJECTED;
+        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_FILTER_DEGRADED |
+        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_VRPN_SUSPECTED |
+        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_POSE_TIME_ALIGNMENT_REJECTED |
+        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_INNOVATION_REJECTED;
     EXPECT_TRUE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_flags =
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_VRPN_FAULT;
+        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_VRPN_FAULT;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_flags =
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::FLAG_FILTER_IMU_ONLY;
+        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_FILTER_IMU_ONLY;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_flags = 0u;
     sensor.uav_state_estimator_state =
-        estimator_vrpn_px4_rotor_state::RigidStateEstimate::STATE_SELF_CHECK;
+        rigid_state_estimator_msgs::RigidStateEstimate::STATE_SELF_CHECK;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 }
 

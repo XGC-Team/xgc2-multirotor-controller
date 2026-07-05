@@ -116,12 +116,9 @@ void TrajectoryInputProducer::activeSampledCallback(
 }
 
 void TrajectoryInputProducer::hoverThrustCallback(
-    const hover_thrust_estimator::HoverThrustEstimate::ConstPtr& msg) {
-    constexpr uint32_t kRejectFlags =
-        hover_thrust_estimator::HoverThrustEstimate::FLAG_STATE_MACHINE_FAULT;
-    if (!msg || (msg->flags & kRejectFlags) != 0U ||
-        msg->state == hover_thrust_estimator::HoverThrustEstimate::STATE_FAULT ||
-        !std::isfinite(msg->hover_thrust) || msg->hover_thrust <= 0.0 || msg->hover_thrust >= 1.0) {
+    const hover_thrust_estimator_msgs::HoverThrustEstimate::ConstPtr& msg) {
+    if (!msg || !std::isfinite(msg->hover_thrust) || msg->hover_thrust <= 0.0 ||
+        msg->hover_thrust >= 1.0) {
         sensor_data_.hover_thrust_estimate_available = false;
         sensor_data_.hover_thrust_estimate_flags = msg ? msg->flags : 0U;
         return;

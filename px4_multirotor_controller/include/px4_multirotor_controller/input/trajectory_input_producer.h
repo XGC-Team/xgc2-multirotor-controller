@@ -1,6 +1,6 @@
 #pragma once
 
-#include <hover_thrust_estimator/HoverThrustEstimate.h>
+#include <hover_thrust_estimator_msgs/HoverThrustEstimate.h>
 #include <mavros_msgs/PositionTarget.h>
 #include <multirotor_reference_trajectory/ActivePolynomialReference.h>
 #include <multirotor_reference_trajectory/AnalyticReference.h>
@@ -34,7 +34,8 @@ class TrajectoryInputProducer {
         const multirotor_reference_trajectory::ActivePolynomialReference::ConstPtr& msg);
     void activeSampledCallback(
         const multirotor_reference_trajectory::SampledReference::ConstPtr& msg);
-    void hoverThrustCallback(const hover_thrust_estimator::HoverThrustEstimate::ConstPtr& msg);
+    void hoverThrustCallback(
+        const hover_thrust_estimator_msgs::HoverThrustEstimate::ConstPtr& msg);
     void postInputEvent(::state_machine::EventId event_id, const char* source);
 
     SensorData& sensor_data_;

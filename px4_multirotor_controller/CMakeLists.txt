@@ -16,8 +16,8 @@ set(MULTIROTOR_CONTROLLER_CATKIN_COMPONENTS
   sensor_msgs
   mavros_msgs
   multirotor_reference_trajectory
-  hover_thrust_estimator
-  estimator_vrpn_px4_rotor_state
+  hover_thrust_estimator_msgs
+  rigid_state_estimator_msgs
 )
 
 find_package(catkin REQUIRED COMPONENTS
@@ -27,18 +27,7 @@ find_package(xgc2_acados REQUIRED CONFIG)
 find_package(xgc2_state_machine REQUIRED CONFIG)
 find_package(xgc2_math REQUIRED CONFIG)
 
-set(MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS ${hover_thrust_estimator_INCLUDE_DIRS})
-if(hover_thrust_estimator_DIR)
-  get_filename_component(MULTIROTOR_HOVER_THRUST_PREFIX
-    "${hover_thrust_estimator_DIR}/../../.." ABSOLUTE)
-  if(EXISTS "${MULTIROTOR_HOVER_THRUST_PREFIX}/include")
-    list(PREPEND MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS
-      "${MULTIROTOR_HOVER_THRUST_PREFIX}/include")
-  endif()
-endif()
-if(MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS)
-  list(REMOVE_DUPLICATES MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS)
-endif()
+set(MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS ${hover_thrust_estimator_msgs_INCLUDE_DIRS})
 
 ## Find Eigen3 (required for MpcTrajectoryState)
 find_package(Eigen3 REQUIRED)
@@ -275,7 +264,7 @@ generate_messages(
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp std_msgs message_runtime geometry_msgs nav_msgs sensor_msgs mavros_msgs ros1_utils multirotor_reference_trajectory hover_thrust_estimator estimator_vrpn_px4_rotor_state
+  CATKIN_DEPENDS roscpp std_msgs message_runtime geometry_msgs nav_msgs sensor_msgs mavros_msgs ros1_utils multirotor_reference_trajectory hover_thrust_estimator_msgs rigid_state_estimator_msgs
 )
 
 ###########
@@ -285,9 +274,9 @@ catkin_package(
 set(MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR "${CATKIN_DEVEL_PREFIX}/include")
 set(MULTIROTOR_DEVEL_LIBRARY_DIR "${CATKIN_DEVEL_PREFIX}/lib")
 set(MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS "")
-if(TARGET estimator_vrpn_px4_rotor_state_generate_messages_cpp)
+if(TARGET rigid_state_estimator_msgs_generate_messages_cpp)
   list(APPEND MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS
-    estimator_vrpn_px4_rotor_state_generate_messages_cpp
+    rigid_state_estimator_msgs_generate_messages_cpp
   )
 endif()
 

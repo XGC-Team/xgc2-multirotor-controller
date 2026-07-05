@@ -1,6 +1,6 @@
 #pragma once
 
-#include <estimator_vrpn_px4_rotor_state/RigidStateEstimate.h>
+#include <rigid_state_estimator_msgs/RigidStateEstimate.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TwistStamped.h>
 #include <mavros_msgs/State.h>
@@ -34,7 +34,7 @@ class SensorInputProducer {
 
    private:
     void stateEstimateCallback(
-        const estimator_vrpn_px4_rotor_state::RigidStateEstimate::ConstPtr& msg);
+        const rigid_state_estimator_msgs::RigidStateEstimate::ConstPtr& msg);
     void localPosCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
     void velocityCallback(const geometry_msgs::TwistStamped::ConstPtr& msg);
     void imuCallback(const sensor_msgs::Imu::ConstPtr& msg);

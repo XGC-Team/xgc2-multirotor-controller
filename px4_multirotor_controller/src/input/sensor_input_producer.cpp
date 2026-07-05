@@ -52,7 +52,7 @@ void SensorInputProducer::start() {
         return;
     }
 
-    stats_manager_.register_topic<estimator_vrpn_px4_rotor_state::RigidStateEstimate>(
+    stats_manager_.register_topic<rigid_state_estimator_msgs::RigidStateEstimate>(
         nh_, state_estimate_topic_, queue_size_, &SensorInputProducer::stateEstimateCallback, this,
         &sensor_data_.uav_state_estimate_stats);
     stats_manager_.register_topic<geometry_msgs::PoseStamped>(
@@ -109,7 +109,7 @@ void SensorInputProducer::imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
 }
 
 void SensorInputProducer::stateEstimateCallback(
-    const estimator_vrpn_px4_rotor_state::RigidStateEstimate::ConstPtr& msg) {
+    const rigid_state_estimator_msgs::RigidStateEstimate::ConstPtr& msg) {
     sensor_data_.x = msg->position.x;
     sensor_data_.y = msg->position.y;
     sensor_data_.z = msg->position.z;

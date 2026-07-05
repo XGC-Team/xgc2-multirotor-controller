@@ -295,7 +295,7 @@ constexpr int DEFAULT = 0;     // 默认优先级
 // 传感器数据（聚合）
 // 包含所有传感器测量值，字段名与 ROS 消息保持一致
 struct SensorData {
-    // 控制状态 (m, m/s, quaternion, rad/s) - 来自 estimator_vrpn_px4_rotor_state/RigidStateEstimate
+    // 控制状态 (m, m/s, quaternion, rad/s) - 来自 rigid_state_estimator_msgs/RigidStateEstimate
     double x{0.0}, y{0.0}, z{0.0};
 
     // 线速度 (m/s)
@@ -309,7 +309,7 @@ struct SensorData {
     double wx{0.0}, wy{0.0}, wz{0.0};
 
     // 世界系线加速度 (m/s^2)、重力向量和体轴加速度 bias
-    // 来自 estimator_vrpn_px4_rotor_state/RigidStateEstimate
+    // 来自 rigid_state_estimator_msgs/RigidStateEstimate
     double ax{0.0}, ay{0.0}, az{0.0};
     double gx{0.0}, gy{0.0}, gz{-9.8066};
     double accel_bias_x{0.0}, accel_bias_y{0.0}, accel_bias_z{0.0};
@@ -321,7 +321,7 @@ struct SensorData {
     double uav_state_filter_pose_stamp{0.0};
     double uav_state_last_vrpn_pose_stamp{0.0};
 
-    // 悬停推力估计 - 来自 hover_thrust_estimator/hover_thrust/estimate_state
+    // 悬停推力估计 - 来自 hover_thrust_estimator_msgs/hover_thrust/estimate_state
     double hover_thrust_estimate{0.0};
     double hover_thrust_estimate_stamp{0.0};
     bool hover_thrust_estimate_available{false};
