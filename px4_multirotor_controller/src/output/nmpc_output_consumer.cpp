@@ -1,9 +1,9 @@
 #include "px4_multirotor_controller/output/nmpc_output_consumer.h"
 
+#include <px4_multirotor_controller_msgs/NmpcDebugSample.h>
+
 #include <cmath>
 #include <utility>
-
-#include <px4_multirotor_controller/NmpcDebugSample.h>
 
 namespace px4_multirotor_controller {
 namespace {
@@ -56,7 +56,7 @@ geometry_msgs::Twist twistFromState(const Se3StateVector& state) {
 NmpcOutputConsumer::NmpcOutputConsumer(ros::NodeHandle& nh, DroneController& controller,
                                        EventSink event_sink, uint32_t queue_size)
     : nh_(nh), controller_(controller), event_sink_(std::move(event_sink)) {
-    debug_pub_ = nh_.advertise<px4_multirotor_controller::NmpcDebugSample>(
+    debug_pub_ = nh_.advertise<px4_multirotor_controller_msgs::NmpcDebugSample>(
         "alg/nmpc/debug_sample", queue_size);
     predicted_path_pub_ = nh_.advertise<nav_msgs::Path>("alg/nmpc/predicted_path", queue_size);
     predicted_poses_pub_ =
@@ -190,7 +190,7 @@ void NmpcOutputConsumer::publishDebug(uint64_t sequence, const ros::Time& stamp)
         return;
     }
 
-    px4_multirotor_controller::NmpcDebugSample msg;
+    px4_multirotor_controller_msgs::NmpcDebugSample msg;
     msg.header.stamp = stamp;
     msg.header.frame_id = "world";
     msg.sequence = sequence;

@@ -1,12 +1,12 @@
 #pragma once
 
+#include <multirotor_reference_trajectory_msgs/AnalyticReference.h>
+#include <multirotor_reference_trajectory_msgs/SampledReference.h>
+#include <multirotor_reference_trajectory_msgs/WaypointReferenceRequest.h>
 #include <ros/ros.h>
 
 #include <string>
 
-#include "multirotor_reference_trajectory/AnalyticReference.h"
-#include "multirotor_reference_trajectory/SampledReference.h"
-#include "multirotor_reference_trajectory/WaypointReferenceRequest.h"
 #include "multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h"
 #include "std_msgs/Empty.h"
 
@@ -20,9 +20,12 @@ class ReferenceInputProducer {
                            uint32_t queue_size);
 
    private:
-    void analyticCallback(const AnalyticReference::ConstPtr& msg);
-    void waypointCallback(const WaypointReferenceRequest::ConstPtr& msg);
-    void sampledCallback(const SampledReference::ConstPtr& msg);
+    void analyticCallback(
+        const multirotor_reference_trajectory_msgs::AnalyticReference::ConstPtr& msg);
+    void waypointCallback(
+        const multirotor_reference_trajectory_msgs::WaypointReferenceRequest::ConstPtr& msg);
+    void sampledCallback(
+        const multirotor_reference_trajectory_msgs::SampledReference::ConstPtr& msg);
     void resetCallback(const std_msgs::Empty::ConstPtr& msg);
     void post(uint32_t event_id, const char* source);
 

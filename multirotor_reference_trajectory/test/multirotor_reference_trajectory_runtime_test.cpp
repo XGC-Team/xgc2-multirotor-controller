@@ -18,12 +18,12 @@ geometry_msgs::Pose pose(double x, double y, double z) {
     return out;
 }
 
-multirotor_reference_trajectory::WaypointReferenceRequest makeWaypointRequest() {
-    multirotor_reference_trajectory::WaypointReferenceRequest msg;
+multirotor_reference_trajectory_msgs::WaypointReferenceRequest makeWaypointRequest() {
+    multirotor_reference_trajectory_msgs::WaypointReferenceRequest msg;
     msg.header.stamp = ros::Time(1.0);
     msg.trajectory_id = 42U;
     msg.revision = 7U;
-    msg.objective = multirotor_reference_trajectory::WaypointReferenceRequest::OBJECTIVE_MINCO;
+    msg.objective = multirotor_reference_trajectory_msgs::WaypointReferenceRequest::OBJECTIVE_MINCO;
     msg.waypoints.push_back(pose(0.0, 0.0, 1.0));
     msg.waypoints.push_back(pose(1.0, 0.5, 1.2));
     msg.waypoints.push_back(pose(2.0, 0.0, 1.0));
@@ -35,9 +35,9 @@ multirotor_reference_trajectory::WaypointReferenceRequest makeWaypointRequest() 
     return msg;
 }
 
-multirotor_reference_trajectory::AnalyticReference makeAnalyticCurveReference(
+multirotor_reference_trajectory_msgs::AnalyticReference makeAnalyticCurveReference(
     uint16_t analytic_type) {
-    multirotor_reference_trajectory::AnalyticReference msg;
+    multirotor_reference_trajectory_msgs::AnalyticReference msg;
     msg.header.stamp = ros::Time(1.0);
     msg.trajectory_id = 100U + analytic_type;
     msg.revision = 1U;
@@ -46,19 +46,19 @@ multirotor_reference_trajectory::AnalyticReference makeAnalyticCurveReference(
     msg.duration = 6.0;
     msg.origin = pose(0.0, 0.0, 1.5);
     switch (analytic_type) {
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE:
             msg.params = {1.0, 0.5, 2.0};
             break;
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE:
             msg.params = {1.0, 0.7, 1.0};
             break;
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_YZ:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_YZ:
             msg.params = {0.5, 0.6, 10.0};
             break;
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_XY:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_XY:
             msg.params = {0.5, 0.6, 10.0};
             break;
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_TORUS_KNOT:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_TORUS_KNOT:
             msg.params = {0.5, 0.25};
             break;
         default:
@@ -79,11 +79,11 @@ void post(multirotor_reference_trajectory::ReferenceTrajectoryRuntime& runtime, 
 
 TEST(ReferenceTrajectoryRuntime, AnalyticCurveReferencesActivate) {
     const uint16_t analytic_types[] = {
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE,
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE,
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_YZ,
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_XY,
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_TORUS_KNOT,
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE,
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE,
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_YZ,
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_XY,
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_TORUS_KNOT,
     };
 
     for (const auto analytic_type : analytic_types) {
@@ -121,20 +121,20 @@ TEST(ReferenceTrajectoryRuntime, ActiveAnalyticCanSwitchToAnotherAnalytic) {
     runtime.update(0.0);
     runtime.update(0.01);
     ASSERT_EQ(runtime.currentState(),
-              multirotor_reference_trajectory::ReferenceStatus::STATE_READY);
+              multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_READY);
 
     const auto line = makeAnalyticCurveReference(
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE);
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE);
     ASSERT_TRUE(runtime.acceptAnalytic(line));
     post(runtime, multirotor_reference_trajectory::event_type::ANALYTIC_RECEIVED, 0.02);
     runtime.update(0.02);
 
     ASSERT_EQ(runtime.currentState(),
-              multirotor_reference_trajectory::ReferenceStatus::STATE_ACTIVE);
+              multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_ACTIVE);
     ASSERT_EQ(runtime.activeTrajectoryId(), line.trajectory_id);
 
     auto lemniscate = makeAnalyticCurveReference(
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE);
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE);
     lemniscate.trajectory_id = line.trajectory_id + 100U;
     lemniscate.revision = line.revision + 1U;
     ASSERT_TRUE(runtime.acceptAnalytic(lemniscate));
@@ -142,7 +142,7 @@ TEST(ReferenceTrajectoryRuntime, ActiveAnalyticCanSwitchToAnotherAnalytic) {
     runtime.update(0.03);
 
     EXPECT_EQ(runtime.currentState(),
-              multirotor_reference_trajectory::ReferenceStatus::STATE_ACTIVE);
+              multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_ACTIVE);
     EXPECT_EQ(runtime.activeTrajectoryId(), lemniscate.trajectory_id);
     EXPECT_EQ(runtime.activeRevision(), lemniscate.revision);
 }
@@ -157,7 +157,7 @@ TEST(ReferenceTrajectoryRuntime, WaypointPlanningUsesAsyncWorkerEvent) {
     runtime.update(0.0);
     runtime.update(0.01);
     ASSERT_EQ(runtime.currentState(),
-              multirotor_reference_trajectory::ReferenceStatus::STATE_READY);
+              multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_READY);
 
     const auto request = makeWaypointRequest();
     ASSERT_TRUE(runtime.acceptWaypoint(request));
@@ -165,14 +165,14 @@ TEST(ReferenceTrajectoryRuntime, WaypointPlanningUsesAsyncWorkerEvent) {
 
     runtime.update(0.02);
     ASSERT_EQ(runtime.currentState(),
-              multirotor_reference_trajectory::ReferenceStatus::STATE_PLANNING);
+              multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_PLANNING);
 
     bool activated = false;
     for (int i = 0; i < 200; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
         runtime.update(0.03 + static_cast<double>(i) * 0.01);
         if (runtime.currentState() ==
-            multirotor_reference_trajectory::ReferenceStatus::STATE_ACTIVE) {
+            multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_ACTIVE) {
             activated = true;
             break;
         }

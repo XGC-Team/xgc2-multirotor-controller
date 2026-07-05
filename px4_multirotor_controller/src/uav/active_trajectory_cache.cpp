@@ -31,7 +31,7 @@ bool fatalReferenceFlags(uint32_t flags) {
     return (flags & kFatal) != 0U;
 }
 
-double paramAt(const multirotor_reference_trajectory::AnalyticReference& msg, size_t index,
+double paramAt(const multirotor_reference_trajectory_msgs::AnalyticReference& msg, size_t index,
                double fallback) {
     return msg.params.size() > index && std::isfinite(msg.params[index]) ? msg.params[index]
                                                                          : fallback;
@@ -46,7 +46,8 @@ void appendCoefficients(const std::vector<double>& flat, size_t offset, size_t c
 }  // namespace
 
 bool ActiveTrajectoryCache::updateAnalytic(
-    const multirotor_reference_trajectory::AnalyticReference& msg, const ros::Time& received_time) {
+    const multirotor_reference_trajectory_msgs::AnalyticReference& msg,
+    const ros::Time& received_time) {
     uint32_t flags = 0U;
     auto evaluator = buildAnalyticEvaluator(msg, flags);
     if (!evaluator || fatalReferenceFlags(flags)) {
@@ -69,7 +70,7 @@ bool ActiveTrajectoryCache::updateAnalytic(
 }
 
 bool ActiveTrajectoryCache::updatePolynomial(
-    const multirotor_reference_trajectory::ActivePolynomialReference& msg,
+    const multirotor_reference_trajectory_msgs::ActivePolynomialReference& msg,
     const ros::Time& received_time) {
     auto evaluator = std::make_unique<trajectory::PiecewisePolynomialEvaluator3>();
     uint32_t flags = 0U;
@@ -93,7 +94,8 @@ bool ActiveTrajectoryCache::updatePolynomial(
 }
 
 bool ActiveTrajectoryCache::updateSampled(
-    const multirotor_reference_trajectory::SampledReference& msg, const ros::Time& received_time) {
+    const multirotor_reference_trajectory_msgs::SampledReference& msg,
+    const ros::Time& received_time) {
     auto evaluator = std::make_unique<trajectory::SampledEvaluator3>();
     uint32_t flags = 0U;
     if (!buildSampledEvaluator(msg, *evaluator, flags) || fatalReferenceFlags(flags)) {
@@ -251,7 +253,7 @@ bool ActiveTrajectoryCache::finiteVector(const Eigen::Vector3d& value) {
 }
 
 std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAnalyticEvaluator(
-    const multirotor_reference_trajectory::AnalyticReference& msg, uint32_t& flags) {
+    const multirotor_reference_trajectory_msgs::AnalyticReference& msg, uint32_t& flags) {
     flags = msg.flags;
     const bool has_duration = msg.duration > 0.0;
     const double duration = has_duration ? msg.duration : 60.0;
@@ -269,7 +271,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
 
     std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator;
     switch (msg.analytic_type) {
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HOLD: {
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HOLD: {
             trajectory::HoldCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = duration;
@@ -279,7 +281,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             evaluator = std::make_unique<trajectory::HoldCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_CIRCLE: {
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_CIRCLE: {
             trajectory::CircleCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = duration;
@@ -290,7 +292,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             evaluator = std::make_unique<trajectory::CircleCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HEIGHT_CIRCLE: {
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HEIGHT_CIRCLE: {
             trajectory::CircleCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = duration;
@@ -303,7 +305,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             evaluator = std::make_unique<trajectory::CircleCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_FIGURE_EIGHT: {
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_FIGURE_EIGHT: {
             trajectory::FigureEightCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = duration;
@@ -314,7 +316,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             evaluator = std::make_unique<trajectory::FigureEightCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE: {
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE: {
             trajectory::LineCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
@@ -329,7 +331,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             evaluator = std::make_unique<trajectory::LineCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE: {
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE: {
             trajectory::LemniscateCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
@@ -340,7 +342,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             evaluator = std::make_unique<trajectory::LemniscateCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_YZ: {
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_YZ: {
             trajectory::HelixYzCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
@@ -351,7 +353,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             evaluator = std::make_unique<trajectory::HelixYzCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_XY: {
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_XY: {
             trajectory::HelixXyCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
@@ -362,7 +364,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             evaluator = std::make_unique<trajectory::HelixXyCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_TORUS_KNOT: {
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_TORUS_KNOT: {
             trajectory::TorusKnotCurveParameters3 torus_params;
             torus_params.flags = msg.flags;
             torus_params.duration = has_duration ? duration : torus_params.duration;
@@ -392,7 +394,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
             }
             break;
         }
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_CIRCLE_ENTRY:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_CIRCLE_ENTRY:
         default: {
             trajectory::CircleEntryCurveParameters3 params;
             params.flags = msg.flags;
@@ -423,7 +425,7 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
 }
 
 bool ActiveTrajectoryCache::buildPolynomialEvaluator(
-    const multirotor_reference_trajectory::ActivePolynomialReference& msg,
+    const multirotor_reference_trajectory_msgs::ActivePolynomialReference& msg,
     trajectory::PiecewisePolynomialEvaluator3& evaluator, uint32_t& flags) {
     flags = msg.flags;
     const size_t coeffs_per_segment = static_cast<size_t>(msg.order) + 1U;
@@ -459,7 +461,7 @@ bool ActiveTrajectoryCache::buildPolynomialEvaluator(
 }
 
 bool ActiveTrajectoryCache::buildSampledEvaluator(
-    const multirotor_reference_trajectory::SampledReference& msg,
+    const multirotor_reference_trajectory_msgs::SampledReference& msg,
     trajectory::SampledEvaluator3& evaluator, uint32_t& flags) {
     flags = msg.flags;
     std::vector<trajectory::SampledPoint3> samples;

@@ -4,8 +4,8 @@ ROS1 multirotor controller product repository for XGC2 robots.
 
 Packages:
 
-- `multirotor_reference_trajectory`: multirotor reference trajectory messages,
-  generation runtime, and ROS publishers.
+- `multirotor_reference_trajectory`: multirotor reference trajectory generation
+  runtime and ROS publishers.
 - `px4_multirotor_controller`: PX4/MAVROS multirotor controller with
   state-machine runtime and UAV NMPC tracking.
 

@@ -7,7 +7,7 @@ namespace multirotor_reference_trajectory {
 PlanningState::PlanningState(ReferenceTrajectoryRuntime& runtime) : runtime_(runtime) {}
 
 ::state_machine::ActionResult PlanningState::onEnter(::state_machine::StateContext& ctx) {
-    runtime_.enterState(ReferenceStatus::STATE_PLANNING);
+    runtime_.enterState(multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_PLANNING);
     status_gate_.reset();
     if (!runtime_.requestPendingWaypointPlan()) {
         ::state_machine::Event event(event_type::PLAN_FAILED,

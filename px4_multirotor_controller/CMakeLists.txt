@@ -9,13 +9,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(MULTIROTOR_CONTROLLER_CATKIN_COMPONENTS
   roscpp
   std_msgs
-  message_generation
   geometry_msgs
   nav_msgs
   ros1_utils
   sensor_msgs
   mavros_msgs
-  multirotor_reference_trajectory
+  multirotor_reference_trajectory_msgs
+  px4_multirotor_controller_msgs
   hover_thrust_estimator_msgs
   rigid_state_estimator_msgs
 )
@@ -184,56 +184,6 @@ endif()
 # catkin_python_setup()
 
 ################################################
-## Declare ROS messages, services and actions ##
-################################################
-
-## To declare and build messages, services or actions from within this
-## package, follow these steps:
-## * Let MSG_DEP_SET be the set of packages whose message types you use in
-##   your messages/services/actions (e.g. std_msgs, actionlib_msgs, ...).
-## * In the file package.xml:
-##   * add a build_depend tag for "message_generation"
-##   * add a build_depend and a exec_depend tag for each package in MSG_DEP_SET
-##   * If MSG_DEP_SET isn't empty the following dependency has been pulled in
-##     but can be declared for certainty nonetheless:
-##     * add a exec_depend tag for "message_runtime"
-## * In this file (CMakeLists.txt):
-##   * add "message_generation" and every package in MSG_DEP_SET to
-##     find_package(catkin REQUIRED COMPONENTS ...)
-##   * add "message_runtime" and every package in MSG_DEP_SET to
-##     catkin_package(CATKIN_DEPENDS ...)
-##   * uncomment the add_*_files sections below as needed
-##     and list every .msg/.srv/.action file to be processed
-##   * uncomment the generate_messages entry below
-##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
-
-## Generate messages in the 'msg' folder
-add_message_files(
-  FILES
-  NmpcDebugSample.msg
-)
-
-## Generate services in the 'srv' folder
-add_service_files(
-  FILES
-  SetRuntimeParameters.srv
-)
-
-## Generate actions in the 'action' folder
-# add_action_files(
-#   FILES
-#   Action1.action
-#   Action2.action
-# )
-
-## Generate added messages and services with any dependencies listed here
-generate_messages(
-  DEPENDENCIES
-  geometry_msgs
-  std_msgs
-)
-
-################################################
 ## Declare ROS dynamic reconfigure parameters ##
 ################################################
 
@@ -264,7 +214,9 @@ generate_messages(
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp std_msgs message_runtime geometry_msgs nav_msgs sensor_msgs mavros_msgs ros1_utils multirotor_reference_trajectory hover_thrust_estimator_msgs rigid_state_estimator_msgs
+  CATKIN_DEPENDS roscpp std_msgs geometry_msgs nav_msgs sensor_msgs mavros_msgs ros1_utils
+                 multirotor_reference_trajectory_msgs px4_multirotor_controller_msgs
+                 hover_thrust_estimator_msgs rigid_state_estimator_msgs
 )
 
 ###########
@@ -273,13 +225,6 @@ catkin_package(
 
 set(MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR "${CATKIN_DEVEL_PREFIX}/include")
 set(MULTIROTOR_DEVEL_LIBRARY_DIR "${CATKIN_DEVEL_PREFIX}/lib")
-set(MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS "")
-if(TARGET rigid_state_estimator_msgs_generate_messages_cpp)
-  list(APPEND MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS
-    rigid_state_estimator_msgs_generate_messages_cpp
-  )
-endif()
-
 function(multirotor_prefer_devel_runtime target_name)
   set_target_properties(${target_name} PROPERTIES
     BUILD_RPATH "${MULTIROTOR_DEVEL_LIBRARY_DIR}"
@@ -359,7 +304,6 @@ add_executable(${PROJECT_NAME}_node
   src/input/command_input_producer.cpp
   src/input/sensor_input_producer.cpp
   src/input/trajectory_input_producer.cpp
-  src/service/runtime_parameter_service.cpp
   src/output/control_output_consumer.cpp
   src/output/debug_output_consumer.cpp
   src/output/nmpc_output_consumer.cpp
@@ -392,7 +336,6 @@ target_include_directories(${PROJECT_NAME}_node BEFORE PRIVATE
 
 ## Add dependencies
 add_dependencies(${PROJECT_NAME}_node
-  ${MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS}
   ${${PROJECT_NAME}_EXPORTED_TARGETS}
   ${catkin_EXPORTED_TARGETS}
 )
@@ -455,7 +398,6 @@ if(CATKIN_ENABLE_TESTING)
       ${CATKIN_DEVEL_PREFIX}/include
     )
     add_dependencies(px4_multirotor_controller_nmpc_event_runtime_test
-      ${MULTIROTOR_PRIVATE_GENERATED_HEADER_TARGETS}
       ${catkin_EXPORTED_TARGETS}
     )
     target_link_libraries(px4_multirotor_controller_nmpc_event_runtime_test

@@ -1,5 +1,9 @@
 #pragma once
 
+#include <multirotor_reference_trajectory_msgs/ActivePolynomialReference.h>
+#include <multirotor_reference_trajectory_msgs/AnalyticReference.h>
+#include <multirotor_reference_trajectory_msgs/SampledReference.h>
+
 #include <Eigen/Dense>
 #include <memory>
 #include <mutex>
@@ -7,9 +11,6 @@
 #include <xgc2_math/control.hpp>
 #include <xgc2_math/trajectory.hpp>
 
-#include "multirotor_reference_trajectory/ActivePolynomialReference.h"
-#include "multirotor_reference_trajectory/AnalyticReference.h"
-#include "multirotor_reference_trajectory/SampledReference.h"
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
 
@@ -30,11 +31,12 @@ struct UavReferencePoint {
 
 class ActiveTrajectoryCache {
    public:
-    bool updateAnalytic(const multirotor_reference_trajectory::AnalyticReference& msg,
+    bool updateAnalytic(const multirotor_reference_trajectory_msgs::AnalyticReference& msg,
                         const ros::Time& received_time);
-    bool updatePolynomial(const multirotor_reference_trajectory::ActivePolynomialReference& msg,
-                          const ros::Time& received_time);
-    bool updateSampled(const multirotor_reference_trajectory::SampledReference& msg,
+    bool updatePolynomial(
+        const multirotor_reference_trajectory_msgs::ActivePolynomialReference& msg,
+        const ros::Time& received_time);
+    bool updateSampled(const multirotor_reference_trajectory_msgs::SampledReference& msg,
                        const ros::Time& received_time);
     void clear();
 
@@ -52,13 +54,13 @@ class ActiveTrajectoryCache {
    private:
     static bool finiteVector(const Eigen::Vector3d& value);
     static std::unique_ptr<xgc2_math::trajectory::TrajectoryEvaluator3> buildAnalyticEvaluator(
-        const multirotor_reference_trajectory::AnalyticReference& msg, uint32_t& flags);
+        const multirotor_reference_trajectory_msgs::AnalyticReference& msg, uint32_t& flags);
     static bool buildPolynomialEvaluator(
-        const multirotor_reference_trajectory::ActivePolynomialReference& msg,
+        const multirotor_reference_trajectory_msgs::ActivePolynomialReference& msg,
         xgc2_math::trajectory::PiecewisePolynomialEvaluator3& evaluator, uint32_t& flags);
-    static bool buildSampledEvaluator(const multirotor_reference_trajectory::SampledReference& msg,
-                                      xgc2_math::trajectory::SampledEvaluator3& evaluator,
-                                      uint32_t& flags);
+    static bool buildSampledEvaluator(
+        const multirotor_reference_trajectory_msgs::SampledReference& msg,
+        xgc2_math::trajectory::SampledEvaluator3& evaluator, uint32_t& flags);
     static UavReferencePoint toPoint(const xgc2_math::trajectory::FlatOutput3& flat, double t);
     static xgc2_math::control::Se3Reference toNmpcReference(
         const xgc2_math::trajectory::FullStateReference3& full);

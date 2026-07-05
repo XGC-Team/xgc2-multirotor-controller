@@ -1,7 +1,7 @@
 schema: xgc2.product.v1
 id: xgc2-multirotor-controller
 name: XGC2 Multirotor Controller
-version: 1.1.16-1
+version: 1.1.17-1
 kind: ros1-apt
 summary: ROS1 PX4 multirotor controller and multirotor reference trajectory packages
   for XGC2 robots.
@@ -22,8 +22,10 @@ apt:
   - libxgc2-math-dev (>= 0.5.5-6)
   - xgc2-acados (>= 0.1.0-7~focal)
   - ros-noetic-xgc2-ros1-utils
-  - ros-noetic-xgc2-estimator-hover-thrust (>= 1.1.23-3)
-  - ros-noetic-xgc2-estimator-rigid-state-msgs (>= 1.1.4-1)
+  - ros-noetic-xgc2-estimator-hover-thrust-msgs (>= 1.2.0-1)
+  - ros-noetic-xgc2-estimator-rigid-state-msgs (>= 1.2.0-1)
+  - ros-noetic-xgc2-multirotor-reference-trajectory-msgs (>= 1.2.0-1)
+  - ros-noetic-xgc2-px4-multirotor-controller-msgs (>= 1.2.0-1)
 usage:
   install: 'sudo apt update
 

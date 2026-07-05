@@ -2,7 +2,6 @@
 
 #include <cmath>
 
-#include "rigid_state_estimator_msgs/RigidStateEstimate.h"
 #include "px4_multirotor_controller/common/sensor_checks.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
@@ -10,18 +9,20 @@
 #include "px4_multirotor_controller/tracking/px4_local_raw_strategy.h"
 #include "px4_multirotor_controller/uav/active_trajectory_cache.h"
 #include "px4_multirotor_controller/uav/nmpc_result_buffer.h"
+#include "rigid_state_estimator_msgs/RigidStateEstimate.h"
 #include "xgc2_math/control.hpp"
 
 namespace px4_multirotor_controller {
 namespace {
 
-multirotor_reference_trajectory::AnalyticReference makeAnalyticReference() {
-    multirotor_reference_trajectory::AnalyticReference msg;
+multirotor_reference_trajectory_msgs::AnalyticReference makeAnalyticReference() {
+    multirotor_reference_trajectory_msgs::AnalyticReference msg;
     msg.header.stamp = ros::Time(10.0);
     msg.request_id = 1U;
     msg.trajectory_id = 2U;
     msg.revision = 3U;
-    msg.analytic_type = multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HEIGHT_CIRCLE;
+    msg.analytic_type =
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HEIGHT_CIRCLE;
     msg.start_time = ros::Time(10.0);
     msg.duration = 60.0;
     msg.origin.position.z = 3.0;
@@ -30,7 +31,7 @@ multirotor_reference_trajectory::AnalyticReference makeAnalyticReference() {
     return msg;
 }
 
-multirotor_reference_trajectory::AnalyticReference makeAnalyticCurveReference(
+multirotor_reference_trajectory_msgs::AnalyticReference makeAnalyticCurveReference(
     uint16_t analytic_type) {
     auto msg = makeAnalyticReference();
     msg.analytic_type = analytic_type;
@@ -39,19 +40,19 @@ multirotor_reference_trajectory::AnalyticReference makeAnalyticCurveReference(
     msg.origin.position.y = 0.0;
     msg.origin.position.z = 1.5;
     switch (analytic_type) {
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE:
             msg.params = {1.0, 0.5, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
             break;
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE:
             msg.params = {1.0, 0.7, 1.0};
             break;
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_YZ:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_YZ:
             msg.params = {0.5, 0.6, 10.0};
             break;
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_XY:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_XY:
             msg.params = {0.5, 0.6, 10.0};
             break;
-        case multirotor_reference_trajectory::AnalyticReference::ANALYTIC_TORUS_KNOT:
+        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_TORUS_KNOT:
             msg.params = {0.5, 0.25};
             break;
         default:
@@ -60,15 +61,15 @@ multirotor_reference_trajectory::AnalyticReference makeAnalyticCurveReference(
     return msg;
 }
 
-multirotor_reference_trajectory::SampledReference makeSampledReference() {
-    multirotor_reference_trajectory::SampledReference msg;
+multirotor_reference_trajectory_msgs::SampledReference makeSampledReference() {
+    multirotor_reference_trajectory_msgs::SampledReference msg;
     msg.header.stamp = ros::Time(20.0);
     msg.trajectory_id = 4U;
     msg.revision = 5U;
     msg.start_time = ros::Time(20.0);
     msg.sample_dt = 0.1;
     for (int i = 0; i < 3; ++i) {
-        multirotor_reference_trajectory::FlatReferencePoint point;
+        multirotor_reference_trajectory_msgs::FlatReferencePoint point;
         point.t_from_start = 0.1 * static_cast<double>(i);
         point.position.x = point.t_from_start;
         point.position.z = 3.0;
@@ -138,11 +139,11 @@ TEST(ActiveTrajectoryCache, AnalyticReferenceSamplesAndBuildsHorizon) {
 
 TEST(ActiveTrajectoryCache, AnalyticCurveReferencesSampleAndBuildHorizons) {
     const uint16_t analytic_types[] = {
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LINE,
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_LEMNISCATE,
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_YZ,
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_HELIX_XY,
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_TORUS_KNOT,
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE,
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE,
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_YZ,
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_XY,
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_TORUS_KNOT,
     };
 
     for (const auto analytic_type : analytic_types) {
@@ -228,8 +229,7 @@ TEST(SensorChecks, StateEstimateGateIsOnlyControlStateSource) {
         rigid_state_estimator_msgs::RigidStateEstimate::STATE_COASTING;
     EXPECT_TRUE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
-    sensor.uav_state_estimator_flags =
-        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_FAULT;
+    sensor.uav_state_estimator_flags = rigid_state_estimator_msgs::RigidStateEstimate::FLAG_FAULT;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_flags =

@@ -47,16 +47,10 @@ required_files=(
   .xgc2/scripts/setup_xgc2_apt_source.sh
   px4_multirotor_controller/CMakeLists.txt
   px4_multirotor_controller/package.xml
-  px4_multirotor_controller/msg/NmpcDebugSample.msg
   px4_multirotor_controller/launch/uav_nmpc_controller.launch
   px4_multirotor_controller/config/uav_nmpc.yaml
   multirotor_reference_trajectory/CMakeLists.txt
   multirotor_reference_trajectory/package.xml
-  multirotor_reference_trajectory/msg/AnalyticReference.msg
-  multirotor_reference_trajectory/msg/WaypointReferenceRequest.msg
-  multirotor_reference_trajectory/msg/SampledReference.msg
-  multirotor_reference_trajectory/msg/ActivePolynomialReference.msg
-  multirotor_reference_trajectory/msg/ReferenceStatus.msg
   multirotor_reference_trajectory/include/multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h
   multirotor_reference_trajectory/launch/uav_multirotor_reference_trajectory.launch
 )
@@ -83,8 +77,17 @@ grep -q "libxgc2-state-machine-dev (>= 0.1.2-5~focal)" .xgc2/scripts/package_deb
 grep -q "libxgc2-math-dev (>= 0.5.5-6)" .xgc2/scripts/package_debs.sh
 grep -q "xgc2-acados (>= 0.1.0-7~focal)" .xgc2/product.yml
 grep -q "xgc2-acados (>= 0.1.0-7~focal)" .xgc2/scripts/package_debs.sh
-grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-hover-thrust (>= 1.1.23-3)" .xgc2/scripts/package_debs.sh
-grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-rigid-state-msgs (>= 1.1.4-1)" .xgc2/scripts/package_debs.sh
+grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-hover-thrust-msgs (>= 1.2.0-1)" .xgc2/scripts/package_debs.sh
+grep -q "ros-\${ROS_DISTRO}-xgc2-estimator-rigid-state-msgs (>= 1.2.0-1)" .xgc2/scripts/package_debs.sh
+grep -q "ros-\${ROS_DISTRO}-xgc2-multirotor-reference-trajectory-msgs (>= 1.2.0-1)" .xgc2/scripts/package_debs.sh
+grep -q "ros-\${ROS_DISTRO}-xgc2-px4-multirotor-controller-msgs (>= 1.2.0-1)" .xgc2/scripts/package_debs.sh
+
+if grep -R --exclude='check_package_compliance.sh' \
+  -E "ros-noetic-xgc2-estimator-hover-thrust([[:space:]]|$|[),])" \
+  .github .xgc2 README.md px4_multirotor_controller multirotor_reference_trajectory >/dev/null; then
+  echo "Estimator implementation dependency found in multirotor controller package." >&2
+  exit 1
+fi
 
 if grep -R --exclude='check_package_compliance.sh' "ros-noetic-xgc2-reference" \
   .github .xgc2 README.md px4_multirotor_controller multirotor_reference_trajectory >/dev/null; then

@@ -2,9 +2,9 @@
 
 #include <hover_thrust_estimator_msgs/HoverThrustEstimate.h>
 #include <mavros_msgs/PositionTarget.h>
-#include <multirotor_reference_trajectory/ActivePolynomialReference.h>
-#include <multirotor_reference_trajectory/AnalyticReference.h>
-#include <multirotor_reference_trajectory/SampledReference.h>
+#include <multirotor_reference_trajectory_msgs/ActivePolynomialReference.h>
+#include <multirotor_reference_trajectory_msgs/AnalyticReference.h>
+#include <multirotor_reference_trajectory_msgs/SampledReference.h>
 #include <ros/ros.h>
 
 #include <functional>
@@ -29,13 +29,12 @@ class TrajectoryInputProducer {
    private:
     void algSetpointCallback(const mavros_msgs::PositionTarget::ConstPtr& msg);
     void activeAnalyticCallback(
-        const multirotor_reference_trajectory::AnalyticReference::ConstPtr& msg);
+        const multirotor_reference_trajectory_msgs::AnalyticReference::ConstPtr& msg);
     void activePolynomialCallback(
-        const multirotor_reference_trajectory::ActivePolynomialReference::ConstPtr& msg);
+        const multirotor_reference_trajectory_msgs::ActivePolynomialReference::ConstPtr& msg);
     void activeSampledCallback(
-        const multirotor_reference_trajectory::SampledReference::ConstPtr& msg);
-    void hoverThrustCallback(
-        const hover_thrust_estimator_msgs::HoverThrustEstimate::ConstPtr& msg);
+        const multirotor_reference_trajectory_msgs::SampledReference::ConstPtr& msg);
+    void hoverThrustCallback(const hover_thrust_estimator_msgs::HoverThrustEstimate::ConstPtr& msg);
     void postInputEvent(::state_machine::EventId event_id, const char* source);
 
     SensorData& sensor_data_;

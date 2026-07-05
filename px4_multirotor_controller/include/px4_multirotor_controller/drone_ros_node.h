@@ -12,7 +12,6 @@
 #include "px4_multirotor_controller/input/sensor_input_producer.h"
 #include "px4_multirotor_controller/input/trajectory_input_producer.h"
 #include "px4_multirotor_controller/output/px4_service_output_consumer.h"
-#include "px4_multirotor_controller/service/runtime_parameter_service.h"
 
 namespace px4_multirotor_controller {
 
@@ -45,7 +44,6 @@ class DroneRosNode {
     std::unique_ptr<SensorInputProducer> sensor_input_producer_;
     std::unique_ptr<CommandInputProducer> command_input_producer_;
     std::unique_ptr<TrajectoryInputProducer> trajectory_input_producer_;
-    std::unique_ptr<RuntimeParameterService> runtime_parameter_service_;
 };
 
 }  // namespace px4_multirotor_controller

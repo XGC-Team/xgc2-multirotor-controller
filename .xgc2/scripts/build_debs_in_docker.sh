@@ -72,14 +72,17 @@ docker run --rm \
       ros-noetic-nav-msgs \
       ros-noetic-roscpp \
       ros-noetic-roslaunch \
+      ros-noetic-rosmsg \
       ros-noetic-rospack \
       ros-noetic-rospy \
       ros-noetic-rostest \
       ros-noetic-rosunit \
       ros-noetic-sensor-msgs \
       ros-noetic-std-msgs \
-      ros-noetic-xgc2-estimator-hover-thrust \
+      ros-noetic-xgc2-estimator-hover-thrust-msgs \
       ros-noetic-xgc2-estimator-rigid-state-msgs \
+      ros-noetic-xgc2-multirotor-reference-trajectory-msgs \
+      ros-noetic-xgc2-px4-multirotor-controller-msgs \
       ros-noetic-xgc2-ros1-utils
 
     rm -rf /workspace/work/src /workspace/work/build /workspace/work/devel /workspace/work/install-root

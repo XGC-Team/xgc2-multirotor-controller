@@ -7,7 +7,7 @@ namespace multirotor_reference_trajectory {
 ReadyState::ReadyState(ReferenceTrajectoryRuntime& runtime) : runtime_(runtime) {}
 
 ::state_machine::ActionResult ReadyState::onEnter(::state_machine::StateContext& ctx) {
-    runtime_.enterState(ReferenceStatus::STATE_READY);
+    runtime_.enterState(multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_READY);
     status_gate_.reset();
     publishStatusIfDue(ctx);
     return {};

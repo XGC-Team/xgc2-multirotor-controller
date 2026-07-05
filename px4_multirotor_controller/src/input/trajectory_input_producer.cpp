@@ -74,7 +74,7 @@ void TrajectoryInputProducer::algSetpointCallback(
 }
 
 void TrajectoryInputProducer::activeAnalyticCallback(
-    const multirotor_reference_trajectory::AnalyticReference::ConstPtr& msg) {
+    const multirotor_reference_trajectory_msgs::AnalyticReference::ConstPtr& msg) {
     if (!msg) {
         ROS_ERROR("[TrajectoryInputProducer] Received null active analytic trajectory");
         return;
@@ -88,7 +88,7 @@ void TrajectoryInputProducer::activeAnalyticCallback(
 }
 
 void TrajectoryInputProducer::activePolynomialCallback(
-    const multirotor_reference_trajectory::ActivePolynomialReference::ConstPtr& msg) {
+    const multirotor_reference_trajectory_msgs::ActivePolynomialReference::ConstPtr& msg) {
     if (!msg) {
         ROS_ERROR("[TrajectoryInputProducer] Received null active polynomial trajectory");
         return;
@@ -102,7 +102,7 @@ void TrajectoryInputProducer::activePolynomialCallback(
 }
 
 void TrajectoryInputProducer::activeSampledCallback(
-    const multirotor_reference_trajectory::SampledReference::ConstPtr& msg) {
+    const multirotor_reference_trajectory_msgs::SampledReference::ConstPtr& msg) {
     if (!msg) {
         ROS_ERROR("[TrajectoryInputProducer] Received null active sampled trajectory");
         return;

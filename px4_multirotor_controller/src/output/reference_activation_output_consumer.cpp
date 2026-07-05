@@ -28,7 +28,7 @@ ReferenceActivationOutputConsumer::ReferenceActivationOutputConsumer(
     ros::NodeHandle& nh, ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
     DroneController& controller, uint32_t queue_size)
     : executor_(executor), controller_(controller) {
-    activation_pub_ = nh.advertise<multirotor_reference_trajectory::AnalyticReference>(
+    activation_pub_ = nh.advertise<multirotor_reference_trajectory_msgs::AnalyticReference>(
         "alg/multirotor_reference_trajectory/request/analytic", queue_size);
 }
 
@@ -49,11 +49,11 @@ bool ReferenceActivationOutputConsumer::handle(const ::state_machine::Event& eve
     return true;
 }
 
-multirotor_reference_trajectory::AnalyticReference
+multirotor_reference_trajectory_msgs::AnalyticReference
 ReferenceActivationOutputConsumer::makeActivationMessage(const ::state_machine::Event& event,
                                                          const SensorData& sensor,
                                                          const ControllerConfig& config) {
-    multirotor_reference_trajectory::AnalyticReference msg;
+    multirotor_reference_trajectory_msgs::AnalyticReference msg;
     const double stamp = event.timestamp > 0.0 ? event.timestamp : ros::Time::now().toSec();
     msg.header.stamp = ros::Time(stamp);
     msg.header.frame_id = "map";
@@ -90,7 +90,7 @@ ReferenceActivationOutputConsumer::makeActivationMessage(const ::state_machine::
     }
 
     if (msg.analytic_type ==
-        multirotor_reference_trajectory::AnalyticReference::ANALYTIC_TORUS_KNOT) {
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_TORUS_KNOT) {
         const double scale = std::abs(config.nmpc.reference_torus_scale);
         const double start_x = finiteOr(sensor.x, 0.0);
         const double start_y = finiteOr(sensor.y, 0.0);
@@ -109,7 +109,7 @@ ReferenceActivationOutputConsumer::makeActivationMessage(const ::state_machine::
                       curve_origin_z};
     } else {
         msg.analytic_type =
-            multirotor_reference_trajectory::AnalyticReference::ANALYTIC_CIRCLE_ENTRY;
+            multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_CIRCLE_ENTRY;
         msg.params = {config.nmpc.reference_radius,      config.nmpc.reference_line_speed,
                       config.nmpc.reference_height,      config.nmpc.reference_z_amplitude,
                       config.nmpc.reference_z_frequency, config.nmpc.reference_entry_duration,

@@ -21,7 +21,8 @@ ReferenceInputProducer::ReferenceInputProducer(ros::NodeHandle& nh,
         nh.subscribe(reset_topic, queue_size, &ReferenceInputProducer::resetCallback, this);
 }
 
-void ReferenceInputProducer::analyticCallback(const AnalyticReference::ConstPtr& msg) {
+void ReferenceInputProducer::analyticCallback(
+    const multirotor_reference_trajectory_msgs::AnalyticReference::ConstPtr& msg) {
     if (!msg) {
         ROS_ERROR("[ReferenceInputProducer] Null analytic reference");
         return;
@@ -33,7 +34,8 @@ void ReferenceInputProducer::analyticCallback(const AnalyticReference::ConstPtr&
     post(event_type::ANALYTIC_RECEIVED, "analytic_reference");
 }
 
-void ReferenceInputProducer::waypointCallback(const WaypointReferenceRequest::ConstPtr& msg) {
+void ReferenceInputProducer::waypointCallback(
+    const multirotor_reference_trajectory_msgs::WaypointReferenceRequest::ConstPtr& msg) {
     if (!msg) {
         ROS_ERROR("[ReferenceInputProducer] Null waypoint reference");
         return;
@@ -45,7 +47,8 @@ void ReferenceInputProducer::waypointCallback(const WaypointReferenceRequest::Co
     post(event_type::WAYPOINT_RECEIVED, "waypoint_reference");
 }
 
-void ReferenceInputProducer::sampledCallback(const SampledReference::ConstPtr& msg) {
+void ReferenceInputProducer::sampledCallback(
+    const multirotor_reference_trajectory_msgs::SampledReference::ConstPtr& msg) {
     if (!msg) {
         ROS_ERROR("[ReferenceInputProducer] Null sampled reference");
         return;

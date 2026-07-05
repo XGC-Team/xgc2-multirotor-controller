@@ -101,8 +101,6 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
             controller_.mpcTrajectoryBuffer().cachePending(trajectory);
         },
         kRosQueueSize);
-    runtime_parameter_service_ =
-        std::make_unique<RuntimeParameterService>(nh_private_, controller_);
 
     output_event_executor_.start();
     sensor_input_producer_->start();
@@ -123,8 +121,6 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     ROS_INFO("  - alg/multirotor_reference_trajectory/active/sampled");
     ROS_INFO("  - hover_thrust/estimate_state");
     ROS_INFO("  - /command (global)");
-    ROS_INFO("[DroneRosNode] Services:");
-    ROS_INFO("  - ~set_runtime_parameters");
     ROS_INFO("[DroneRosNode] Publishing topics:");
     ROS_INFO("  - mavros/setpoint_raw/local");
     ROS_INFO("  - mavros/setpoint_raw/attitude");

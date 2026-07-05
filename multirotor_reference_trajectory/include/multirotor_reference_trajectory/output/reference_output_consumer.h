@@ -1,5 +1,9 @@
 #pragma once
 
+#include <multirotor_reference_trajectory_msgs/ActivePolynomialReference.h>
+#include <multirotor_reference_trajectory_msgs/AnalyticReference.h>
+#include <multirotor_reference_trajectory_msgs/ReferenceStatus.h>
+#include <multirotor_reference_trajectory_msgs/SampledReference.h>
 #include <nav_msgs/Path.h>
 #include <ros/ros.h>
 
@@ -7,10 +11,6 @@
 #include <state_machine/runtime/event_dispatcher.hpp>
 #include <string>
 
-#include "multirotor_reference_trajectory/ActivePolynomialReference.h"
-#include "multirotor_reference_trajectory/AnalyticReference.h"
-#include "multirotor_reference_trajectory/ReferenceStatus.h"
-#include "multirotor_reference_trajectory/SampledReference.h"
 #include "multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h"
 
 namespace multirotor_reference_trajectory {

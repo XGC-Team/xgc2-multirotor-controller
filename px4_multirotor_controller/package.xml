@@ -52,7 +52,6 @@
 
   <build_depend>roscpp</build_depend>
   <build_depend>std_msgs</build_depend>
-  <build_depend>message_generation</build_depend>
   <build_depend>geometry_msgs</build_depend>
   <build_depend>nav_msgs</build_depend>
   <build_depend>sensor_msgs</build_depend>
@@ -60,14 +59,14 @@
   <build_depend version_gte="0.1.2-1~focal">libxgc2-state-machine-dev</build_depend>
   <build_depend version_gte="0.5.4-1">libxgc2-math-dev</build_depend>
   <build_depend>ros1_utils</build_depend>
-  <build_depend>multirotor_reference_trajectory</build_depend>
+  <build_depend>multirotor_reference_trajectory_msgs</build_depend>
+  <build_depend>px4_multirotor_controller_msgs</build_depend>
   <build_depend>hover_thrust_estimator_msgs</build_depend>
   <build_depend>rigid_state_estimator_msgs</build_depend>
   <build_depend>xgc2-acados</build_depend>
 
   <build_export_depend>roscpp</build_export_depend>
   <build_export_depend>std_msgs</build_export_depend>
-  <build_export_depend>message_runtime</build_export_depend>
   <build_export_depend>geometry_msgs</build_export_depend>
   <build_export_depend>nav_msgs</build_export_depend>
   <build_export_depend>sensor_msgs</build_export_depend>
@@ -75,14 +74,14 @@
   <build_export_depend version_gte="0.1.2-1~focal">libxgc2-state-machine-dev</build_export_depend>
   <build_export_depend version_gte="0.5.4-1">libxgc2-math-dev</build_export_depend>
   <build_export_depend>ros1_utils</build_export_depend>
-  <build_export_depend>multirotor_reference_trajectory</build_export_depend>
+  <build_export_depend>multirotor_reference_trajectory_msgs</build_export_depend>
+  <build_export_depend>px4_multirotor_controller_msgs</build_export_depend>
   <build_export_depend>hover_thrust_estimator_msgs</build_export_depend>
   <build_export_depend>rigid_state_estimator_msgs</build_export_depend>
   <build_export_depend>xgc2-acados</build_export_depend>
 
   <exec_depend>roscpp</exec_depend>
   <exec_depend>std_msgs</exec_depend>
-  <exec_depend>message_runtime</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
@@ -90,9 +89,9 @@
   <exec_depend version_gte="0.1.2-1~focal">libxgc2-state-machine-dev</exec_depend>
   <exec_depend version_gte="0.5.4-1">libxgc2-math-dev</exec_depend>
   <exec_depend>ros1_utils</exec_depend>
-  <exec_depend>multirotor_reference_trajectory</exec_depend>
+  <exec_depend>multirotor_reference_trajectory_msgs</exec_depend>
+  <exec_depend>px4_multirotor_controller_msgs</exec_depend>
   <exec_depend>hover_thrust_estimator_msgs</exec_depend>
-  <exec_depend>hover_thrust_estimator</exec_depend>
   <exec_depend>rigid_state_estimator_msgs</exec_depend>
   <exec_depend>xgc2-acados</exec_depend>
 

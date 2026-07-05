@@ -40,20 +40,8 @@
     <arg name="reference_torus_omega" default="0.3"/>
     <arg name="reference_torus_scale" default="0.3"/>
     <arg name="config_file" default="$(find px4_multirotor_controller)/config/uav_nmpc.yaml"/>
-    <arg name="hover_thrust_config_file" default=""/>
 
     <group ns="$(arg ns)">
-        <node pkg="hover_thrust_estimator"
-              type="hover_thrust_estimator_node"
-              name="hover_thrust_estimator"
-              output="screen"
-              respawn="false"
-              clear_params="true">
-            <rosparam if="$(eval arg('hover_thrust_config_file') != '')"
-                      command="load"
-                      file="$(arg hover_thrust_config_file)"/>
-        </node>
-
         <node pkg="px4_multirotor_controller"
               type="px4_multirotor_controller_node"
               name="px4_multirotor_controller"

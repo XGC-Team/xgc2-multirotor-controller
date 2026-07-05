@@ -1,6 +1,6 @@
 #pragma once
 
-#include <multirotor_reference_trajectory/AnalyticReference.h>
+#include <multirotor_reference_trajectory_msgs/AnalyticReference.h>
 #include <ros/ros.h>
 
 #include <state_machine/runtime/async_task_executor.hpp>
@@ -23,7 +23,7 @@ class ReferenceActivationOutputConsumer final : public ::state_machine::runtime:
     bool handle(const ::state_machine::Event& event) override;
 
    private:
-    multirotor_reference_trajectory::AnalyticReference makeActivationMessage(
+    multirotor_reference_trajectory_msgs::AnalyticReference makeActivationMessage(
         const ::state_machine::Event& event, const SensorData& sensor,
         const ControllerConfig& config);
 
