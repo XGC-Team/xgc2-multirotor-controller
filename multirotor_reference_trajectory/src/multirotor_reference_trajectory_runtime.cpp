@@ -11,7 +11,6 @@
 #include <utility>
 
 #include "multirotor_reference_trajectory/state_machine/active_state.h"
-#include "multirotor_reference_trajectory/state_machine/fault_state.h"
 #include "multirotor_reference_trajectory/state_machine/planning_state.h"
 #include "multirotor_reference_trajectory/state_machine/ready_state.h"
 #include "multirotor_reference_trajectory/state_machine/self_check_state.h"
@@ -217,7 +216,7 @@ void ReferenceTrajectoryRuntime::update(double now_sec) {
         transition_result.status.ok() ? machine_->update({64, 64, true}) : transition_result;
     if (!tick_result.status.ok()) {
         flags_ |= trajectory::kFlagInvalidInput;
-        state_ = multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_FAULT;
+        state_ = multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_SELF_CHECK;
     }
 }
 
@@ -522,9 +521,6 @@ void ReferenceTrajectoryRuntime::setupMachine() {
         .state(state_type::Active)
         .name("Active")
         .impl(std::make_unique<ActiveState>(*this))
-        .state(state_type::Fault)
-        .name("Fault")
-        .impl(std::make_unique<FaultState>(*this))
         .endRegion();
 
     builder.transition()
@@ -584,14 +580,14 @@ void ReferenceTrajectoryRuntime::setupMachine() {
         .priority(transition_priority::AUTOMATIC);
     builder.transition()
         .from(state_type::Planning)
-        .to(state_type::Fault)
+        .to(state_type::SelfCheck)
         .on(event_type::PLAN_FAILED)
-        .priority(transition_priority::FAULT);
+        .priority(transition_priority::AUTOMATIC);
     builder.transition()
         .from(state_type::Active)
-        .to(state_type::Fault)
+        .to(state_type::SelfCheck)
         .on(event_type::PLAN_FAILED)
-        .priority(transition_priority::FAULT);
+        .priority(transition_priority::AUTOMATIC);
     builder.transition()
         .from(state_type::Active)
         .to(state_type::Ready)
@@ -607,12 +603,6 @@ void ReferenceTrajectoryRuntime::setupMachine() {
         .to(state_type::SelfCheck)
         .on(event_type::RESET_REQUESTED)
         .priority(transition_priority::REQUEST);
-    builder.transition()
-        .from(state_type::Fault)
-        .to(state_type::SelfCheck)
-        .on(event_type::RESET_REQUESTED)
-        .priority(transition_priority::REQUEST);
-
     auto machine_result = builder.build();
     requireOk(machine_result.status, "build reference trajectory state machine");
     machine_ = std::move(machine_result.value);

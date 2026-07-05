@@ -12,12 +12,18 @@ namespace px4_multirotor_controller {
 namespace {
 
 const std::unordered_map<std::string, ::state_machine::EventId> kCommandEventMap = {
-    {"takeoff", event_type::CMD_TAKEOFF}, {"Takeoff", event_type::CMD_TAKEOFF},
-    {"TAKEOFF", event_type::CMD_TAKEOFF}, {"land", event_type::CMD_LAND},
-    {"Land", event_type::CMD_LAND},       {"LAND", event_type::CMD_LAND},
-    {"hover", event_type::CMD_HOVER},     {"Hover", event_type::CMD_HOVER},
-    {"HOVER", event_type::CMD_HOVER},     {"custom1", event_type::CMD_CUSTOM1},
-    {"Custom1", event_type::CMD_CUSTOM1}, {"CUSTOM1", event_type::CMD_CUSTOM1},
+    {"takeoff", event_type::TAKEOFF_REQUESTED},
+    {"Takeoff", event_type::TAKEOFF_REQUESTED},
+    {"TAKEOFF", event_type::TAKEOFF_REQUESTED},
+    {"land", event_type::LANDING_REQUESTED},
+    {"Land", event_type::LANDING_REQUESTED},
+    {"LAND", event_type::LANDING_REQUESTED},
+    {"hover", event_type::HOVER_REQUESTED},
+    {"Hover", event_type::HOVER_REQUESTED},
+    {"HOVER", event_type::HOVER_REQUESTED},
+    {"custom1", event_type::TRAJECTORY_TRACKING_REQUESTED},
+    {"Custom1", event_type::TRAJECTORY_TRACKING_REQUESTED},
+    {"CUSTOM1", event_type::TRAJECTORY_TRACKING_REQUESTED},
 };
 
 }  // namespace

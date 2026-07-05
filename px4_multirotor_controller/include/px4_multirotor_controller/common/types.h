@@ -184,10 +184,10 @@ namespace event_type {
 constexpr uint32_t UNKNOWN = 0;
 
 // 外部输入事件
-constexpr uint32_t CMD_TAKEOFF = 1;
-constexpr uint32_t CMD_LAND = 2;
-constexpr uint32_t CMD_HOVER = 3;
-constexpr uint32_t CMD_CUSTOM1 = 6;
+constexpr uint32_t TAKEOFF_REQUESTED = 1;
+constexpr uint32_t LANDING_REQUESTED = 2;
+constexpr uint32_t HOVER_REQUESTED = 3;
+constexpr uint32_t TRAJECTORY_TRACKING_REQUESTED = 6;
 
 constexpr uint32_t INPUT_LOCAL_POSITION_UPDATED = 50;
 constexpr uint32_t INPUT_LOCAL_VELOCITY_UPDATED = 51;
