@@ -43,7 +43,6 @@ required_files=(
   .xgc2/scripts/check_package_compliance.sh
   .xgc2/scripts/check_version_bump.sh
   .xgc2/scripts/package_debs.sh
-  .xgc2/scripts/publish_apt_repo.sh
   .xgc2/scripts/setup_xgc2_apt_source.sh
   px4_multirotor_controller/CMakeLists.txt
   px4_multirotor_controller/package.xml
