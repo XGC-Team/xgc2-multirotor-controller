@@ -46,3 +46,10 @@ ownership:
   - /opt/ros/noetic/lib/multirotor_reference_trajectory
   - /opt/ros/noetic/lib/px4_multirotor_controller
   - /opt/ros/noetic/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so
+release:
+  dependency_policy:
+    libxgc2-math-dev: rebuild
+    libxgc2-state-machine-dev: rebuild
+    xgc2-acados: rebuild
+    xgc2-ros-msgs: rebuild
+    xgc2-ros1-utils: rebuild
