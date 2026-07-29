@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 
+#include "px4_multirotor_controller/common/sensor_checks.h"
 #include "px4_multirotor_controller/drone_controller.h"
 
 namespace px4_multirotor_controller {
@@ -85,7 +86,8 @@ void TakeoffAscendingState::updateAltitudeConfirmation() {
     }
 
     const auto& sensor_data = controller_.getSensorData();
-    const bool sensor_updated = sensor_data.uav_state_estimate_stats.is_new;
+    const bool sensor_updated =
+        sensor_checks::isControlStateNew(sensor_data, controller_.getConfig().state_source);
     if (!sensor_updated) {
         return;
     }

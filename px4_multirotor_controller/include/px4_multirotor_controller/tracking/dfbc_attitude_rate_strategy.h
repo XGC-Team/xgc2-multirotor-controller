@@ -21,7 +21,7 @@ class DfbcAttitudeRateStrategy final : public TrackingStrategy {
     }
 
    private:
-    static bool feedbackState(const SensorData& sensor, xgc2_math::control::Se3State& state);
+    bool feedbackState(const SensorData& sensor, xgc2_math::control::Se3State& state) const;
     static xgc2_math::trajectory::FlatOutput3 flatReference(const UavReferencePoint& reference);
     bool measuredAcceleration(const SensorData& sensor, const ros::Time& now,
                               Eigen::Vector3d& acceleration) const;

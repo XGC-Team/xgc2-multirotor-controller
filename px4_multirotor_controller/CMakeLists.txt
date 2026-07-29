@@ -217,6 +217,7 @@ catkin_package(
   CATKIN_DEPENDS roscpp std_msgs geometry_msgs nav_msgs sensor_msgs mavros_msgs ros1_utils
                  multirotor_reference_trajectory_msgs px4_multirotor_controller_msgs
                  hover_thrust_estimator_msgs rigid_state_estimator_msgs
+  CFG_EXTRAS px4_multirotor_controller-dependencies.cmake
 )
 
 ###########
@@ -363,6 +364,10 @@ install(TARGETS px4_multirotor_controller_uav_nmpc_runtime ${PROJECT_NAME}_node
 
 install(DIRECTORY include/${PROJECT_NAME}/
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+)
+
+install(FILES ${MULTIROTOR_UAV_NMPC_SOLVER_H}
+  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}/nmpc
 )
 
 install(DIRECTORY config launch

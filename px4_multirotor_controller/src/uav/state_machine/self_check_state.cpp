@@ -22,16 +22,19 @@ SelfCheckState::SelfCheckState(DroneController& controller) : controller_(contro
         const bool vrpn_pose_active = sensor_data.vrpn_pose_stats.is_active;
         const bool vrpn_twist_active = sensor_data.vrpn_twist_stats.is_active;
         const bool pose_consistent = sensor_checks::isVrpnPoseConsistent(sensor_data);
-        const bool state_estimate_ready =
-            sensor_checks::isStateEstimateUsableForControl(sensor_data);
+        const auto state_source = controller_.getConfig().state_source;
+        const bool control_state_ready =
+            sensor_checks::isControlStateUsableForControl(sensor_data, state_source);
         const double vrpn_local_diff = sensor_checks::vrpnLocalPositionDiff(sensor_data);
+        const char* state_source_name =
+            state_source == StateSource::VRPN_DIRECT ? "vrpn_direct" : "state_estimator";
 
         controller_.logInfo(
             "[SelfCheckState] Checking sensors... "
-            "StateEstimate:%s(est=%u flags=0x%08x) LocalPos:%s Velocity:%s "
+            "ControlState:%s(%s est=%u flags=0x%08x) LocalPos:%s Velocity:%s "
             "IMU:%s State:%s Battery:%s VRPNPose:%s VRPNTwist:%s "
             "PoseConsistency:%s Diff:%.3fm FCU:%s(%s)",
-            state_estimate_ready ? "OK" : "X",
+            control_state_ready ? "OK" : "X", state_source_name,
             static_cast<unsigned>(sensor_data.uav_state_estimator_state),
             static_cast<unsigned>(sensor_data.uav_state_estimator_flags),
             sensor_data.local_pos_stats.is_active ? "OK" : "X",

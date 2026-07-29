@@ -18,7 +18,7 @@ catkin_package(
   INCLUDE_DIRS include
   CATKIN_DEPENDS geometry_msgs multirotor_reference_trajectory_msgs nav_msgs roscpp rospy
                  std_msgs
-  DEPENDS EIGEN3 xgc2_math
+  CFG_EXTRAS multirotor_reference_trajectory-dependencies.cmake
 )
 
 include_directories(

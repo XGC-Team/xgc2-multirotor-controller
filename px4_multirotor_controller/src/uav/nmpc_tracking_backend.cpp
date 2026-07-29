@@ -80,8 +80,7 @@ void limitYawAuthority(std::vector<Se3Reference>& references, double current_yaw
 
 Eigen::Vector3d referenceAccelerationWorld(const Se3Reference& reference, double gravity) {
     const Eigen::Vector3d body_z = reference.state.attitude.toRotationMatrix().col(2);
-    return body_z * reference.control.body_z_specific_force -
-           gravity * Eigen::Vector3d::UnitZ();
+    return body_z * reference.control.body_z_specific_force - gravity * Eigen::Vector3d::UnitZ();
 }
 
 Eigen::Vector3d equivalentAngularAcceleration(const Eigen::Vector3d& current_body_rate,
@@ -192,10 +191,9 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
     const double thrust_actual_before_solve = thrust_actual_estimate_;
     const double last_commanded_thrust_before_solve = last_commanded_specific_thrust_;
     const Eigen::Vector3d last_commanded_body_rate_before_solve = last_commanded_body_rate_;
-    const bool success = solver_.solve(x0, thrust_actual_before_solve,
-                                       last_commanded_thrust_before_solve,
-                                       last_commanded_body_rate_before_solve,
-                                       tracking_references);
+    const bool success =
+        solver_.solve(x0, thrust_actual_before_solve, last_commanded_thrust_before_solve,
+                      last_commanded_body_rate_before_solve, tracking_references);
     last_debug_ = NmpcDebugData{};
     last_debug_.valid = true;
     last_debug_.success = success;
@@ -224,8 +222,7 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
     if (success) {
         const Se3ControlVector u = solver_.optimalControl();
         const Eigen::Vector3d body_rate = bodyRateCommandFromPredictedBodyRate(
-            u.segment<3>(1), config_.nmpc.max_roll_pitch_body_rate,
-            config_.nmpc.max_yaw_body_rate);
+            u.segment<3>(1), config_.nmpc.max_roll_pitch_body_rate, config_.nmpc.max_yaw_body_rate);
         const Eigen::Vector3d angular_acceleration = equivalentAngularAcceleration(
             x0.segment<3>(10), body_rate, config_.nmpc.body_rate_time_constant);
         target.body_rate_x = body_rate.x();
@@ -249,11 +246,9 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
             last_debug_.normalized_thrust_raw >=
             config_.nmpc.normalized_thrust_max - kSaturationTolerance;
         last_debug_.roll_rate_saturated =
-            std::abs(body_rate.x()) >=
-            config_.nmpc.max_roll_pitch_body_rate - kSaturationTolerance;
+            std::abs(body_rate.x()) >= config_.nmpc.max_roll_pitch_body_rate - kSaturationTolerance;
         last_debug_.pitch_rate_saturated =
-            std::abs(body_rate.y()) >=
-            config_.nmpc.max_roll_pitch_body_rate - kSaturationTolerance;
+            std::abs(body_rate.y()) >= config_.nmpc.max_roll_pitch_body_rate - kSaturationTolerance;
         last_debug_.yaw_rate_saturated =
             std::abs(body_rate.z()) >= config_.nmpc.max_yaw_body_rate - kSaturationTolerance;
         last_debug_.roll_alpha_saturated =
@@ -290,8 +285,7 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
         const Eigen::Vector3d omega_pred = solver_.predictedBodyRate();
         const double thrust_norm = mapSpecificThrustToNormalized(u(0), initial_hover_thrust_);
         const Eigen::Vector3d omega_cmd = bodyRateCommandFromPredictedBodyRate(
-            u.segment<3>(1), config_.nmpc.max_roll_pitch_body_rate,
-            config_.nmpc.max_yaw_body_rate);
+            u.segment<3>(1), config_.nmpc.max_roll_pitch_body_rate, config_.nmpc.max_yaw_body_rate);
         const Eigen::Vector3d alpha_cmd = equivalentAngularAcceleration(
             x0.segment<3>(10), omega_cmd, config_.nmpc.body_rate_time_constant);
         const Se3StateVector ref0_x = control::packState(tracking_references.front().state);
@@ -330,7 +324,7 @@ void UavNmpcTrackingBackend::exit() {
 }
 
 bool UavNmpcTrackingBackend::feedbackState(const SensorData& sensor, Se3StateVector& x0) const {
-    if (!sensor_checks::isStateEstimateUsableForControl(sensor)) {
+    if (!sensor_checks::isControlStateUsableForControl(sensor, config_.state_source)) {
         return false;
     }
 
@@ -432,12 +426,11 @@ bool UavNmpcTrackingBackend::lockInputBounds(double hover_thrust) {
         config_.nmpc.gravity * config_.nmpc.normalized_thrust_min / initial_hover_thrust_;
     effective_specific_thrust_max_ =
         config_.nmpc.gravity * config_.nmpc.normalized_thrust_max / initial_hover_thrust_;
-    if (!solver_.configureInputBounds(effective_specific_thrust_min_,
-                                      effective_specific_thrust_max_,
-                                      config_.nmpc.max_roll_pitch_body_rate,
-                                      config_.nmpc.max_yaw_body_rate,
-                                      config_.nmpc.max_roll_pitch_angular_acceleration,
-                                      config_.nmpc.max_yaw_angular_acceleration)) {
+    if (!solver_.configureInputBounds(
+            effective_specific_thrust_min_, effective_specific_thrust_max_,
+            config_.nmpc.max_roll_pitch_body_rate, config_.nmpc.max_yaw_body_rate,
+            config_.nmpc.max_roll_pitch_angular_acceleration,
+            config_.nmpc.max_yaw_angular_acceleration)) {
         initial_hover_thrust_ = 0.0;
         effective_specific_thrust_min_ = 0.0;
         effective_specific_thrust_max_ = 0.0;

@@ -7,8 +7,10 @@
     <arg name="vrpn_pose_topic" default="$(arg vrpn_client_node)/$(arg vrpn_rigid_body)/pose"/>
     <arg name="vrpn_twist_topic" default="$(arg vrpn_client_node)/$(arg vrpn_rigid_body)/twist"/>
     <arg name="state_estimate_topic" default="alg/state_estimator/state"/>
+    <arg name="state_source" default="state_estimator"/>
     <arg name="tracking_backend" default="dfbc_attitude_rate"/>
     <arg name="takeoff_altitude" default="3.0"/>
+    <arg name="skip_takeoff_init_disarm" default="false"/>
     <arg name="fence_x_min" default="-1000000.0"/>
     <arg name="fence_x_max" default="1000000.0"/>
     <arg name="fence_y_min" default="-1000000.0"/>
@@ -50,8 +52,12 @@
               clear_params="true">
             <rosparam command="load" file="$(arg config_file)"/>
             <param name="tracking_backend" value="$(arg tracking_backend)"/>
+            <param name="state_source" value="$(arg state_source)"/>
             <param name="debug_print" value="$(arg debug_print)"/>
             <param name="takeoff_altitude" value="$(arg takeoff_altitude)"/>
+            <param name="skip_takeoff_init_disarm"
+                   type="bool"
+                   value="$(arg skip_takeoff_init_disarm)"/>
             <param name="fence_x_min" value="$(arg fence_x_min)"/>
             <param name="fence_x_max" value="$(arg fence_x_max)"/>
             <param name="fence_y_min" value="$(arg fence_y_min)"/>

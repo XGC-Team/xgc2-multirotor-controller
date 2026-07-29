@@ -26,6 +26,13 @@ enum class TrackingBackend {
     PX4_LOCAL_RAW = 3,
 };
 
+// 控制状态来源。VRPN_DIRECT 用于可信仿真/动捕测量直通，
+// STATE_ESTIMATOR 保留估计器、悬停推力与 NMPC 的实机部署链路。
+enum class StateSource {
+    STATE_ESTIMATOR = 0,
+    VRPN_DIRECT = 1,
+};
+
 // 控制器配置参数
 struct ControllerConfig {
     double takeoff_altitude{1.5};  // 起飞目标高度（米）
@@ -35,6 +42,7 @@ struct ControllerConfig {
     // ========== MPC轨迹跟踪控制模式 ==========
     ControlMode control_mode{ControlMode::PX4_CASCADE_PID};  // 默认使用PX4控制
     TrackingBackend tracking_backend{TrackingBackend::LEGACY_MPC_LIFTER};
+    StateSource state_source{StateSource::STATE_ESTIMATOR};
 
     // 滑模控制器参数（用于 PURE_SLIDING_MODE 和 HYBRID_CONTROL 模式）
     // 理论参考：论文公式(26)(27)(28)

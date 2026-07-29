@@ -89,6 +89,7 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
                                    "alg/state_estimator/state");
     nh_private_.param<std::string>("vrpn_pose_topic", vrpn_pose_topic, "pose");
     nh_private_.param<std::string>("vrpn_twist_topic", vrpn_twist_topic, "twist");
+    sensor_input_producer_->setStateSource(controller_.getConfig().state_source);
     sensor_input_producer_->setStateEstimateTopic(state_estimate_topic);
     sensor_input_producer_->setVrpnTopics(vrpn_pose_topic, vrpn_twist_topic);
 
@@ -107,14 +108,18 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
 
     ROS_INFO("[DroneRosNode] Initialized (with async output event executor)");
     ROS_INFO("[DroneRosNode] Subscribed topics:");
-    ROS_INFO("  - %s (control state)", resolveTopicName(nh_, state_estimate_topic).c_str());
+    const bool vrpn_direct = controller_.getConfig().state_source == StateSource::VRPN_DIRECT;
+    ROS_INFO("  - %s (%s)", resolveTopicName(nh_, state_estimate_topic).c_str(),
+             vrpn_direct ? "disabled" : "control state");
     ROS_INFO("  - mavros/local_position/pose (check only)");
     ROS_INFO("  - mavros/local_position/velocity_local (check only)");
     ROS_INFO("  - mavros/imu/data (check only)");
     ROS_INFO("  - mavros/state");
     ROS_INFO("  - mavros/battery");
-    ROS_INFO("  - %s (check only)", resolveTopicName(nh_, vrpn_pose_topic).c_str());
-    ROS_INFO("  - %s (check only)", resolveTopicName(nh_, vrpn_twist_topic).c_str());
+    ROS_INFO("  - %s (%s)", resolveTopicName(nh_, vrpn_pose_topic).c_str(),
+             vrpn_direct ? "control state" : "check only");
+    ROS_INFO("  - %s (%s)", resolveTopicName(nh_, vrpn_twist_topic).c_str(),
+             vrpn_direct ? "control state" : "check only");
     ROS_INFO("  - alg/setpoint_raw/local");
     ROS_INFO("  - alg/multirotor_reference_trajectory/active/analytic");
     ROS_INFO("  - alg/multirotor_reference_trajectory/active/polynomial");
@@ -237,6 +242,22 @@ void DroneRosNode::loadControllerConfig() {
         config.planning_period = 0.1;
     }
     ROS_INFO("[DroneRosNode] MPC planning period: %.3f s", config.planning_period);
+
+    std::string state_source = "state_estimator";
+    nh_private_.param("state_source", state_source, state_source);
+    if (state_source == "state_estimator" || state_source == "estimator") {
+        config.state_source = StateSource::STATE_ESTIMATOR;
+        state_source = "state_estimator";
+    } else if (state_source == "vrpn_direct" || state_source == "vrpn") {
+        config.state_source = StateSource::VRPN_DIRECT;
+        state_source = "vrpn_direct";
+    } else {
+        ROS_WARN("[DroneRosNode] Unknown state_source=%s, using state_estimator",
+                 state_source.c_str());
+        config.state_source = StateSource::STATE_ESTIMATOR;
+        state_source = "state_estimator";
+    }
+    ROS_INFO("[DroneRosNode] Control state source: %s", state_source.c_str());
 
     // ========== MPC轨迹跟踪控制模式 ==========
     // 读取控制模式 (0=PX4_CASCADE_PID, 1=PURE_SLIDING_MODE, 2=HYBRID_CONTROL)

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <utility>
 
+#include "px4_multirotor_controller/common/sensor_checks.h"
 #include "px4_multirotor_controller/drone_controller.h"
 
 namespace px4_multirotor_controller {
@@ -85,7 +86,7 @@ void LandingState::emitLandingSetpoint(::state_machine::StateContext& ctx) {
 
 void LandingState::updateDescentVelocityIfNeeded() {
     const auto& sensor_data = controller_.getSensorData();
-    if (sensor_data.uav_state_estimate_stats.is_new) {
+    if (sensor_checks::isControlStateNew(sensor_data, controller_.getConfig().state_source)) {
         landing_setpoint_.vz = getDescentVelocity(sensor_data.z);
     }
 }
@@ -134,7 +135,8 @@ void LandingState::updateTouchdownConfirmation() {
     }
 
     const auto& sensor_data = controller_.getSensorData();
-    const bool sensor_updated = sensor_data.uav_state_estimate_stats.is_new;
+    const bool sensor_updated =
+        sensor_checks::isControlStateNew(sensor_data, controller_.getConfig().state_source);
     if (!sensor_updated) {
         return;
     }

@@ -217,7 +217,7 @@ TEST(NmpcResultBuffer, KeepsNewestSequence) {
     EXPECT_FALSE(buffer.hasFreshSuccess(ros::Time(1.2), 0.1));
 }
 
-TEST(SensorChecks, StateEstimateGateIsOnlyControlStateSource) {
+TEST(SensorChecks, StateEstimatorSourceRequiresUsableEstimate) {
     SensorData sensor;
     sensor.uav_state_estimate_stats.is_active = true;
     sensor.uav_state_estimator_state =
@@ -251,6 +251,29 @@ TEST(SensorChecks, StateEstimateGateIsOnlyControlStateSource) {
     sensor.uav_state_estimator_state =
         rigid_state_estimator_msgs::RigidStateEstimate::STATE_SELF_CHECK;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
+}
+
+TEST(SensorChecks, VrpnDirectSourceUsesPoseAndTwistWithoutEstimator) {
+    SensorData sensor;
+    sensor.x = 1.0;
+    sensor.y = -2.0;
+    sensor.z = 3.0;
+    sensor.qw = 1.0;
+    sensor.vx = 0.1;
+    sensor.vy = 0.2;
+    sensor.vz = -0.1;
+    sensor.vrpn_pose_stats.is_active = true;
+    sensor.vrpn_twist_stats.is_active = true;
+    sensor.state_stats.is_active = true;
+    sensor.battery_stats.is_active = true;
+
+    EXPECT_FALSE(sensor.uav_state_estimate_stats.is_active);
+    EXPECT_TRUE(sensor_checks::isControlStateUsableForControl(sensor, StateSource::VRPN_DIRECT));
+    EXPECT_TRUE(sensor_checks::areSensorsAllActive(sensor, StateSource::VRPN_DIRECT));
+    EXPECT_FALSE(sensor_checks::areSensorsAllActive(sensor, StateSource::STATE_ESTIMATOR));
+
+    sensor.qw = 0.0;
+    EXPECT_FALSE(sensor_checks::isControlStateUsableForControl(sensor, StateSource::VRPN_DIRECT));
 }
 
 TEST(DfbcGeometricController, HoverReferenceOutputsGravityThrust) {

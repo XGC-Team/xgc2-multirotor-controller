@@ -18,31 +18,39 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
     const auto& cfg = controller_config.safety;
     auto& ss = safety_state_;
 
-    checkSensorActiveEdge(ctx, sd.uav_state_estimate_stats, ss.was_uav_state_estimate_active,
-                          SAFE_TIMEOUT_UAV_STATE_ESTIMATE);
+    if (controller_config.state_source == StateSource::VRPN_DIRECT) {
+        checkSensorActiveEdge(ctx, sd.vrpn_pose_stats, ss.was_vrpn_pose_active,
+                              SAFE_TIMEOUT_VRPN_POSE);
+        checkSensorActiveEdge(ctx, sd.vrpn_twist_stats, ss.was_vrpn_twist_active,
+                              SAFE_TIMEOUT_VRPN_TWIST);
+    } else {
+        checkSensorActiveEdge(ctx, sd.uav_state_estimate_stats, ss.was_uav_state_estimate_active,
+                              SAFE_TIMEOUT_UAV_STATE_ESTIMATE);
+    }
     checkSensorActiveEdge(ctx, sd.state_stats, ss.was_state_active, SAFE_TIMEOUT_STATE);
     checkSensorActiveEdge(ctx, sd.battery_stats, ss.was_battery_active, SAFE_TIMEOUT_BATTERY);
 
     const double now = controller_.getCurrentTime();
-    const bool estimate_unusable = sd.uav_state_estimate_stats.is_active &&
-                                   !sensor_checks::isStateEstimateUsableForControl(sd);
-    if (estimate_unusable && ss.state_estimate_unusable_since < 0.0) {
+    const bool control_state_unusable =
+        sensor_checks::isControlStateActive(sd, controller_config.state_source) &&
+        !sensor_checks::isControlStateUsableForControl(sd, controller_config.state_source);
+    if (control_state_unusable && ss.state_estimate_unusable_since < 0.0) {
         ss.state_estimate_unusable_since = now;
-    } else if (!estimate_unusable) {
+    } else if (!control_state_unusable) {
         ss.state_estimate_unusable_since = -1.0;
     }
 
     const double unusable_duration =
         ss.state_estimate_unusable_since >= 0.0 ? now - ss.state_estimate_unusable_since : 0.0;
     const bool estimate_unusable_trip =
-        estimate_unusable && unusable_duration >= cfg.state_estimate_unusable_trip_delay;
+        control_state_unusable && unusable_duration >= cfg.state_estimate_unusable_trip_delay;
     if (!ss.state_estimate_unusable && estimate_unusable_trip) {
         postSafetyEvent(ctx, SAFE_UAV_STATE_ESTIMATE_UNUSABLE,
                         "post state estimate unusable safety event");
     }
     ss.state_estimate_unusable = estimate_unusable_trip;
 
-    if (sd.uav_state_estimate_stats.is_new) {
+    if (sensor_checks::isControlStateNew(sd, controller_config.state_source)) {
         const bool currently_violated =
             (sd.x < cfg.fence_x_min || sd.x > cfg.fence_x_max || sd.y < cfg.fence_y_min ||
              sd.y > cfg.fence_y_max || sd.z < cfg.fence_z_min || sd.z > cfg.fence_z_max);
@@ -52,7 +60,7 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
         ss.geofence_violated = currently_violated;
     }
 
-    if (sd.uav_state_estimate_stats.is_new) {
+    if (sensor_checks::isControlStateNew(sd, controller_config.state_source)) {
         const double velocity_xy = std::sqrt(sd.vx * sd.vx + sd.vy * sd.vy);
         const bool xy_exceeded = velocity_xy > cfg.max_velocity_xy;
         if (!ss.velocity_xy_exceeded && xy_exceeded) {

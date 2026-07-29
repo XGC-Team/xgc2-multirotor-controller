@@ -87,14 +87,14 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
         .to(state_type::Normal)
         .priority(transition_priority::AUTOMATIC)
         .when([this](const ::state_machine::GuardContext&) {
-            return sensor_checks::areSensorsAllActive(sensor_data_);
+            return sensor_checks::areSensorsAllActive(sensor_data_, getConfig().state_source);
         })
         .transition()
         .from(state_type::Ready)
         .to(state_type::SelfCheck)
         .priority(transition_priority::AUTOMATIC)
         .when([this](const ::state_machine::GuardContext&) {
-            return !sensor_checks::areSensorsAllActive(sensor_data_);
+            return !sensor_checks::areSensorsAllActive(sensor_data_, getConfig().state_source);
         })
         .transition()
         .from(state_type::Ready)
