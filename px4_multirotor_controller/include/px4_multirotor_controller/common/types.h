@@ -100,9 +100,9 @@ struct ControllerConfig {
         double reference_z_amplitude{0.0};
         double reference_z_frequency{0.5};
         double reference_entry_duration{5.0};
-        int reference_analytic_type{3};
+        int reference_analytic_type{9};
         double reference_torus_omega{0.3};
-        double reference_torus_scale{0.3};
+        double reference_torus_scale{2.0};
 
         bool enable_timing_log{true};
         double log_period{1.0};

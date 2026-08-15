@@ -38,9 +38,9 @@
     <arg name="reference_z_amplitude" default="0.0"/>
     <arg name="reference_z_frequency" default="0.5"/>
     <arg name="reference_entry_duration" default="5.0"/>
-    <arg name="reference_analytic_type" default="3"/>
+    <arg name="reference_analytic_type" default="9"/>
     <arg name="reference_torus_omega" default="0.3"/>
-    <arg name="reference_torus_scale" default="0.3"/>
+    <arg name="reference_torus_scale" default="2.0"/>
     <arg name="config_file" default="$(find px4_multirotor_controller)/config/uav_nmpc.yaml"/>
 
     <group ns="$(arg ns)">

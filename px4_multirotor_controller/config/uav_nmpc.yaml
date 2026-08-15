@@ -41,9 +41,9 @@ nmpc:
   reference_z_amplitude: 0.0
   reference_z_frequency: 0.5
   reference_entry_duration: 5.0
-  reference_analytic_type: 3
+  reference_analytic_type: 9
   reference_torus_omega: 0.3
-  reference_torus_scale: 0.3
+  reference_torus_scale: 2.0
   enable_timing_log: true
   log_period: 1.0
 

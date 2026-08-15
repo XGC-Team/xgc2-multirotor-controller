@@ -503,8 +503,8 @@ void DroneRosNode::loadControllerConfig() {
     }
     if (!std::isfinite(config.nmpc.reference_torus_scale) ||
         config.nmpc.reference_torus_scale <= 0.0) {
-        ROS_WARN("[DroneRosNode] Invalid nmpc/reference_torus_scale; using 0.300 m");
-        config.nmpc.reference_torus_scale = 0.3;
+        ROS_WARN("[DroneRosNode] Invalid nmpc/reference_torus_scale; using 2.000 m");
+        config.nmpc.reference_torus_scale = 2.0;
     }
     if (!config.dfbc.position_natural_frequency.array().isFinite().all() ||
         (config.dfbc.position_natural_frequency.array() <= 0.0).any()) {
