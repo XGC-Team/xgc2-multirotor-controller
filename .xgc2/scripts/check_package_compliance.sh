@@ -42,7 +42,9 @@ required_files=(
   .xgc2/scripts/check_installed_packages.sh
   .xgc2/scripts/check_package_compliance.sh
   .xgc2/scripts/check_version_bump.sh
+  .xgc2/scripts/install_published_products.sh
   .xgc2/scripts/package_debs.sh
+  .xgc2/scripts/run_source_tests.sh
   .xgc2/scripts/setup_xgc2_apt_source.sh
   px4_multirotor_controller/CMakeLists.txt
   px4_multirotor_controller/package.xml
@@ -65,8 +67,10 @@ grep -q "id: xgc2-multirotor-controller" .xgc2/product.yml
 grep -Eq '^version: [0-9]+\.[0-9]+\.[0-9]+-[0-9]+$' .xgc2/product.yml
 grep -q "<name>px4_multirotor_controller</name>" px4_multirotor_controller/package.xml
 grep -q "<name>multirotor_reference_trajectory</name>" multirotor_reference_trajectory/package.xml
-grep -q "run_tests_multirotor_reference_trajectory" .github/workflows/ci.yml
-grep -q "run_tests_px4_multirotor_controller" .github/workflows/ci.yml
+grep -q "run_tests_multirotor_reference_trajectory" .xgc2/scripts/run_source_tests.sh
+grep -q "run_tests_px4_multirotor_controller" .xgc2/scripts/run_source_tests.sh
+grep -q "install_published_products.sh" .github/workflows/ci.yml
+grep -q "run_source_tests.sh" .github/workflows/ci.yml
 grep -q "expected_version" .github/workflows/release.yml
 grep -q "expected_source_sha" .github/workflows/release.yml
 grep -q "PACKAGE=\"ros-\${ROS_DISTRO}-xgc2-multirotor-controller\"" .xgc2/scripts/package_debs.sh
