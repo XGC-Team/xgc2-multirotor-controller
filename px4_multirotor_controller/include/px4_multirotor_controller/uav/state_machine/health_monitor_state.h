@@ -27,8 +27,6 @@ class HealthMonitorState final : public ::state_machine::State {
         bool was_imu_active{false};
         bool was_state_active{false};
         bool was_battery_active{false};
-        bool was_vrpn_pose_active{false};
-        bool was_vrpn_twist_active{false};
 
         bool geofence_violated{false};
         bool velocity_xy_exceeded{false};

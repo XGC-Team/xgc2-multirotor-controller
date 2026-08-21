@@ -29,12 +29,11 @@ bool UavNmpcSolver::initialize() {
     if (initialized_) {
         return true;
     }
-    if (UAV_NMPC_NX != 14 || UAV_NMPC_NU != 4 || UAV_NMPC_NP != 22 || UAV_NMPC_N <= 0 ||
-        UAV_NMPC_NY0 != 23 || UAV_NMPC_NY != 19 || UAV_NMPC_NYN != 15 || UAV_NMPC_NH0 != 4 ||
-        UAV_NMPC_NH != 4 ||
-        UAV_NMPC_NHN != 1 || UAV_NMPC_NSBU != 4 || UAV_NMPC_NSBX != 9 || UAV_NMPC_NSH != 1 ||
-        UAV_NMPC_NS != 14 || UAV_NMPC_NS0 != 4 || UAV_NMPC_NSBXN != 9 || UAV_NMPC_NSHN != 1 ||
-        UAV_NMPC_NSN != 10) {
+    if (UAV_NMPC_NX != 14 || UAV_NMPC_NU != 4 || UAV_NMPC_NP != 25 || UAV_NMPC_N <= 0 ||
+        UAV_NMPC_NY0 != 26 || UAV_NMPC_NY != 22 || UAV_NMPC_NYN != 15 || UAV_NMPC_NH0 != 4 ||
+        UAV_NMPC_NH != 4 || UAV_NMPC_NHN != 1 || UAV_NMPC_NSBU != 4 || UAV_NMPC_NSBX != 9 ||
+        UAV_NMPC_NSH != 1 || UAV_NMPC_NS != 14 || UAV_NMPC_NS0 != 4 || UAV_NMPC_NSBXN != 9 ||
+        UAV_NMPC_NSHN != 1 || UAV_NMPC_NSN != 10) {
         ROS_ERROR("[UavNmpcSolver] Unexpected generated solver dimensions");
         return false;
     }
@@ -64,8 +63,7 @@ bool UavNmpcSolver::initialize() {
 }
 
 bool UavNmpcSolver::configureInputBounds(double specific_thrust_min, double specific_thrust_max,
-                                         double max_roll_pitch_body_rate,
-                                         double max_yaw_body_rate,
+                                         double max_roll_pitch_body_rate, double max_yaw_body_rate,
                                          double max_roll_pitch_angular_acceleration,
                                          double max_yaw_angular_acceleration) {
     if (!std::isfinite(specific_thrust_min) || !std::isfinite(specific_thrust_max) ||
@@ -105,6 +103,17 @@ bool UavNmpcSolver::configureInputBounds(double specific_thrust_min, double spec
     if (capsule_) {
         return applyRuntimeBounds();
     }
+    return true;
+}
+
+bool UavNmpcSolver::configureAngularAccelerationWeights(const Eigen::Vector3d& weights) {
+    if (!weights.array().isFinite().all() || (weights.array() <= 0.0).any()) {
+        ROS_ERROR("[UavNmpcSolver] Invalid angular-acceleration weights [%.6f %.6f %.6f]",
+                  weights.x(), weights.y(), weights.z());
+        return false;
+    }
+    angular_acceleration_sqrt_weights_ = weights.array().sqrt().matrix();
+    resetWarmStart();
     return true;
 }
 
@@ -148,8 +157,8 @@ bool UavNmpcSolver::solve(const Se3StateVector& x0, double thrust_actual,
     }
 
     for (int i = 0; i <= UAV_NMPC_N; ++i) {
-        if (!setReference(i, references[static_cast<size_t>(i)],
-                          last_commanded_specific_thrust, last_commanded_body_rate)) {
+        if (!setReference(i, references[static_cast<size_t>(i)], last_commanded_specific_thrust,
+                          last_commanded_body_rate)) {
             return false;
         }
     }
@@ -223,6 +232,7 @@ bool UavNmpcSolver::setReference(int stage, const Se3Reference& reference,
     p.segment<4>(UAV_NMPC_NX) = packBodyRateInputReference(reference);
     p(UAV_NMPC_NX + 4) = last_commanded_specific_thrust;
     p.segment<3>(UAV_NMPC_NX + 5) = last_commanded_body_rate;
+    p.segment<3>(UAV_NMPC_NX + 8) = angular_acceleration_sqrt_weights_;
     const int status = uav_nmpc_acados_update_params(capsule_, stage, p.data(), UAV_NMPC_NP);
     if (status != 0) {
         ROS_ERROR("[UavNmpcSolver] Failed to update params at stage %d", stage);

@@ -39,7 +39,7 @@
 #define UAV_NMPC_NX     14
 #define UAV_NMPC_NZ     0
 #define UAV_NMPC_NU     4
-#define UAV_NMPC_NP     22
+#define UAV_NMPC_NP     25
 #define UAV_NMPC_NP_GLOBAL     0
 #define UAV_NMPC_NBX    9
 #define UAV_NMPC_NBX0   14
@@ -61,8 +61,8 @@
 #define UAV_NMPC_NG     0
 #define UAV_NMPC_NBXN   9
 #define UAV_NMPC_NGN    0
-#define UAV_NMPC_NY0    23
-#define UAV_NMPC_NY     19
+#define UAV_NMPC_NY0    26
+#define UAV_NMPC_NY     22
 #define UAV_NMPC_NYN    15
 #define UAV_NMPC_N      10
 #define UAV_NMPC_NH     4

@@ -86,8 +86,7 @@ void TakeoffAscendingState::updateAltitudeConfirmation() {
     }
 
     const auto& sensor_data = controller_.getSensorData();
-    const bool sensor_updated =
-        sensor_checks::isControlStateNew(sensor_data, controller_.getConfig().state_source);
+    const bool sensor_updated = sensor_checks::isControlStateNew(sensor_data);
     if (!sensor_updated) {
         return;
     }

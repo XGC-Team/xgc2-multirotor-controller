@@ -134,7 +134,7 @@ double DfbcAttitudeRateStrategy::period() const {
 
 bool DfbcAttitudeRateStrategy::feedbackState(const SensorData& sensor,
                                              xgc2_math::control::Se3State& state) const {
-    if (!sensor_checks::isControlStateUsableForControl(sensor, config_.state_source)) {
+    if (!sensor_checks::isControlStateUsableForControl(sensor)) {
         return false;
     }
     state.position << sensor.x, sensor.y, sensor.z;
@@ -151,8 +151,7 @@ bool DfbcAttitudeRateStrategy::feedbackState(const SensorData& sensor,
 
 bool DfbcAttitudeRateStrategy::measuredAcceleration(const SensorData& sensor, const ros::Time& now,
                                                     Eigen::Vector3d& acceleration) const {
-    if (!config_.dfbc.acceleration_correction_enabled ||
-        config_.state_source == StateSource::VRPN_DIRECT) {
+    if (!config_.dfbc.acceleration_correction_enabled) {
         return false;
     }
     if (!std::isfinite(sensor.uav_state_estimate_stamp)) {

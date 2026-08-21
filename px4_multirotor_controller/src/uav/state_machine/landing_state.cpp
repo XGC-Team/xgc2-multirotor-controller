@@ -86,7 +86,7 @@ void LandingState::emitLandingSetpoint(::state_machine::StateContext& ctx) {
 
 void LandingState::updateDescentVelocityIfNeeded() {
     const auto& sensor_data = controller_.getSensorData();
-    if (sensor_checks::isControlStateNew(sensor_data, controller_.getConfig().state_source)) {
+    if (sensor_checks::isControlStateNew(sensor_data)) {
         landing_setpoint_.vz = getDescentVelocity(sensor_data.z);
     }
 }
@@ -135,8 +135,7 @@ void LandingState::updateTouchdownConfirmation() {
     }
 
     const auto& sensor_data = controller_.getSensorData();
-    const bool sensor_updated =
-        sensor_checks::isControlStateNew(sensor_data, controller_.getConfig().state_source);
+    const bool sensor_updated = sensor_checks::isControlStateNew(sensor_data);
     if (!sensor_updated) {
         return;
     }

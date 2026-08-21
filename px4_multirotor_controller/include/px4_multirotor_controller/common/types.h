@@ -26,13 +26,6 @@ enum class TrackingBackend {
     PX4_LOCAL_RAW = 3,
 };
 
-// 控制状态来源。VRPN_DIRECT 用于可信仿真/动捕测量直通，
-// STATE_ESTIMATOR 保留估计器、悬停推力与 NMPC 的实机部署链路。
-enum class StateSource {
-    STATE_ESTIMATOR = 0,
-    VRPN_DIRECT = 1,
-};
-
 // 控制器配置参数
 struct ControllerConfig {
     double takeoff_altitude{1.5};  // 起飞目标高度（米）
@@ -42,7 +35,6 @@ struct ControllerConfig {
     // ========== MPC轨迹跟踪控制模式 ==========
     ControlMode control_mode{ControlMode::PX4_CASCADE_PID};  // 默认使用PX4控制
     TrackingBackend tracking_backend{TrackingBackend::LEGACY_MPC_LIFTER};
-    StateSource state_source{StateSource::STATE_ESTIMATOR};
 
     // 滑模控制器参数（用于 PURE_SLIDING_MODE 和 HYBRID_CONTROL 模式）
     // 理论参考：论文公式(26)(27)(28)
@@ -87,6 +79,8 @@ struct ControllerConfig {
         double max_yaw_body_rate{0.8726646};
         double max_roll_pitch_angular_acceleration{15.0};
         double max_yaw_angular_acceleration{2.0};
+        // Simulation starting point. Flight tuning requires causality bags.
+        Eigen::Vector3d angular_acceleration_weight{Eigen::Vector3d(0.04, 0.04, 2.25)};
         bool hover_thrust_enabled{false};
         double hover_thrust_timeout{0.5};
         double solve_timeout{0.03};
@@ -203,7 +197,6 @@ constexpr uint32_t INPUT_IMU_UPDATED = 52;
 constexpr uint32_t INPUT_FCU_STATE_UPDATED = 53;
 constexpr uint32_t INPUT_BATTERY_UPDATED = 54;
 constexpr uint32_t INPUT_VRPN_POSE_UPDATED = 55;
-constexpr uint32_t INPUT_VRPN_TWIST_UPDATED = 56;
 constexpr uint32_t INPUT_MPC_TRAJECTORY_UPDATED = 57;
 constexpr uint32_t INPUT_HOVER_THRUST_UPDATED = 58;
 constexpr uint32_t INPUT_REFERENCE_TRAJECTORY_UPDATED = 59;
@@ -232,8 +225,6 @@ constexpr uint32_t SAFE_TIMEOUT_LOCAL_VELOCITY = 21;
 constexpr uint32_t SAFE_TIMEOUT_IMU = 22;
 constexpr uint32_t SAFE_TIMEOUT_STATE = 23;
 constexpr uint32_t SAFE_TIMEOUT_BATTERY = 24;
-constexpr uint32_t SAFE_TIMEOUT_VRPN_POSE = 25;
-constexpr uint32_t SAFE_TIMEOUT_VRPN_TWIST = 26;
 constexpr uint32_t SAFE_TIMEOUT_UAV_STATE_ESTIMATE = 27;
 constexpr uint32_t SAFE_UAV_STATE_ESTIMATE_UNUSABLE = 28;
 
@@ -361,13 +352,8 @@ struct SensorData {
     double vrpn_x{0.0}, vrpn_y{0.0}, vrpn_z{0.0};
     double vrpn_qx{0.0}, vrpn_qy{0.0}, vrpn_qz{0.0}, vrpn_qw{1.0};
 
-    // 速度 (m/s) 和角速度 (rad/s) - 来自 twist 话题
-    double vrpn_vx{0.0}, vrpn_vy{0.0}, vrpn_vz{0.0};
-    double vrpn_wx{0.0}, vrpn_wy{0.0}, vrpn_wz{0.0};
-
-    // VRPN 话题统计
-    TopicStats vrpn_pose_stats;   // pose 话题统计
-    TopicStats vrpn_twist_stats;  // twist 话题统计
+    // VRPN pose is diagnostic only; control always consumes the fused estimate.
+    TopicStats vrpn_pose_stats;
 
     SensorData() = default;
 };

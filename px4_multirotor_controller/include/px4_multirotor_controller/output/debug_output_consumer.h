@@ -37,7 +37,6 @@ class DebugOutputConsumer final : public ::state_machine::runtime::EventConsumer
         SensorData::TopicStats state;
         SensorData::TopicStats battery;
         SensorData::TopicStats vrpn_pose;
-        SensorData::TopicStats vrpn_twist;
         ros1_utils::PositionQualityStats vrpn_quality;
     };
 
@@ -65,7 +64,6 @@ class DebugOutputConsumer final : public ::state_machine::runtime::EventConsumer
     ros::Publisher stats_state_pub_;
     ros::Publisher stats_battery_pub_;
     ros::Publisher stats_vrpn_pose_pub_;
-    ros::Publisher stats_vrpn_twist_pub_;
     ros::Publisher vrpn_quality_pub_;
     ros::Publisher tracking_error_pub_;
 };

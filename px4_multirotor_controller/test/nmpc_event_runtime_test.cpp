@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
 
 #include "px4_multirotor_controller/common/sensor_checks.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
@@ -253,27 +254,15 @@ TEST(SensorChecks, StateEstimatorSourceRequiresUsableEstimate) {
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 }
 
-TEST(SensorChecks, VrpnDirectSourceUsesPoseAndTwistWithoutEstimator) {
+TEST(SensorChecks, RawVrpnCannotBecomeControlState) {
     SensorData sensor;
-    sensor.x = 1.0;
-    sensor.y = -2.0;
-    sensor.z = 3.0;
-    sensor.qw = 1.0;
-    sensor.vx = 0.1;
-    sensor.vy = 0.2;
-    sensor.vz = -0.1;
     sensor.vrpn_pose_stats.is_active = true;
-    sensor.vrpn_twist_stats.is_active = true;
     sensor.state_stats.is_active = true;
     sensor.battery_stats.is_active = true;
 
     EXPECT_FALSE(sensor.uav_state_estimate_stats.is_active);
-    EXPECT_TRUE(sensor_checks::isControlStateUsableForControl(sensor, StateSource::VRPN_DIRECT));
-    EXPECT_TRUE(sensor_checks::areSensorsAllActive(sensor, StateSource::VRPN_DIRECT));
-    EXPECT_FALSE(sensor_checks::areSensorsAllActive(sensor, StateSource::STATE_ESTIMATOR));
-
-    sensor.qw = 0.0;
-    EXPECT_FALSE(sensor_checks::isControlStateUsableForControl(sensor, StateSource::VRPN_DIRECT));
+    EXPECT_FALSE(sensor_checks::isControlStateUsableForControl(sensor));
+    EXPECT_FALSE(sensor_checks::areSensorsAllActive(sensor));
 }
 
 TEST(DfbcGeometricController, HoverReferenceOutputsGravityThrust) {
@@ -429,6 +418,15 @@ TEST(UavNmpcSolver, SolvesHoverEquilibrium) {
     EXPECT_NEAR(solver.predictedBodyRate().norm(), 0.0, 1e-3);
 }
 
+TEST(UavNmpcSolver, ValidatesRuntimeAngularAccelerationWeights) {
+    UavNmpcSolver solver;
+    EXPECT_TRUE(solver.configureAngularAccelerationWeights(Eigen::Vector3d(0.04, 0.04, 2.25)));
+    EXPECT_FALSE(solver.configureAngularAccelerationWeights(Eigen::Vector3d(0.0, 0.04, 2.25)));
+    EXPECT_FALSE(solver.configureAngularAccelerationWeights(Eigen::Vector3d(0.04, -1.0, 2.25)));
+    EXPECT_FALSE(solver.configureAngularAccelerationWeights(
+        Eigen::Vector3d(0.04, 0.04, std::numeric_limits<double>::quiet_NaN())));
+}
+
 TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
     ros::Time::init();
     UavNmpcSolver solver;
@@ -450,26 +448,6 @@ TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
         << "status=" << solver.status();
     EXPECT_GE(solver.optimalControl()(0), 8.0 - 1e-5);
     EXPECT_LE(solver.optimalControl()(0), 12.0 + 1e-5);
-}
-
-TEST(UavNmpcBridge, IntegratesAngularAccelerationOverControlPeriod) {
-    const Eigen::Vector3d current_rate(0.10, -0.20, 0.05);
-    const Eigen::Vector3d alpha(2.0, -1.0, 0.5);
-    const Eigen::Vector3d command =
-        bodyRateCommandFromAngularAcceleration(current_rate, alpha, 0.01, 3.5, 0.9);
-
-    EXPECT_NEAR(command.x(), 0.12, 1e-12);
-    EXPECT_NEAR(command.y(), -0.21, 1e-12);
-    EXPECT_NEAR(command.z(), 0.055, 1e-12);
-}
-
-TEST(UavNmpcBridge, ClampsBodyRateCommand) {
-    const Eigen::Vector3d command = bodyRateCommandFromAngularAcceleration(
-        Eigen::Vector3d(3.4, -3.4, 0.85), Eigen::Vector3d(20.0, -20.0, 10.0), 0.01, 3.5, 0.9);
-
-    EXPECT_NEAR(command.x(), 3.5, 1e-12);
-    EXPECT_NEAR(command.y(), -3.5, 1e-12);
-    EXPECT_NEAR(command.z(), 0.9, 1e-12);
 }
 
 TEST(UavNmpcBridge, RecoversBodyRateFromReferenceAttitudeDelta) {

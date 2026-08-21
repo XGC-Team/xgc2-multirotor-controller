@@ -5,7 +5,8 @@ wrapper must still mirror the Python solver interaction sequence every control
 cycle:
 
 1. set the fixed x0 lower/upper bounds;
-2. set stage parameters p = [xref(14); uref(4)] for stages 0..N;
+2. set stage parameters p = [xref(14); uref(4); last command(4); sqrt(W_alpha)(3)]
+   for stages 0..N;
 3. seed x/u warm starts;
 4. call solve and reject nonzero status;
 5. read u0 and predicted x1;

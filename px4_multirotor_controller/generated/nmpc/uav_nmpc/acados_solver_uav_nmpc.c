@@ -518,11 +518,14 @@ void uav_nmpc_acados_setup_nlp_in(uav_nmpc_solver_capsule* capsule, const int N,
     W_0[15+(NY0) * 15] = 0.8;
     W_0[16+(NY0) * 16] = 0.8;
     W_0[17+(NY0) * 17] = 2.0;
-    W_0[18+(NY0) * 18] = 0.35;
-    W_0[19+(NY0) * 19] = 8.0;
-    W_0[20+(NY0) * 20] = 8.0;
-    W_0[21+(NY0) * 21] = 16.0;
-    W_0[22+(NY0) * 22] = 10.0;
+    W_0[18+(NY0) * 18] = 1.0;
+    W_0[19+(NY0) * 19] = 1.0;
+    W_0[20+(NY0) * 20] = 1.0;
+    W_0[21+(NY0) * 21] = 0.35;
+    W_0[22+(NY0) * 22] = 8.0;
+    W_0[23+(NY0) * 23] = 8.0;
+    W_0[24+(NY0) * 24] = 16.0;
+    W_0[25+(NY0) * 25] = 10.0;
     ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, 0, "W", W_0);
     free(W_0);
     double* yref = calloc(NY, sizeof(double));
@@ -553,7 +556,10 @@ void uav_nmpc_acados_setup_nlp_in(uav_nmpc_solver_capsule* capsule, const int N,
     W[15+(NY) * 15] = 0.8;
     W[16+(NY) * 16] = 0.8;
     W[17+(NY) * 17] = 2.0;
-    W[18+(NY) * 18] = 10.0;
+    W[18+(NY) * 18] = 1.0;
+    W[19+(NY) * 19] = 1.0;
+    W[20+(NY) * 20] = 1.0;
+    W[21+(NY) * 21] = 10.0;
 
     for (int i = 1; i < N; i++)
     {
@@ -1429,7 +1435,7 @@ int uav_nmpc_acados_update_params(uav_nmpc_solver_capsule* capsule, int stage, d
 {
     int solver_status = 0;
 
-    int casadi_np = 22;
+    int casadi_np = 25;
     if (casadi_np != np) {
         printf("acados_update_params: trying to set %i parameters for external functions."
             " External function has %i parameters. Exiting.\n", np, casadi_np);

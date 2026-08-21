@@ -84,14 +84,11 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     loadVrpnQualityConfig();
     std::string state_estimate_topic;
     std::string vrpn_pose_topic;
-    std::string vrpn_twist_topic;
     nh_private_.param<std::string>("state_estimate_topic", state_estimate_topic,
                                    "alg/state_estimator/state");
     nh_private_.param<std::string>("vrpn_pose_topic", vrpn_pose_topic, "pose");
-    nh_private_.param<std::string>("vrpn_twist_topic", vrpn_twist_topic, "twist");
-    sensor_input_producer_->setStateSource(controller_.getConfig().state_source);
     sensor_input_producer_->setStateEstimateTopic(state_estimate_topic);
-    sensor_input_producer_->setVrpnTopics(vrpn_pose_topic, vrpn_twist_topic);
+    sensor_input_producer_->setVrpnPoseTopic(vrpn_pose_topic);
 
     command_input_producer_ =
         std::make_unique<CommandInputProducer>(nh_, post_input_event, kRosQueueSize);
@@ -108,18 +105,13 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
 
     ROS_INFO("[DroneRosNode] Initialized (with async output event executor)");
     ROS_INFO("[DroneRosNode] Subscribed topics:");
-    const bool vrpn_direct = controller_.getConfig().state_source == StateSource::VRPN_DIRECT;
-    ROS_INFO("  - %s (%s)", resolveTopicName(nh_, state_estimate_topic).c_str(),
-             vrpn_direct ? "disabled" : "control state");
+    ROS_INFO("  - %s (control state)", resolveTopicName(nh_, state_estimate_topic).c_str());
     ROS_INFO("  - mavros/local_position/pose (check only)");
     ROS_INFO("  - mavros/local_position/velocity_local (check only)");
     ROS_INFO("  - mavros/imu/data (check only)");
     ROS_INFO("  - mavros/state");
     ROS_INFO("  - mavros/battery");
-    ROS_INFO("  - %s (%s)", resolveTopicName(nh_, vrpn_pose_topic).c_str(),
-             vrpn_direct ? "control state" : "check only");
-    ROS_INFO("  - %s (%s)", resolveTopicName(nh_, vrpn_twist_topic).c_str(),
-             vrpn_direct ? "control state" : "check only");
+    ROS_INFO("  - %s (check only)", resolveTopicName(nh_, vrpn_pose_topic).c_str());
     ROS_INFO("  - alg/setpoint_raw/local");
     ROS_INFO("  - alg/multirotor_reference_trajectory/active/analytic");
     ROS_INFO("  - alg/multirotor_reference_trajectory/active/polynomial");
@@ -243,21 +235,12 @@ void DroneRosNode::loadControllerConfig() {
     }
     ROS_INFO("[DroneRosNode] MPC planning period: %.3f s", config.planning_period);
 
-    std::string state_source = "state_estimator";
-    nh_private_.param("state_source", state_source, state_source);
-    if (state_source == "state_estimator" || state_source == "estimator") {
-        config.state_source = StateSource::STATE_ESTIMATOR;
-        state_source = "state_estimator";
-    } else if (state_source == "vrpn_direct" || state_source == "vrpn") {
-        config.state_source = StateSource::VRPN_DIRECT;
-        state_source = "vrpn_direct";
-    } else {
-        ROS_WARN("[DroneRosNode] Unknown state_source=%s, using state_estimator",
-                 state_source.c_str());
-        config.state_source = StateSource::STATE_ESTIMATOR;
-        state_source = "state_estimator";
+    if (nh_private_.hasParam("state_source")) {
+        ROS_WARN(
+            "[DroneRosNode] Ignoring removed state_source parameter; fused state_estimator "
+            "is the only control-state source");
     }
-    ROS_INFO("[DroneRosNode] Control state source: %s", state_source.c_str());
+    ROS_INFO("[DroneRosNode] Control state source: state_estimator (fusion only)");
 
     // ========== MPC轨迹跟踪控制模式 ==========
     // 读取控制模式 (0=PX4_CASCADE_PID, 1=PURE_SLIDING_MODE, 2=HYBRID_CONTROL)
@@ -350,6 +333,8 @@ void DroneRosNode::loadControllerConfig() {
                       config.nmpc.max_roll_pitch_angular_acceleration);
     nh_private_.param("nmpc/max_yaw_angular_acceleration", config.nmpc.max_yaw_angular_acceleration,
                       config.nmpc.max_yaw_angular_acceleration);
+    config.nmpc.angular_acceleration_weight = getVector3Param(
+        nh_private_, "nmpc/angular_acceleration_weight", config.nmpc.angular_acceleration_weight);
     nh_private_.param("nmpc/enable_timing_log", config.nmpc.enable_timing_log,
                       config.nmpc.enable_timing_log);
     nh_private_.param("nmpc/log_period", config.nmpc.log_period, config.nmpc.log_period);
@@ -427,6 +412,13 @@ void DroneRosNode::loadControllerConfig() {
         config.nmpc.max_yaw_angular_acceleration <= 0.0) {
         ROS_WARN("[DroneRosNode] Invalid nmpc/max_yaw_angular_acceleration; using 2.000 rad/s^2");
         config.nmpc.max_yaw_angular_acceleration = 2.0;
+    }
+    if (!config.nmpc.angular_acceleration_weight.array().isFinite().all() ||
+        (config.nmpc.angular_acceleration_weight.array() <= 0.0).any()) {
+        ROS_WARN(
+            "[DroneRosNode] Invalid nmpc/angular_acceleration_weight; using "
+            "[0.04 0.04 2.25]");
+        config.nmpc.angular_acceleration_weight = Eigen::Vector3d(0.04, 0.04, 2.25);
     }
     config.nmpc.hover_thrust_ratio =
         xgc2_math::math_helpers::clamp(config.nmpc.hover_thrust_ratio, 0.05, 0.95);
@@ -569,7 +561,8 @@ void DroneRosNode::loadControllerConfig() {
         ROS_INFO(
             "[DroneRosNode] UAV NMPC: dt=%.3f horizon=%.3f gravity=%.4f "
             "hover=%.3f estimator=required hover_timeout=%.3f "
-            "rate_tau=%.3f thrust_norm=[%.2f, %.2f] alpha_diag=[roll_pitch %.2f yaw %.2f] "
+            "rate_tau=%.3f thrust_norm=[%.2f, %.2f] alpha_max=[roll_pitch %.2f yaw %.2f] "
+            "W_alpha=[%.3f %.3f %.3f] "
             "body_rate_max=[roll_pitch %.2f yaw %.2f] "
             "solve_timeout=%.3f reference_timeout=%.3f "
             "reference_type=%d circle_entry=[radius %.2f speed %.2f height %.2f z_amp %.2f] "
@@ -578,7 +571,9 @@ void DroneRosNode::loadControllerConfig() {
             config.nmpc.hover_thrust_ratio, config.nmpc.hover_thrust_timeout,
             config.nmpc.body_rate_time_constant, config.nmpc.normalized_thrust_min,
             config.nmpc.normalized_thrust_max, config.nmpc.max_roll_pitch_angular_acceleration,
-            config.nmpc.max_yaw_angular_acceleration, config.nmpc.max_roll_pitch_body_rate,
+            config.nmpc.max_yaw_angular_acceleration, config.nmpc.angular_acceleration_weight.x(),
+            config.nmpc.angular_acceleration_weight.y(),
+            config.nmpc.angular_acceleration_weight.z(), config.nmpc.max_roll_pitch_body_rate,
             config.nmpc.max_yaw_body_rate, config.nmpc.solve_timeout, config.nmpc.reference_timeout,
             config.nmpc.reference_analytic_type, config.nmpc.reference_radius,
             config.nmpc.reference_line_speed, config.nmpc.reference_height,

@@ -87,14 +87,14 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
         .to(state_type::Normal)
         .priority(transition_priority::AUTOMATIC)
         .when([this](const ::state_machine::GuardContext&) {
-            return sensor_checks::areSensorsAllActive(sensor_data_, getConfig().state_source);
+            return sensor_checks::areSensorsAllActive(sensor_data_);
         })
         .transition()
         .from(state_type::Ready)
         .to(state_type::SelfCheck)
         .priority(transition_priority::AUTOMATIC)
         .when([this](const ::state_machine::GuardContext&) {
-            return !sensor_checks::areSensorsAllActive(sensor_data_, getConfig().state_source);
+            return !sensor_checks::areSensorsAllActive(sensor_data_);
         })
         .transition()
         .from(state_type::Ready)
@@ -273,16 +273,6 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
         .from(state_type::Normal)
         .to(state_type::Landing)
         .on(SAFE_TIMEOUT_BATTERY)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_TIMEOUT_VRPN_POSE)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_TIMEOUT_VRPN_TWIST)
         .priority(transition_priority::EMERGENCY)
         .transition()
         .from(state_type::Landing)

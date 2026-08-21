@@ -126,6 +126,11 @@ class ControllerTests(unittest.TestCase):
             atol=1e-12,
         )
         np.testing.assert_allclose(
+            weights.angular_acceleration,
+            np.array([0.04, 0.04, 2.25]),
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
             weights.control,
             np.array([0.08, 0.80, 0.80, 2.00]),
             atol=1e-12,
@@ -144,9 +149,9 @@ class ControllerTests(unittest.TestCase):
 
         ocp, _ = ctrl._build_ocp()
 
-        self.assertEqual(int(ocp.parameter_values.size), STATE_SIZE + 8)
-        self.assertEqual(ocp.cost.W_0.shape, (23, 23))
-        self.assertEqual(ocp.cost.W.shape, (19, 19))
+        self.assertEqual(int(ocp.parameter_values.size), STATE_SIZE + 11)
+        self.assertEqual(ocp.cost.W_0.shape, (26, 26))
+        self.assertEqual(ocp.cost.W.shape, (22, 22))
         self.assertEqual(ocp.cost.W_e.shape, (15, 15))
         self.assertEqual(ocp.constraints.lh_0.shape, (4,))
         self.assertEqual(ocp.constraints.lh.shape, (4,))
@@ -154,12 +159,47 @@ class ControllerTests(unittest.TestCase):
         np.testing.assert_allclose(ocp.constraints.uh_0[1:4], np.array([15.0, 15.0, 2.0]))
         np.testing.assert_allclose(ocp.constraints.lh[1:4], np.array([-15.0, -15.0, -2.0]))
         np.testing.assert_allclose(ocp.constraints.uh[1:4], np.array([15.0, 15.0, 2.0]))
-        self.assertAlmostEqual(float(ocp.cost.W_0[18, 18]), 0.35)
-        self.assertAlmostEqual(float(ocp.cost.W_0[19, 19]), 8.0)
-        self.assertAlmostEqual(float(ocp.cost.W_0[20, 20]), 8.0)
-        self.assertAlmostEqual(float(ocp.cost.W_0[21, 21]), 16.0)
-        self.assertAlmostEqual(float(ocp.cost.W_0[22, 22]), 10.0)
-        self.assertAlmostEqual(float(ocp.cost.W[18, 18]), 10.0)
+        np.testing.assert_allclose(np.diag(ocp.cost.W_0)[18:21], np.ones(3), atol=1e-12)
+        self.assertAlmostEqual(float(ocp.cost.W_0[21, 21]), 0.35)
+        self.assertAlmostEqual(float(ocp.cost.W_0[22, 22]), 8.0)
+        self.assertAlmostEqual(float(ocp.cost.W_0[23, 23]), 8.0)
+        self.assertAlmostEqual(float(ocp.cost.W_0[24, 24]), 16.0)
+        self.assertAlmostEqual(float(ocp.cost.W_0[25, 25]), 10.0)
+        np.testing.assert_allclose(np.diag(ocp.cost.W)[18:21], np.ones(3), atol=1e-12)
+        self.assertAlmostEqual(float(ocp.cost.W[21, 21]), 10.0)
+
+    def test_stage_cost_uses_zero_reference_equivalent_angular_acceleration(self) -> None:
+        self.require_acados()
+        import casadi as ca
+
+        params = default_quadrotor_params()
+        traj = HoverTrajectory(params=params)
+        ctrl = AcadosNMPCController(
+            traj,
+            params=params,
+            config=MPCConfig(horizon=0.2, steps=2, max_iter=3, control_interval=0.1),
+            build_solver=False,
+        )
+        x = ca.SX.sym("x", STATE_SIZE)
+        u = ca.SX.sym("u", 4)
+        p = ca.SX.sym("p", STATE_SIZE + 11)
+        residual, _ = ctrl._casadi_residual(ca, x, u, p, terminal=False)
+        evaluate = ca.Function("evaluate_alpha_residual", [x, u, p], [residual])
+
+        state = hover_state(np.array([0.0, 0.0, 1.0]))
+        command = np.array([params.g, 0.8, -0.4, 0.1])
+        parameter = np.zeros(STATE_SIZE + 11)
+        parameter[:STATE_SIZE] = state
+        parameter[STATE_SIZE : STATE_SIZE + 4] = command
+        parameter[STATE_SIZE + 8 : STATE_SIZE + 11] = np.array([0.2, 0.2, 1.5])
+
+        value = np.asarray(evaluate(state, command, parameter)).reshape(-1)
+        expected_alpha = command[1:4] / params.body_rate_time_constant
+        np.testing.assert_allclose(
+            value[18:21],
+            parameter[STATE_SIZE + 8 : STATE_SIZE + 11] * expected_alpha,
+            atol=1e-12,
+        )
 
     def test_exact_hover_equilibrium(self) -> None:
         self.require_acados()
@@ -270,9 +310,14 @@ class ControllerTests(unittest.TestCase):
 
         self.assertEqual(set(fake_solver.parameters.keys()), {0, 1, 2})
         for parameter in fake_solver.parameters.values():
-            self.assertEqual(parameter.size, STATE_SIZE + 8)
+            self.assertEqual(parameter.size, STATE_SIZE + 11)
             self.assertAlmostEqual(float(parameter[STATE_SIZE + 4]), previous[0])
             np.testing.assert_allclose(parameter[STATE_SIZE + 5 : STATE_SIZE + 8], previous[1:4])
+            np.testing.assert_allclose(
+                parameter[STATE_SIZE + 8 : STATE_SIZE + 11],
+                np.sqrt(np.array([0.04, 0.04, 2.25])),
+                atol=1e-12,
+            )
 
 
 class RunnerConfigTests(unittest.TestCase):

@@ -27,9 +27,8 @@ class SensorInputProducer {
                         EventSink event_sink, std::function<void()> on_state_message);
 
     void setVrpnQualityConfig(const ros1_utils::PositionQualityConfig& config);
-    void setStateSource(StateSource state_source);
     void setStateEstimateTopic(std::string state_estimate_topic);
-    void setVrpnTopics(std::string pose_topic, std::string twist_topic);
+    void setVrpnPoseTopic(std::string pose_topic);
     void start();
     void resetNewFlags();
 
@@ -41,7 +40,6 @@ class SensorInputProducer {
     void stateCallback(const mavros_msgs::State::ConstPtr& msg);
     void batteryCallback(const sensor_msgs::BatteryState::ConstPtr& msg);
     void vrpnPoseCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
-    void vrpnTwistCallback(const geometry_msgs::TwistStamped::ConstPtr& msg);
     void postInputEvent(::state_machine::EventId event_id, const char* source);
 
     ros::NodeHandle& nh_;
@@ -54,8 +52,6 @@ class SensorInputProducer {
     ros1_utils::PositionQualityDetector vrpn_quality_detector_;
     std::string state_estimate_topic_{"alg/state_estimator/state"};
     std::string vrpn_pose_topic_{"pose"};
-    std::string vrpn_twist_topic_{"twist"};
-    StateSource state_source_{StateSource::STATE_ESTIMATOR};
     bool started_{false};
 };
 

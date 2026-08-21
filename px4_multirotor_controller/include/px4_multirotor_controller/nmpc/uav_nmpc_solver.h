@@ -32,6 +32,7 @@ class UavNmpcSolver {
                               double max_roll_pitch_body_rate, double max_yaw_body_rate,
                               double max_roll_pitch_angular_acceleration,
                               double max_yaw_angular_acceleration);
+    bool configureAngularAccelerationWeights(const Eigen::Vector3d& weights);
     void resetWarmStart();
     bool solve(const Se3StateVector& x0, double thrust_actual,
                double last_commanded_specific_thrust,
@@ -107,6 +108,7 @@ class UavNmpcSolver {
     std::array<double, UAV_NMPC_NU> input_upper_bounds_{{20.373, 3.4906585, 3.4906585, 0.8726646}};
     std::array<double, UAV_NMPC_NH> path_lower_bounds_{{0.7071067811865476, -15.0, -15.0, -2.0}};
     std::array<double, UAV_NMPC_NH> path_upper_bounds_{{1.0e3, 15.0, 15.0, 2.0}};
+    Eigen::Vector3d angular_acceleration_sqrt_weights_{Eigen::Vector3d(0.2, 0.2, 1.5)};
     Se3ControlVector optimal_control_{Se3ControlVector::Zero()};
     Eigen::Vector3d predicted_body_rate_{Eigen::Vector3d::Zero()};
 };

@@ -44,8 +44,6 @@ DebugOutputConsumer::DebugOutputConsumer(
     stats_battery_pub_ = nh.advertise<std_msgs::Float32MultiArray>("alg/stats/battery", queue_size);
     stats_vrpn_pose_pub_ =
         nh.advertise<std_msgs::Float32MultiArray>("alg/stats/vrpn_pose", queue_size);
-    stats_vrpn_twist_pub_ =
-        nh.advertise<std_msgs::Float32MultiArray>("alg/stats/vrpn_twist", queue_size);
     vrpn_quality_pub_ = nh.advertise<std_msgs::Float32MultiArray>("alg/vrpn_quality", queue_size);
     tracking_error_pub_ =
         nh.advertise<std_msgs::Float32MultiArray>("alg/tracking/position_error", queue_size);
@@ -76,7 +74,6 @@ bool DebugOutputConsumer::handle(const ::state_machine::Event& event) {
                      local_pos_pub = stats_local_pos_pub_, local_vel_pub = stats_local_vel_pub_,
                      imu_pub = stats_imu_pub_, state_pub = stats_state_pub_,
                      battery_pub = stats_battery_pub_, vrpn_pose_pub = stats_vrpn_pose_pub_,
-                     vrpn_twist_pub = stats_vrpn_twist_pub_,
                      quality_pub = vrpn_quality_pub_](ros::NodeHandle&) mutable {
                         state_estimate_pub.publish(makeTopicStatsMessage(snapshot.state_estimate));
                         local_pos_pub.publish(makeTopicStatsMessage(snapshot.local_pos));
@@ -85,7 +82,6 @@ bool DebugOutputConsumer::handle(const ::state_machine::Event& event) {
                         state_pub.publish(makeTopicStatsMessage(snapshot.state));
                         battery_pub.publish(makeTopicStatsMessage(snapshot.battery));
                         vrpn_pose_pub.publish(makeTopicStatsMessage(snapshot.vrpn_pose));
-                        vrpn_twist_pub.publish(makeTopicStatsMessage(snapshot.vrpn_twist));
                         quality_pub.publish(makeVrpnQualityMessage(snapshot.vrpn_quality));
                     }));
             return true;
@@ -173,7 +169,6 @@ DebugOutputConsumer::SensorStatsSnapshot DebugOutputConsumer::snapshotSensorStat
                                sensor_data_.state_stats,
                                sensor_data_.battery_stats,
                                sensor_data_.vrpn_pose_stats,
-                               sensor_data_.vrpn_twist_stats,
                                vrpn_quality_stats_};
 }
 

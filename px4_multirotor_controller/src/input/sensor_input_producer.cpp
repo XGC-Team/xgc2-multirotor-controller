@@ -22,14 +22,6 @@ void SensorInputProducer::setVrpnQualityConfig(const ros1_utils::PositionQuality
     vrpn_quality_detector_.setConfig(config);
 }
 
-void SensorInputProducer::setStateSource(StateSource state_source) {
-    if (started_) {
-        ROS_WARN("[SensorInputProducer] Ignoring state source change after start");
-        return;
-    }
-    state_source_ = state_source;
-}
-
 void SensorInputProducer::setStateEstimateTopic(std::string state_estimate_topic) {
     if (started_) {
         ROS_WARN(
@@ -42,16 +34,13 @@ void SensorInputProducer::setStateEstimateTopic(std::string state_estimate_topic
     }
 }
 
-void SensorInputProducer::setVrpnTopics(std::string pose_topic, std::string twist_topic) {
+void SensorInputProducer::setVrpnPoseTopic(std::string pose_topic) {
     if (started_) {
-        ROS_WARN("[SensorInputProducer] Ignoring VRPN topic change after start");
+        ROS_WARN("[SensorInputProducer] Ignoring VRPN pose topic change after start");
         return;
     }
     if (!pose_topic.empty()) {
         vrpn_pose_topic_ = std::move(pose_topic);
-    }
-    if (!twist_topic.empty()) {
-        vrpn_twist_topic_ = std::move(twist_topic);
     }
 }
 
@@ -60,11 +49,9 @@ void SensorInputProducer::start() {
         return;
     }
 
-    if (state_source_ == StateSource::STATE_ESTIMATOR) {
-        stats_manager_.register_topic<rigid_state_estimator_msgs::RigidStateEstimate>(
-            nh_, state_estimate_topic_, queue_size_, &SensorInputProducer::stateEstimateCallback,
-            this, &sensor_data_.uav_state_estimate_stats);
-    }
+    stats_manager_.register_topic<rigid_state_estimator_msgs::RigidStateEstimate>(
+        nh_, state_estimate_topic_, queue_size_, &SensorInputProducer::stateEstimateCallback, this,
+        &sensor_data_.uav_state_estimate_stats);
     stats_manager_.register_topic<geometry_msgs::PoseStamped>(
         nh_, "mavros/local_position/pose", queue_size_, &SensorInputProducer::localPosCallback,
         this, &sensor_data_.local_pos_stats);
@@ -83,10 +70,6 @@ void SensorInputProducer::start() {
     stats_manager_.register_topic<geometry_msgs::PoseStamped>(
         nh_, vrpn_pose_topic_, queue_size_, &SensorInputProducer::vrpnPoseCallback, this,
         &sensor_data_.vrpn_pose_stats, &vrpn_quality_stats_);
-    stats_manager_.register_topic<geometry_msgs::TwistStamped>(
-        nh_, vrpn_twist_topic_, queue_size_, &SensorInputProducer::vrpnTwistCallback, this,
-        &sensor_data_.vrpn_twist_stats);
-
     stats_manager_.start();
     started_ = true;
 }
@@ -178,39 +161,9 @@ void SensorInputProducer::vrpnPoseCallback(const geometry_msgs::PoseStamped::Con
     sensor_data_.vrpn_qy = msg->pose.orientation.y;
     sensor_data_.vrpn_qz = msg->pose.orientation.z;
     sensor_data_.vrpn_qw = msg->pose.orientation.w;
-    if (state_source_ == StateSource::VRPN_DIRECT) {
-        sensor_data_.x = sensor_data_.vrpn_x;
-        sensor_data_.y = sensor_data_.vrpn_y;
-        sensor_data_.z = sensor_data_.vrpn_z;
-        sensor_data_.qx = sensor_data_.vrpn_qx;
-        sensor_data_.qy = sensor_data_.vrpn_qy;
-        sensor_data_.qz = sensor_data_.vrpn_qz;
-        sensor_data_.qw = sensor_data_.vrpn_qw;
-        const ros::Time stamp = msg->header.stamp.isZero() ? ros::Time::now() : msg->header.stamp;
-        sensor_data_.uav_state_estimate_stamp = stamp.toSec();
-        sensor_data_.uav_state_last_vrpn_pose_stamp = stamp.toSec();
-    }
     vrpn_quality_stats_ = vrpn_quality_detector_.process(sensor_data_.vrpn_x, sensor_data_.vrpn_y,
                                                          sensor_data_.vrpn_z);
     postInputEvent(event_type::INPUT_VRPN_POSE_UPDATED, "pose");
-}
-
-void SensorInputProducer::vrpnTwistCallback(const geometry_msgs::TwistStamped::ConstPtr& msg) {
-    sensor_data_.vrpn_vx = msg->twist.linear.x;
-    sensor_data_.vrpn_vy = msg->twist.linear.y;
-    sensor_data_.vrpn_vz = msg->twist.linear.z;
-    sensor_data_.vrpn_wx = msg->twist.angular.x;
-    sensor_data_.vrpn_wy = msg->twist.angular.y;
-    sensor_data_.vrpn_wz = msg->twist.angular.z;
-    if (state_source_ == StateSource::VRPN_DIRECT) {
-        sensor_data_.vx = sensor_data_.vrpn_vx;
-        sensor_data_.vy = sensor_data_.vrpn_vy;
-        sensor_data_.vz = sensor_data_.vrpn_vz;
-        sensor_data_.wx = sensor_data_.vrpn_wx;
-        sensor_data_.wy = sensor_data_.vrpn_wy;
-        sensor_data_.wz = sensor_data_.vrpn_wz;
-    }
-    postInputEvent(event_type::INPUT_VRPN_TWIST_UPDATED, "twist");
 }
 
 void SensorInputProducer::postInputEvent(::state_machine::EventId event_id, const char* source) {

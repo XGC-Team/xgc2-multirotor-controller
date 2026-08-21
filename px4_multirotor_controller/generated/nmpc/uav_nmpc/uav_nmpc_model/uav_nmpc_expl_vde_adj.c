@@ -55,10 +55,10 @@ casadi_real casadi_sq(casadi_real x) { return x*x;}
 
 static const casadi_int casadi_s0[3] = {14, 1, 1};
 static const casadi_int casadi_s1[3] = {4, 1, 1};
-static const casadi_int casadi_s2[3] = {22, 1, 1};
+static const casadi_int casadi_s2[3] = {25, 1, 1};
 static const casadi_int casadi_s3[3] = {18, 1, 1};
 
-/* uav_nmpc_expl_vde_adj:(i0[14],i1[14],i2[4],i3[22])->(o0[18]) */
+/* uav_nmpc_expl_vde_adj:(i0[14],i1[14],i2[4],i3[25])->(o0[18]) */
 static int casadi_f0(const casadi_real** arg, casadi_real** res, casadi_int* iw, casadi_real* w, int mem) {
   casadi_real a00, a01, a02, a03, a04, a05, a06, a07, a08, a09, a10, a11;
   casadi_real a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23;

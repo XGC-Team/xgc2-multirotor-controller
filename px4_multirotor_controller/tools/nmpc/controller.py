@@ -73,6 +73,11 @@ class CostWeights:
     thrust_actual: float = 2.0
     thrust_command_delta: float = 0.35
     body_rate_command_delta: np.ndarray = field(default_factory=lambda: np.array([8.0, 8.0, 16.0]))
+    # Simulation starting point only. These weights make the cost at each
+    # configured alpha limit comparable to the UGV baseline W_alpha * 3^2 = 9.
+    angular_acceleration: np.ndarray = field(
+        default_factory=lambda: np.array([0.04, 0.04, 2.25])
+    )
     terminal_position: np.ndarray = field(default_factory=lambda: 300.0 * np.ones(3))
     terminal_velocity: np.ndarray = field(default_factory=lambda: 80.0 * np.ones(3))
     terminal_thrust_direction: np.ndarray = field(default_factory=lambda: 80.0 * np.ones(3))
@@ -344,6 +349,9 @@ class AcadosNMPCController:
         self._set_x0_constraint(state)
 
         _, current_uref = self.reference.get_reference(time)
+        alpha_sqrt_weight = np.sqrt(
+            as_vector(self.weights.angular_acceleration, 3, "angular_acceleration")
+        )
         if self.last_u is not None:
             last_commanded_thrust = float(self.last_u[0])
             last_commanded_body_rate = self.last_u[1:4].copy()
@@ -354,7 +362,13 @@ class AcadosNMPCController:
         for stage in range(self.config.steps + 1):
             xref, uref = self.reference.get_reference(time + stage * self.config.dt)
             parameter = np.concatenate(
-                (xref, uref, np.array([last_commanded_thrust]), last_commanded_body_rate)
+                (
+                    xref,
+                    uref,
+                    np.array([last_commanded_thrust]),
+                    last_commanded_body_rate,
+                    alpha_sqrt_weight,
+                )
             )
             self.ocp_solver.set(stage, "p", parameter)
             if self.x_guess is not None:
@@ -477,7 +491,7 @@ class AcadosNMPCController:
 
         nx = STATE_SIZE
         nu = 4
-        np_param = nx + nu + 4
+        np_param = nx + nu + 7
         x = ca.SX.sym("x", nx)
         xdot = ca.SX.sym("xdot", nx)
         u = ca.SX.sym("u", nu)
@@ -644,6 +658,7 @@ class AcadosNMPCController:
         uref = p[STATE_SIZE : STATE_SIZE + 4]
         last_commanded_thrust = p[STATE_SIZE + 4]
         last_commanded_body_rate = p[STATE_SIZE + 5 : STATE_SIZE + 8]
+        alpha_sqrt_weight = p[STATE_SIZE + 8 : STATE_SIZE + 11]
         rotation = self._casadi_quat_to_rotation(ca, x[6:10])
         rotation_ref = self._casadi_quat_to_rotation(ca, xref[6:10])
         e_thrust_direction = self._casadi_thrust_direction_error(ca, rotation, rotation_ref)
@@ -652,6 +667,8 @@ class AcadosNMPCController:
         e_vel = x[3:6] - xref[3:6]
         e_omega = x[10:13] - xref[10:13]
         e_thrust_actual = x[THRUST_ACT] - xref[THRUST_ACT]
+        equivalent_alpha = (u[1:4] - x[10:13]) / self.params.body_rate_time_constant
+        e_alpha = ca.diag(alpha_sqrt_weight) @ equivalent_alpha
         unit_error = ca.dot(x[6:10], x[6:10]) - 1.0
         if terminal:
             residual = ca.vertcat(
@@ -684,6 +701,7 @@ class AcadosNMPCController:
                 e_omega,
                 e_thrust_actual,
                 e_u,
+                e_alpha,
             ]
             weight_parts = [
                 self.weights.position,
@@ -693,6 +711,7 @@ class AcadosNMPCController:
                 self.weights.omega,
                 np.array([self.weights.thrust_actual]),
                 self.weights.control,
+                np.ones(3),
             ]
             if initial:
                 e_thrust_command_delta = u[0] - last_commanded_thrust

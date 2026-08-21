@@ -1,5 +1,4 @@
 tracking_backend: dfbc_attitude_rate
-state_source: state_estimator
 
 dfbc:
   position_natural_frequency: [2.0, 2.0, 2.2]
@@ -30,6 +29,9 @@ nmpc:
   max_yaw_body_rate: 0.8726646
   max_roll_pitch_angular_acceleration: 15.0
   max_yaw_angular_acceleration: 2.0
+  # Simulation starting point. W * alpha_max^2 matches the UGV baseline (9).
+  # Do not present these values as flight-identified before physical bags exist.
+  angular_acceleration_weight: [0.04, 0.04, 2.25]
   solve_timeout: 0.03
   result_timeout: 0.1
   reference_timeout: 0.5

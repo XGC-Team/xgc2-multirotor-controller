@@ -32,7 +32,7 @@ void setReferenceYaw(Se3Reference& reference, double yaw) {
     reference.state.attitude.normalize();
 }
 
-void recomputeReferenceAngularKinematics(std::vector<Se3Reference>& references, double stage_dt) {
+void recomputeReferenceBodyRates(std::vector<Se3Reference>& references, double stage_dt) {
     if (references.size() < 2U || !std::isfinite(stage_dt) || stage_dt <= 1e-9) {
         for (auto& reference : references) {
             reference.state.body_rate.setZero();
@@ -50,20 +50,15 @@ void recomputeReferenceAngularKinematics(std::vector<Se3Reference>& references, 
 
     for (size_t i = 0; i < references.size(); ++i) {
         references[i].state.body_rate = body_rates[i];
+        references[i].control.angular_acceleration.setZero();
     }
-    for (size_t i = 0; i + 1U < references.size(); ++i) {
-        references[i].control.angular_acceleration =
-            (body_rates[i + 1U] - body_rates[i]) / stage_dt;
-    }
-    references.back().control.angular_acceleration =
-        references[references.size() - 2U].control.angular_acceleration;
 }
 
 void holdCurrentYaw(std::vector<Se3Reference>& references, double yaw, double stage_dt) {
     for (auto& reference : references) {
         setReferenceYaw(reference, yaw);
     }
-    recomputeReferenceAngularKinematics(references, stage_dt);
+    recomputeReferenceBodyRates(references, stage_dt);
 }
 
 void limitYawAuthority(std::vector<Se3Reference>& references, double current_yaw, double stage_dt) {
@@ -75,7 +70,7 @@ void limitYawAuthority(std::vector<Se3Reference>& references, double current_yaw
             std::max(-kMaxYawReferenceErrorRad, std::min(kMaxYawReferenceErrorRad, yaw_error));
         setReferenceYaw(reference, normalizeAngle(current_yaw + limited_yaw_error));
     }
-    recomputeReferenceAngularKinematics(references, stage_dt);
+    recomputeReferenceBodyRates(references, stage_dt);
 }
 
 Eigen::Vector3d referenceAccelerationWorld(const Se3Reference& reference, double gravity) {
@@ -99,7 +94,8 @@ void UavNmpcTrackingBackend::configure(const ControllerConfig& config) {
 }
 
 bool UavNmpcTrackingBackend::enter(const SensorData& sensor) {
-    if (!solver_.initialize()) {
+    if (!solver_.configureAngularAccelerationWeights(config_.nmpc.angular_acceleration_weight) ||
+        !solver_.initialize()) {
         ROS_ERROR(
             "[UavNmpcTrackingBackend] Cannot enter NMPC tracking: solver "
             "init failed");
@@ -208,6 +204,10 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
     last_debug_.horizon_reference =
         control::packState(tracking_references[UavNmpcSolver::horizonSteps()].state);
     last_debug_.reference_control = control::packControl(tracking_references.front().control);
+    // The production OCP deliberately damps angular acceleration around zero.
+    // Keep the debug topic aligned with the cost actually sent to acados;
+    // trajectory-derived angular-acceleration feed-forward is not enabled.
+    last_debug_.reference_control.segment<3>(1).setZero();
     last_debug_.position_error = x0.segment<3>(0) - last_debug_.reference.segment<3>(0);
     last_debug_.velocity_error = x0.segment<3>(3) - last_debug_.reference.segment<3>(3);
     last_debug_.omega_error = x0.segment<3>(10) - last_debug_.reference.segment<3>(10);
@@ -324,7 +324,7 @@ void UavNmpcTrackingBackend::exit() {
 }
 
 bool UavNmpcTrackingBackend::feedbackState(const SensorData& sensor, Se3StateVector& x0) const {
-    if (!sensor_checks::isControlStateUsableForControl(sensor, config_.state_source)) {
+    if (!sensor_checks::isControlStateUsableForControl(sensor)) {
         return false;
     }
 

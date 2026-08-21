@@ -47,6 +47,12 @@ body-rate command. That keeps the command compatible with the measured PX4 rate
 loop bandwidth instead of allowing SQP-RTI to jump between opposite rate
 setpoints every control tick.
 
+Every shooting stage also penalizes the equivalent angular acceleration
+`alpha = (body_rate_command - omega) / tau_omega` around zero. The hard alpha
+bounds remain independent. The per-axis weights are stage parameters so ROS can
+tune them for simulation without regenerating the solver; the checked-in values
+are engineering starting points, not flight-identified limits.
+
 Attitude tracking cost uses the Lie algebra error
 `log(R_ref.T @ R)^vee`; it does not use raw `R - R_ref` element error.
 Both the Python plant model and the CasADi OCP model normalize the quaternion
@@ -70,7 +76,7 @@ The acados OCP includes:
 input hard bounds:       T/m and body-rate command
 state hard bounds:       position, velocity, omega
 nonlinear hard bounds:   R33(q) >= cos(tilt_max)
-stage parameters:        [xref(14); uref(4); last_thrust_cmd; last_body_rate_cmd(3)]
+stage parameters:        [xref(14); uref(4); last_thrust_cmd; last_body_rate_cmd(3); sqrt(W_alpha)(3)]
 cost:                    NONLINEAR_LS tracking with thrust-direction and yaw residuals
 quaternion handling:     normalized simulation state plus unit-norm residual
 ```
@@ -198,7 +204,7 @@ The generated C solver does not include Python-side runtime interactions. The
 C++ wrapper must continue to mirror the Python update sequence:
 
 1. set the fixed `x0` lower/upper bounds every cycle;
-2. set `p=[xref(14); uref(4); last_thrust_cmd; last_body_rate_cmd(3)]` for stages `0..N`;
+2. set `p=[xref(14); uref(4); last_thrust_cmd; last_body_rate_cmd(3); sqrt(W_alpha)(3)]` for stages `0..N`;
 3. seed `x/u` warm starts;
 4. call solve and reject nonzero status;
 5. read `u0` and predicted `x1`;

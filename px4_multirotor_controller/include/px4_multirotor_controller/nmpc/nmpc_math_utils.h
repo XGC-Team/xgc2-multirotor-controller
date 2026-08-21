@@ -183,16 +183,4 @@ inline Eigen::Vector3d bodyRateCommandFromPredictedBodyRate(
     return body_rate;
 }
 
-inline Eigen::Vector3d bodyRateCommandFromAngularAcceleration(
-    const Eigen::Vector3d& current_body_rate, const Eigen::Vector3d& angular_acceleration,
-    double control_period, double max_roll_pitch_body_rate, double max_yaw_body_rate) {
-    Eigen::Vector3d body_rate = current_body_rate;
-    if (std::isfinite(control_period) && control_period > 0.0 &&
-        angular_acceleration.array().isFinite().all()) {
-        body_rate += angular_acceleration * control_period;
-    }
-    return bodyRateCommandFromPredictedBodyRate(body_rate, max_roll_pitch_body_rate,
-                                                max_yaw_body_rate);
-}
-
 }  // namespace px4_multirotor_controller
