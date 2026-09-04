@@ -13,10 +13,12 @@ namespace px4_multirotor_controller {
 LandingState::LandingState(DroneController& controller) : controller_(controller) {}
 
 ::state_machine::ActionResult LandingState::onEnter(::state_machine::StateContext& ctx) {
+    controller_.clearCustom1Request();
     controller_.logInfo("[LandingState] Entering Landing State");
 
     const auto& sensor_data = controller_.getSensorData();
-    initial_altitude_ = sensor_data.z;
+    initial_altitude_ =
+        sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend);
 
     const double slowest_descent_rate = std::max(
         std::min(std::abs(LANDING_VZ_HIGH_ALTITUDE), std::abs(LANDING_VZ_LOW_ALTITUDE)), 1e-3);
@@ -54,7 +56,8 @@ void LandingState::configureLandingSetpoint() {
     landing_setpoint_.z = 0.0;
     landing_setpoint_.vx = 0.0;
     landing_setpoint_.vy = 0.0;
-    landing_setpoint_.vz = getDescentVelocity(sensor_data.z);
+    landing_setpoint_.vz = getDescentVelocity(
+        sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend));
     landing_setpoint_.ax = 0.0;
     landing_setpoint_.ay = 0.0;
     landing_setpoint_.az = 0.0;
@@ -86,8 +89,9 @@ void LandingState::emitLandingSetpoint(::state_machine::StateContext& ctx) {
 
 void LandingState::updateDescentVelocityIfNeeded() {
     const auto& sensor_data = controller_.getSensorData();
-    if (sensor_checks::isControlStateNew(sensor_data)) {
-        landing_setpoint_.vz = getDescentVelocity(sensor_data.z);
+    const auto backend = controller_.getConfig().tracking_backend;
+    if (sensor_checks::isWorldPoseNew(sensor_data, backend)) {
+        landing_setpoint_.vz = getDescentVelocity(sensor_checks::worldZ(sensor_data, backend));
     }
 }
 
@@ -106,7 +110,8 @@ void LandingState::logStatusIfDue() {
     controller_.logInfo(
         "[LandingState] Altitude: %.2f m, Descent rate: %.2f m/s, landed "
         "frames: %d/%d",
-        sensor_data.z, landing_setpoint_.vz, confirmed_landed_frames_, CONSECUTIVE_SETTLED_FRAMES);
+        sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend),
+        landing_setpoint_.vz, confirmed_landed_frames_, CONSECUTIVE_SETTLED_FRAMES);
     log_timer_.reset();
 }
 
@@ -135,13 +140,15 @@ void LandingState::updateTouchdownConfirmation() {
     }
 
     const auto& sensor_data = controller_.getSensorData();
-    const bool sensor_updated = sensor_checks::isControlStateNew(sensor_data);
+    const auto backend = controller_.getConfig().tracking_backend;
+    const bool sensor_updated = sensor_checks::isWorldPoseNew(sensor_data, backend);
     if (!sensor_updated) {
         return;
     }
 
-    const bool velocity_settled = std::abs(sensor_data.vz) <= TOUCHDOWN_VELOCITY_THRESHOLD;
-    const bool altitude_settled = sensor_data.z <= GROUND_ALTITUDE;
+    const bool velocity_settled =
+        std::abs(sensor_checks::worldVz(sensor_data, backend)) <= TOUCHDOWN_VELOCITY_THRESHOLD;
+    const bool altitude_settled = sensor_checks::worldZ(sensor_data, backend) <= GROUND_ALTITUDE;
     if (!velocity_settled || !altitude_settled) {
         confirmed_landed_frames_ = 0;
         return;
@@ -179,7 +186,9 @@ void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
             controller_.logWarn(
                 "[LandingState] Forced touchdown after %.1f s at altitude %.2f m "
                 "(vz=%.2f m/s)",
-                elapsed_time, sensor_data.z, sensor_data.vz);
+                elapsed_time,
+                sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend),
+                sensor_checks::worldVz(sensor_data, controller_.getConfig().tracking_backend));
             ctx.emitOutput(::state_machine::Event(
                 output_event_type::REQUEST_KILL,
                 ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
@@ -187,8 +196,10 @@ void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
 
         case ExitReason::TOUCHDOWN:
             // 正常着陆：打印信息并上锁
-            controller_.logInfo("[LandingState] Landed at altitude: %.2f m (vz=%.2f m/s)",
-                                sensor_data.z, sensor_data.vz);
+            controller_.logInfo(
+                "[LandingState] Landed at altitude: %.2f m (vz=%.2f m/s)",
+                sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend),
+                sensor_checks::worldVz(sensor_data, controller_.getConfig().tracking_backend));
             {
                 ::state_machine::Event event(
                     output_event_type::REQUEST_ARMING,

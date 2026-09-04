@@ -4,6 +4,7 @@
 #include <ros1_utils/param_utils.h>
 
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -227,51 +228,40 @@ void DroneRosNode::loadControllerConfig() {
     ROS_INFO("[DroneRosNode] Skip TakeoffInit DISARM and ALTCTL gate: %s",
              config.skip_takeoff_init_disarm ? "enabled" : "disabled");
 
-    config.planning_period = nh_private_.param(
-        "planning_period", nh_private_.param("sampling_time", config.planning_period));
+    nh_private_.param("planning_period", config.planning_period, config.planning_period);
     if (!std::isfinite(config.planning_period) || config.planning_period <= 0.0) {
-        ROS_WARN("[DroneRosNode] Invalid planning_period/sampling_time; using 0.100 s");
+        ROS_WARN("[DroneRosNode] Invalid planning_period; using 0.100 s");
         config.planning_period = 0.1;
     }
     ROS_INFO("[DroneRosNode] MPC planning period: %.3f s", config.planning_period);
 
-    if (nh_private_.hasParam("state_source")) {
-        ROS_WARN(
-            "[DroneRosNode] Ignoring removed state_source parameter; fused state_estimator "
-            "is the only control-state source");
-    }
     ROS_INFO("[DroneRosNode] Control state source: state_estimator (fusion only)");
 
-    // ========== MPC轨迹跟踪控制模式 ==========
-    // 读取控制模式 (0=PX4_CASCADE_PID, 1=PURE_SLIDING_MODE, 2=HYBRID_CONTROL)
-    int control_mode_int = 0;
-    ros1_utils::getParamWithLog(nh_private_, "control_mode", control_mode_int, "Control mode");
-
-    // 转换为枚举类型（防御性检查：确保值在有效范围内）
-    if (control_mode_int < 0 || control_mode_int > 2) {
-        ROS_WARN("[DroneRosNode] Invalid control_mode=%d, using default PX4_CASCADE_PID",
-                 control_mode_int);
-        control_mode_int = 0;
-    }
-    config.control_mode = static_cast<ControlMode>(control_mode_int);
-
-    std::string tracking_backend = "legacy_mpc_lifter";
+    std::string tracking_backend = "px4_local";
     nh_private_.param("tracking_backend", tracking_backend, tracking_backend);
-    if (tracking_backend == "legacy_mpc_lifter" || tracking_backend == "legacy") {
-        config.tracking_backend = TrackingBackend::LEGACY_MPC_LIFTER;
-    } else if (tracking_backend == "nmpc_attitude_rate" || tracking_backend == "nmpc") {
-        config.tracking_backend = TrackingBackend::NMPC_ATTITUDE_RATE;
-    } else if (tracking_backend == "dfbc_attitude_rate" || tracking_backend == "dfbc") {
-        config.tracking_backend = TrackingBackend::DFBC_ATTITUDE_RATE;
-    } else if (tracking_backend == "px4_local_raw" || tracking_backend == "px4") {
-        config.tracking_backend = TrackingBackend::PX4_LOCAL_RAW;
+    if (tracking_backend == "px4_local") {
+        config.tracking_backend = TrackingBackend::PX4_LOCAL;
+    } else if (tracking_backend == "nmpc") {
+        config.tracking_backend = TrackingBackend::NMPC;
+    } else if (tracking_backend == "dfbc") {
+        config.tracking_backend = TrackingBackend::DFBC;
     } else {
-        ROS_WARN("[DroneRosNode] Unknown tracking_backend=%s, using legacy_mpc_lifter",
+        ROS_WARN("[DroneRosNode] Unknown tracking_backend=%s, using px4_local",
                  tracking_backend.c_str());
-        config.tracking_backend = TrackingBackend::LEGACY_MPC_LIFTER;
-        tracking_backend = "legacy_mpc_lifter";
+        config.tracking_backend = TrackingBackend::PX4_LOCAL;
+        tracking_backend = "px4_local";
     }
     ROS_INFO("[DroneRosNode] Tracking backend: %s", tracking_backend.c_str());
+
+    int local_type_mask = static_cast<int>(config.local_type_mask);
+    nh_private_.param("local_type_mask", local_type_mask, local_type_mask);
+    if (local_type_mask < 0 || local_type_mask > 4095) {
+        ROS_WARN("[DroneRosNode] Invalid local_type_mask=%d, using %u", local_type_mask,
+                 static_cast<unsigned>(kDefaultPvaLocalTypeMask));
+        config.local_type_mask = kDefaultPvaLocalTypeMask;
+    } else {
+        config.local_type_mask = static_cast<uint16_t>(local_type_mask);
+    }
 
     // ========== 偏航角控制开关 ==========
     ros1_utils::getParamWithLog(nh_private_, "enable_yaw_control", config.enable_yaw_control,
@@ -548,8 +538,8 @@ void DroneRosNode::loadControllerConfig() {
         ROS_WARN("[DroneRosNode] Invalid dfbc/log_period; using 1.000 s");
         config.dfbc.log_period = 1.0;
     }
-    if (config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE ||
-        config.tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE) {
+    if (config.tracking_backend == TrackingBackend::NMPC ||
+        config.tracking_backend == TrackingBackend::DFBC) {
         if (!config.nmpc.hover_thrust_enabled) {
             ROS_WARN(
                 "[DroneRosNode] Attitude-rate tracking requires hover thrust estimate; "
@@ -557,7 +547,7 @@ void DroneRosNode::loadControllerConfig() {
             config.nmpc.hover_thrust_enabled = true;
         }
     }
-    if (config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
+    if (config.tracking_backend == TrackingBackend::NMPC) {
         ROS_INFO(
             "[DroneRosNode] UAV NMPC: dt=%.3f horizon=%.3f gravity=%.4f "
             "hover=%.3f estimator=required hover_timeout=%.3f "
@@ -579,7 +569,7 @@ void DroneRosNode::loadControllerConfig() {
             config.nmpc.reference_line_speed, config.nmpc.reference_height,
             config.nmpc.reference_z_amplitude, config.nmpc.reference_torus_omega,
             config.nmpc.reference_torus_scale);
-    } else if (config.tracking_backend == TrackingBackend::DFBC_ATTITUDE_RATE) {
+    } else if (config.tracking_backend == TrackingBackend::DFBC) {
         ROS_INFO(
             "[DroneRosNode] UAV DFBC attitude-rate: dt=%.3f gravity=%.4f hover=required "
             "thrust_norm=[%.2f, %.2f] body_rate_max=[roll_pitch %.2f yaw %.2f] "
@@ -600,36 +590,12 @@ void DroneRosNode::loadControllerConfig() {
             config.dfbc.acceleration_correction_limit.y(),
             config.dfbc.acceleration_correction_limit.z(),
             config.dfbc.acceleration_correction_filter_tau);
-    } else if (config.tracking_backend == TrackingBackend::PX4_LOCAL_RAW) {
+    } else if (config.tracking_backend == TrackingBackend::PX4_LOCAL) {
         ROS_INFO(
-            "[DroneRosNode] UAV PX4 local raw tracking: dt=%.3f pos+vel+acc enabled "
-            "yaw=false yaw_rate=false reference_type=%d circle=[radius %.2f speed %.2f] "
-            "torus=[omega %.2f scale %.2f]",
-            config.nmpc.control_period, config.nmpc.reference_analytic_type,
-            config.nmpc.reference_radius, config.nmpc.reference_line_speed,
-            config.nmpc.reference_torus_omega, config.nmpc.reference_torus_scale);
-    }
-
-    // ========== 滑模控制器参数 ==========
-    // 仅在使用滑模控制器时才加载参数（模式1和模式2）
-    if (config.control_mode != ControlMode::PX4_CASCADE_PID) {
-        ros1_utils::getParamWithLog(nh_private_, "sliding_k1", config.sliding_mode.k1,
-                                    "Sliding k1");
-        ros1_utils::getParamWithLog(nh_private_, "sliding_k2", config.sliding_mode.k2,
-                                    "Sliding k2");
-        ros1_utils::getParamWithLog(nh_private_, "sliding_epsilon", config.sliding_mode.epsilon,
-                                    "Sliding epsilon");
-
-        // 参数验证
-        if (config.sliding_mode.k1 <= 0.0 || config.sliding_mode.k2 <= 0.0 ||
-            config.sliding_mode.epsilon <= 0.0) {
-            ROS_ERROR(
-                "[DroneRosNode] Invalid sliding mode parameters (must be > 0), "
-                "using defaults");
-            config.sliding_mode.k1 = 3.0;
-            config.sliding_mode.k2 = 3.0;
-            config.sliding_mode.epsilon = 0.5;
-        }
+            "[DroneRosNode] UAV PX4 local pass-through: default_mask=%u yaw=%s "
+            "reference_timeout=%.3f",
+            static_cast<unsigned>(config.local_type_mask),
+            config.enable_yaw_control ? "true" : "false", config.nmpc.reference_timeout);
     }
 
     // ========== 安全限制参数 ==========

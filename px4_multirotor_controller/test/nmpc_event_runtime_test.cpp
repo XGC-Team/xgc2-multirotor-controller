@@ -4,6 +4,7 @@
 #include <limits>
 
 #include "px4_multirotor_controller/common/sensor_checks.h"
+#include "px4_multirotor_controller/control/trajectory_lifter.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
 #include "px4_multirotor_controller/tracking/dfbc_attitude_rate_strategy.h"
@@ -333,7 +334,7 @@ TEST(DfbcGeometricController, AccelerationCorrectionAddsFilteredAccelerationDefi
 
 TEST(DfbcAttitudeRateStrategy, DisablesYawAndClampsBodyRates) {
     ControllerConfig config;
-    config.tracking_backend = TrackingBackend::DFBC_ATTITUDE_RATE;
+    config.tracking_backend = TrackingBackend::DFBC;
     config.enable_yaw_control = false;
     config.nmpc.hover_thrust_enabled = true;
     config.nmpc.max_roll_pitch_body_rate = 0.2;
@@ -363,7 +364,7 @@ TEST(DfbcAttitudeRateStrategy, DisablesYawAndClampsBodyRates) {
 
 TEST(Px4LocalRawStrategy, OutputsPositionVelocityAccelerationAndIgnoresYaw) {
     ControllerConfig config;
-    config.tracking_backend = TrackingBackend::PX4_LOCAL_RAW;
+    config.tracking_backend = TrackingBackend::PX4_LOCAL;
     config.nmpc.control_period = 0.01;
 
     Px4LocalRawStrategy strategy;
@@ -373,6 +374,7 @@ TEST(Px4LocalRawStrategy, OutputsPositionVelocityAccelerationAndIgnoresYaw) {
     TrackingStrategyInput input;
     input.sensor = makeDfbcSensor();
     input.now = ros::Time(10.0);
+    input.stamp = ros::Time(10.0);
     input.reference = makeDfbcReference();
     input.reference.position = Eigen::Vector3d(1.0, 2.0, 3.0);
     input.reference.velocity = Eigen::Vector3d(0.4, 0.5, 0.6);
@@ -392,7 +394,7 @@ TEST(Px4LocalRawStrategy, OutputsPositionVelocityAccelerationAndIgnoresYaw) {
     EXPECT_NEAR(result.local_setpoint.ax, 0.7, 1e-12);
     EXPECT_NEAR(result.local_setpoint.ay, 0.8, 1e-12);
     EXPECT_NEAR(result.local_setpoint.az, 0.9, 1e-12);
-    EXPECT_EQ(result.local_setpoint.type_mask, static_cast<uint16_t>((1U << 10U) | (1U << 11U)));
+    EXPECT_EQ(result.local_setpoint.type_mask, kDefaultPvaLocalTypeMask);
     EXPECT_EQ(result.local_setpoint.coordinate_frame, 1);
 }
 
@@ -502,6 +504,96 @@ TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangBodyRate) {
 
     EXPECT_LE(max_body_rate, kSaturationGuard);
     EXPECT_EQ(near_saturation_count, 0);
+}
+
+TEST(Px4LocalPassThrough, LiftsPvaWithMeasuredStamp) {
+    MpcTrajectoryState sample;
+    sample.position_k = Eigen::Vector3d(1.0, 2.0, 3.0);
+    sample.velocity_k = Eigen::Vector3d(0.4, 0.0, 0.0);
+    sample.acceleration_k = Eigen::Vector3d(2.0, 0.0, 0.0);
+    sample.planning_time = ros::Time(1.0);
+    sample.type_mask = 0;
+    sample.is_valid = true;
+
+    const Setpoint sp = liftWorldLocal(sample, ros::Time(1.1), kDefaultPvaLocalTypeMask, false);
+    EXPECT_NEAR(sp.x, 1.0 + 0.4 * 0.1 + 0.5 * 2.0 * 0.01, 1e-12);
+    EXPECT_NEAR(sp.vx, 0.4 + 2.0 * 0.1, 1e-12);
+    EXPECT_NEAR(sp.ax, 2.0, 1e-12);
+    EXPECT_EQ(sp.type_mask, kDefaultPvaLocalTypeMask);
+}
+
+TEST(Px4LocalPassThrough, HonorsScePvMaskAndDoesNotFillAccel) {
+    constexpr uint16_t kScePvMask = 3523;
+    MpcTrajectoryState sample;
+    sample.position_k = Eigen::Vector3d(9.0, 8.0, 1.5);
+    sample.velocity_k = Eigen::Vector3d(0.2, -0.1, 0.0);
+    sample.acceleration_k = Eigen::Vector3d(3.0, 3.0, 3.0);
+    sample.planning_time = ros::Time(2.0);
+    sample.type_mask = kScePvMask;
+    sample.is_valid = true;
+
+    const Setpoint sp = liftWorldLocal(sample, ros::Time(2.2), kDefaultPvaLocalTypeMask, false);
+    EXPECT_NEAR(sp.x, 0.0, 1e-12);
+    EXPECT_NEAR(sp.y, 0.0, 1e-12);
+    EXPECT_NEAR(sp.z, 1.5, 1e-12);
+    EXPECT_NEAR(sp.vx, 0.2, 1e-12);
+    EXPECT_NEAR(sp.vy, -0.1, 1e-12);
+    EXPECT_NEAR(sp.ax, 0.0, 1e-12);
+    EXPECT_NEAR(sp.ay, 0.0, 1e-12);
+    EXPECT_NEAR(sp.az, 0.0, 1e-12);
+    EXPECT_EQ(sp.type_mask, kScePvMask);
+}
+
+TEST(Px4LocalPassThrough, RejectsStaleReferenceAndAcceptsFreshHold) {
+    MpcTrajectoryState sample;
+    sample.position_k = Eigen::Vector3d::Ones();
+    sample.velocity_k = Eigen::Vector3d::Zero();
+    sample.acceleration_k = Eigen::Vector3d::Zero();
+    sample.planning_time = ros::Time(1.0);
+    sample.is_valid = true;
+    EXPECT_FALSE(passThroughReferenceReady(sample, 2.0, 2.1, 0.5));
+    EXPECT_TRUE(passThroughReferenceReady(sample, 0.9, 1.05, 0.5));
+    sample.planning_time = ros::Time(1.95);
+    EXPECT_TRUE(passThroughReferenceReady(sample, 2.0, 2.0, 0.5));
+}
+
+TEST(Px4LocalPassThrough, PlanMatchesHoverOnUsedPositionAxes) {
+    MpcTrajectoryState sample;
+    sample.position_k = Eigen::Vector3d(1.0, 2.0, 3.0);
+    sample.is_valid = true;
+    sample.type_mask = 0;
+    EXPECT_TRUE(passThroughPlanMatchesHover(sample, 1.2, 2.1, 3.2, 1.0, 1.0));
+    EXPECT_FALSE(passThroughPlanMatchesHover(sample, 10.0, 2.0, 3.0, 1.0, 1.0));
+    EXPECT_TRUE(passThroughPlanMatchesHover(sample, 1.0, 2.0, 3.0, 1.0, 1.0));
+    EXPECT_FALSE(passThroughPlanMatchesHover(sample, 2.1, 2.0, 3.0, 1.0, 1.0));
+    sample.type_mask = 3523;
+    EXPECT_TRUE(passThroughPlanMatchesHover(sample, 10.0, 20.0, 3.2, 1.0, 1.0));
+}
+
+TEST(Px4LocalPassThrough, TakeoverNeedsHoverMatchUntilArmed) {
+    MpcTrajectoryState sample;
+    sample.position_k = Eigen::Vector3d(1.0, 2.0, 3.0);
+    sample.velocity_k = Eigen::Vector3d::Zero();
+    sample.acceleration_k = Eigen::Vector3d::Zero();
+    sample.planning_time = ros::Time(1.0);
+    sample.is_valid = true;
+    sample.type_mask = 0;
+    EXPECT_FALSE(
+        passThroughMayTakeSetpoint(sample, 1.0, 1.05, 0.5, 10.0, 2.0, 3.0, 1.0, 1.0, false));
+    EXPECT_TRUE(passThroughMayTakeSetpoint(sample, 1.0, 1.05, 0.5, 10.0, 2.0, 3.0, 1.0, 1.0, true));
+    EXPECT_TRUE(passThroughMayTakeSetpoint(sample, 1.0, 1.05, 0.5, 1.2, 2.1, 3.2, 1.0, 1.0, false));
+    EXPECT_FALSE(passThroughMayTakeSetpoint(sample, 1.0, 2.0, 0.5, 10.0, 2.0, 3.0, 1.0, 1.0, true));
+}
+
+TEST(SensorChecks, PassThroughReadyDoesNotNeedEstimator) {
+    SensorData sensor;
+    sensor.local_pos_stats.is_active = true;
+    sensor.local_velocity_stats.is_active = true;
+    sensor.imu_stats.is_active = true;
+    sensor.state_stats.is_active = true;
+    sensor.battery_stats.is_active = true;
+    EXPECT_TRUE(sensor_checks::areSensorsReady(sensor, TrackingBackend::PX4_LOCAL));
+    EXPECT_FALSE(sensor_checks::areSensorsReady(sensor, TrackingBackend::NMPC));
 }
 
 }  // namespace

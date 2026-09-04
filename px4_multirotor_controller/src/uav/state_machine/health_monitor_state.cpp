@@ -18,13 +18,16 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
     const auto& cfg = controller_config.safety;
     auto& ss = safety_state_;
 
-    checkSensorActiveEdge(ctx, sd.uav_state_estimate_stats, ss.was_uav_state_estimate_active,
-                          SAFE_TIMEOUT_UAV_STATE_ESTIMATE);
+    const bool fused = trackingUsesFusedEstimate(controller_config.tracking_backend);
+    if (fused) {
+        checkSensorActiveEdge(ctx, sd.uav_state_estimate_stats, ss.was_uav_state_estimate_active,
+                              SAFE_TIMEOUT_UAV_STATE_ESTIMATE);
+    }
     checkSensorActiveEdge(ctx, sd.state_stats, ss.was_state_active, SAFE_TIMEOUT_STATE);
     checkSensorActiveEdge(ctx, sd.battery_stats, ss.was_battery_active, SAFE_TIMEOUT_BATTERY);
 
     const double now = controller_.getCurrentTime();
-    const bool control_state_unusable = sensor_checks::isControlStateActive(sd) &&
+    const bool control_state_unusable = fused && sensor_checks::isControlStateActive(sd) &&
                                         !sensor_checks::isControlStateUsableForControl(sd);
     if (control_state_unusable && ss.state_estimate_unusable_since < 0.0) {
         ss.state_estimate_unusable_since = now;
@@ -42,33 +45,38 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
     }
     ss.state_estimate_unusable = estimate_unusable_trip;
 
-    if (sensor_checks::isControlStateNew(sd)) {
+    if (sensor_checks::isWorldPoseNew(sd, controller_config.tracking_backend)) {
+        const double x = sensor_checks::worldX(sd, controller_config.tracking_backend);
+        const double y = sensor_checks::worldY(sd, controller_config.tracking_backend);
+        const double z = sensor_checks::worldZ(sd, controller_config.tracking_backend);
         const bool currently_violated =
-            (sd.x < cfg.fence_x_min || sd.x > cfg.fence_x_max || sd.y < cfg.fence_y_min ||
-             sd.y > cfg.fence_y_max || sd.z < cfg.fence_z_min || sd.z > cfg.fence_z_max);
+            (x < cfg.fence_x_min || x > cfg.fence_x_max || y < cfg.fence_y_min ||
+             y > cfg.fence_y_max || z < cfg.fence_z_min || z > cfg.fence_z_max);
         if (!ss.geofence_violated && currently_violated) {
             postSafetyEvent(ctx, SAFE_GEOFENCE_VIOLATION, "post geofence safety event");
         }
         ss.geofence_violated = currently_violated;
     }
 
-    if (sensor_checks::isControlStateNew(sd)) {
-        const double velocity_xy = std::sqrt(sd.vx * sd.vx + sd.vy * sd.vy);
+    if (sensor_checks::isWorldPoseNew(sd, controller_config.tracking_backend)) {
+        const double vx = sensor_checks::worldVx(sd, controller_config.tracking_backend);
+        const double vy = sensor_checks::worldVy(sd, controller_config.tracking_backend);
+        const double velocity_xy = std::sqrt(vx * vx + vy * vy);
         const bool xy_exceeded = velocity_xy > cfg.max_velocity_xy;
         if (!ss.velocity_xy_exceeded && xy_exceeded) {
             postSafetyEvent(ctx, SAFE_VELOCITY_XY_EXCEEDED, "post velocity xy safety event");
         }
         ss.velocity_xy_exceeded = xy_exceeded;
 
-        const bool z_exceeded = std::abs(sd.vz) > cfg.max_velocity_z;
+        const bool z_exceeded = std::abs(sensor_checks::worldVz(
+                                    sd, controller_config.tracking_backend)) > cfg.max_velocity_z;
         if (!ss.velocity_z_exceeded && z_exceeded) {
             postSafetyEvent(ctx, SAFE_VELOCITY_Z_EXCEEDED, "post velocity z safety event");
         }
         ss.velocity_z_exceeded = z_exceeded;
     }
 
-    if (sd.imu_stats.is_new &&
-        controller_config.tracking_backend != TrackingBackend::NMPC_ATTITUDE_RATE) {
+    if (sd.imu_stats.is_new && controller_config.tracking_backend == TrackingBackend::PX4_LOCAL) {
         const auto& setpoint = controller_.getSetpoint();
         const double acc_xy = std::sqrt(setpoint.ax * setpoint.ax + setpoint.ay * setpoint.ay);
         const bool xy_saturated = acc_xy > cfg.acc_saturation_xy;
@@ -82,7 +90,7 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
             postSafetyEvent(ctx, SAFE_CONTROL_SATURATION_Z, "post control z saturation event");
         }
         ss.control_saturated_z = z_saturated;
-    } else if (controller_config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
+    } else {
         ss.control_saturated_xy = false;
         ss.control_saturated_z = false;
     }

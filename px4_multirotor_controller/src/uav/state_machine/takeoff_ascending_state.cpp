@@ -37,6 +37,18 @@ TakeoffAscendingState::TakeoffAscendingState(DroneController& controller)
     return {};
 }
 
+::state_machine::ActionResult TakeoffAscendingState::onEvent(::state_machine::StateContext&,
+                                                             const ::state_machine::Event& event) {
+    if (event.id == event_type::TRAJECTORY_TRACKING_REQUESTED) {
+        controller_.requestCustom1Tracking();
+        if (!controller_.custom1ReferenceReady()) {
+            controller_.logWarn(
+                "[TakeoffAscendingState] custom1 latched; waiting for ready initial reference");
+        }
+    }
+    return {};
+}
+
 void TakeoffAscendingState::publishSetpointIfDue(::state_machine::StateContext& ctx) {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
         ctx.emitOutput(
@@ -55,8 +67,9 @@ void TakeoffAscendingState::logStatusIfDue() {
     controller_.logInfo(
         "[TakeoffAscendingState] Altitude: %.2f m (target: %.2f m, vz: "
         "%.2f m/s, settled frames: %d/%d)",
-        sensor_data.z, setpoint.z, sensor_data.vz, confirmed_settled_frames_,
-        CONSECUTIVE_SETTLED_FRAMES);
+        sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend), setpoint.z,
+        sensor_checks::worldVz(sensor_data, controller_.getConfig().tracking_backend),
+        confirmed_settled_frames_, CONSECUTIVE_SETTLED_FRAMES);
     status_log_timer_.reset();
 }
 
@@ -86,14 +99,17 @@ void TakeoffAscendingState::updateAltitudeConfirmation() {
     }
 
     const auto& sensor_data = controller_.getSensorData();
-    const bool sensor_updated = sensor_checks::isControlStateNew(sensor_data);
+    const auto backend = controller_.getConfig().tracking_backend;
+    const bool sensor_updated = sensor_checks::isWorldPoseNew(sensor_data, backend);
     if (!sensor_updated) {
         return;
     }
 
     const auto& setpoint = controller_.getSetpoint();
-    const bool altitude_ok = sensor_data.z >= setpoint.z - ALTITUDE_THRESHOLD;
-    const bool velocity_ok = std::abs(sensor_data.vz) < VELOCITY_THRESHOLD;
+    const bool altitude_ok =
+        sensor_checks::worldZ(sensor_data, backend) >= setpoint.z - ALTITUDE_THRESHOLD;
+    const bool velocity_ok =
+        std::abs(sensor_checks::worldVz(sensor_data, backend)) < VELOCITY_THRESHOLD;
     if (!altitude_ok || !velocity_ok) {
         confirmed_settled_frames_ = 0;
         return;
@@ -113,7 +129,7 @@ void TakeoffAscendingState::postAltitudeReachedOnce(::state_machine::StateContex
     controller_.logInfo(
         "[TakeoffAscendingState] Target altitude reached: %.2f m (%.1f s "
         "elapsed)",
-        sensor_data.z,
+        sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend),
         std::chrono::duration<double>(ctx.elapsed(state_type::TakeoffAscending)).count());
     altitude_reached_event_posted_ = true;
     ctx.postInternalEvent(
@@ -128,7 +144,8 @@ void TakeoffAscendingState::postAltitudeReachedOnce(::state_machine::StateContex
     controller_.logInfo(
         "[TakeoffAscendingState] Exiting (altitude: %.2f m, settled frames: "
         "%d/%d, elapsed: %.2f s)",
-        sensor_data.z, confirmed_settled_frames_, CONSECUTIVE_SETTLED_FRAMES, elapsed_time);
+        sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend),
+        confirmed_settled_frames_, CONSECUTIVE_SETTLED_FRAMES, elapsed_time);
     status_log_timer_.stop();
     setpoint_publish_timer_.stop();
     return {};

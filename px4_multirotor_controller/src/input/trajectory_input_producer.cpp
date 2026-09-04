@@ -42,7 +42,7 @@ void TrajectoryInputProducer::algSetpointCallback(
         return;
     }
     const ControllerConfig config = config_provider_ ? config_provider_() : ControllerConfig{};
-    if (config.tracking_backend == TrackingBackend::NMPC_ATTITUDE_RATE) {
+    if (config.tracking_backend != TrackingBackend::PX4_LOCAL) {
         return;
     }
 

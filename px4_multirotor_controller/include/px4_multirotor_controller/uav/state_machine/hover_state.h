@@ -24,6 +24,8 @@ class HoverState : public ::state_machine::State {
    protected:
     ::state_machine::ActionResult onEnter(::state_machine::StateContext& ctx) override;
     ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
+    ::state_machine::ActionResult onEvent(::state_machine::StateContext& ctx,
+                                          const ::state_machine::Event& event) override;
     ::state_machine::ActionResult onExit(::state_machine::StateContext& ctx) override;
 
    private:

@@ -13,6 +13,8 @@ struct TrackingStrategyInput {
     SensorData sensor;
     UavReferencePoint reference;
     ros::Time now;
+    ros::Time stamp;
+    uint16_t type_mask{0};
 };
 
 struct TrackingStrategyResult {

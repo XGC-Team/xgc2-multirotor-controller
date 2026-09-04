@@ -1,19 +1,8 @@
 #include "px4_multirotor_controller/tracking/px4_local_raw_strategy.h"
 
-#include <cmath>
+#include "px4_multirotor_controller/control/trajectory_lifter.h"
 
 namespace px4_multirotor_controller {
-namespace {
-
-constexpr uint16_t kIgnoreYawAndYawRateMask = (1U << 10U) | (1U << 11U);
-
-bool finiteReference(const UavReferencePoint& reference) {
-    return reference.position.array().isFinite().all() &&
-           reference.velocity.array().isFinite().all() &&
-           reference.acceleration.array().isFinite().all();
-}
-
-}  // namespace
 
 void Px4LocalRawStrategy::configure(const ControllerConfig& config) {
     config_ = config;
@@ -21,7 +10,7 @@ void Px4LocalRawStrategy::configure(const ControllerConfig& config) {
 
 bool Px4LocalRawStrategy::enter(const SensorData&, const ros::Time&) {
     entered_ = true;
-    ROS_INFO("[Px4LocalRawStrategy] PX4 local raw pos+vel+acc tracking started");
+    ROS_INFO("[Px4LocalStrategy] world-frame PV/PVA pass-through started");
     return true;
 }
 
@@ -33,30 +22,27 @@ bool Px4LocalRawStrategy::update(const TrackingStrategyInput& input,
                                  TrackingStrategyResult& result) {
     result = TrackingStrategyResult{};
     if (!entered_) {
-        result.message = "PX4 local raw strategy not entered";
+        result.message = "PX4 local strategy not entered";
         return false;
     }
-    if (!finiteReference(input.reference)) {
+    if (!input.reference.position.array().isFinite().all() ||
+        !input.reference.velocity.array().isFinite().all() ||
+        !input.reference.acceleration.array().isFinite().all()) {
         result.message = "reference contains non-finite pos/vel/acc";
         return false;
     }
 
-    Setpoint setpoint;
-    setpoint.x = input.reference.position.x();
-    setpoint.y = input.reference.position.y();
-    setpoint.z = input.reference.position.z();
-    setpoint.vx = input.reference.velocity.x();
-    setpoint.vy = input.reference.velocity.y();
-    setpoint.vz = input.reference.velocity.z();
-    setpoint.ax = input.reference.acceleration.x();
-    setpoint.ay = input.reference.acceleration.y();
-    setpoint.az = input.reference.acceleration.z();
-    setpoint.qw = 1.0;
-    setpoint.yaw_rate = 0.0;
-    setpoint.coordinate_frame = 1;
-    setpoint.type_mask = kIgnoreYawAndYawRateMask;
+    MpcTrajectoryState sample;
+    sample.position_k = input.reference.position;
+    sample.velocity_k = input.reference.velocity;
+    sample.acceleration_k = input.reference.acceleration;
+    sample.planning_time = input.stamp.isZero() ? input.now : input.stamp;
+    sample.type_mask = input.type_mask;
+    sample.coordinate_frame = 1;
+    sample.is_valid = true;
 
-    result.local_setpoint = setpoint;
+    result.local_setpoint =
+        liftWorldLocal(sample, input.now, config_.local_type_mask, config_.enable_yaw_control);
     result.output_kind = TrackingStrategyResult::OutputKind::LocalSetpoint;
     result.success = true;
     return true;

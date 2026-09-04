@@ -24,6 +24,12 @@ const std::unordered_map<std::string, ::state_machine::EventId> kCommandEventMap
     {"custom1", event_type::TRAJECTORY_TRACKING_REQUESTED},
     {"Custom1", event_type::TRAJECTORY_TRACKING_REQUESTED},
     {"CUSTOM1", event_type::TRAJECTORY_TRACKING_REQUESTED},
+    {"start", event_type::TRAJECTORY_TRACKING_REQUESTED},
+    {"Start", event_type::TRAJECTORY_TRACKING_REQUESTED},
+    {"START", event_type::TRAJECTORY_TRACKING_REQUESTED},
+    {"track", event_type::TRAJECTORY_TRACKING_REQUESTED},
+    {"Track", event_type::TRAJECTORY_TRACKING_REQUESTED},
+    {"TRACK", event_type::TRAJECTORY_TRACKING_REQUESTED},
 };
 
 }  // namespace

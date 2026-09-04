@@ -5,6 +5,7 @@
 #include <string>
 #include <utility>
 
+#include "px4_multirotor_controller/common/sensor_checks.h"
 #include "px4_multirotor_controller/drone_controller.h"
 
 namespace px4_multirotor_controller {
@@ -33,14 +34,15 @@ TakeoffInitState::TakeoffInitState(DroneController& controller) : controller_(co
 
 void TakeoffInitState::configureTakeoffSetpoint() {
     const auto& sensor_data = controller_.getSensorData();
-    initial_altitude_ = sensor_data.z;
+    const auto backend = controller_.getConfig().tracking_backend;
+    initial_altitude_ = sensor_checks::worldZ(sensor_data, backend);
 
     const double configured_target_altitude = controller_.getConfig().takeoff_altitude;
     target_altitude_ = std::max(configured_target_altitude, initial_altitude_);
 
     Setpoint& setpoint = controller_.getSetpoint();
-    setpoint.x = sensor_data.x;
-    setpoint.y = sensor_data.y;
+    setpoint.x = sensor_checks::worldX(sensor_data, backend);
+    setpoint.y = sensor_checks::worldY(sensor_data, backend);
     setpoint.z = target_altitude_;
     setpoint.vx = 0.0;
     setpoint.vy = 0.0;

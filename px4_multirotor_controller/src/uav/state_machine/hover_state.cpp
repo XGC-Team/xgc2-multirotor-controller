@@ -1,5 +1,6 @@
 #include "px4_multirotor_controller/uav/state_machine/hover_state.h"
 
+#include "px4_multirotor_controller/common/sensor_checks.h"
 #include "px4_multirotor_controller/drone_controller.h"
 
 namespace px4_multirotor_controller {
@@ -22,9 +23,10 @@ void HoverState::configureHoverSetpoint() {
     const auto& config = controller_.getConfig();
     Setpoint& setpoint = controller_.getSetpoint();
 
-    setpoint.x = sensor_data.x;
-    setpoint.y = sensor_data.y;
-    setpoint.z = sensor_data.z;
+    const auto backend = config.tracking_backend;
+    setpoint.x = sensor_checks::worldX(sensor_data, backend);
+    setpoint.y = sensor_checks::worldY(sensor_data, backend);
+    setpoint.z = sensor_checks::worldZ(sensor_data, backend);
     setpoint.vx = 0.0;
     setpoint.vy = 0.0;
     setpoint.vz = 0.0;
@@ -55,6 +57,18 @@ void HoverState::configureHoverSetpoint() {
 
 ::state_machine::ActionResult HoverState::onTick(::state_machine::StateContext& ctx) {
     publishSetpointIfDue(ctx);
+    return {};
+}
+
+::state_machine::ActionResult HoverState::onEvent(::state_machine::StateContext&,
+                                                  const ::state_machine::Event& event) {
+    if (event.id == event_type::TRAJECTORY_TRACKING_REQUESTED) {
+        controller_.requestCustom1Tracking();
+        if (!controller_.custom1ReferenceReady()) {
+            controller_.logWarn(
+                "[HoverState] custom1 latched; waiting for ready initial reference");
+        }
+    }
     return {};
 }
 

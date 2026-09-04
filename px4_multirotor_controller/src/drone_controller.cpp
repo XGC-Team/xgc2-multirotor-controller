@@ -6,6 +6,7 @@
 
 #include "px4_multirotor_controller/common/sensor_checks.h"
 #include "px4_multirotor_controller/common/state_machine_queries.h"
+#include "px4_multirotor_controller/control/trajectory_lifter.h"
 #include "px4_multirotor_controller/uav/state_machine/custom1_state.h"
 #include "px4_multirotor_controller/uav/state_machine/debug_monitor_state.h"
 #include "px4_multirotor_controller/uav/state_machine/health_monitor_state.h"
@@ -87,21 +88,21 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
         .to(state_type::Normal)
         .priority(transition_priority::AUTOMATIC)
         .when([this](const ::state_machine::GuardContext&) {
-            return sensor_checks::areSensorsAllActive(sensor_data_);
+            return sensor_checks::areSensorsReady(sensor_data_, getConfig().tracking_backend);
         })
         .transition()
         .from(state_type::Ready)
         .to(state_type::SelfCheck)
         .priority(transition_priority::AUTOMATIC)
         .when([this](const ::state_machine::GuardContext&) {
-            return !sensor_checks::areSensorsAllActive(sensor_data_);
+            return !sensor_checks::areSensorsReady(sensor_data_, getConfig().tracking_backend);
         })
         .transition()
         .from(state_type::Ready)
         .to(state_type::Landing)
         .priority(transition_priority::CRITICAL)
         .when([this](const ::state_machine::GuardContext&) {
-            return sensor_checks::isAirborne(sensor_data_);
+            return sensor_checks::isAirborne(sensor_data_, getConfig().tracking_backend);
         })
         .transition()
         .from(state_type::Ready)
@@ -184,11 +185,27 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
         .to(state_type::Custom1)
         .on(TRAJECTORY_TRACKING_REQUESTED)
         .priority(transition_priority::COMMAND)
+        .when([this](const ::state_machine::GuardContext&) { return custom1ReferenceReady(); })
+        .transition()
+        .from(state_type::TakeoffAscending)
+        .to(state_type::Custom1)
+        .priority(transition_priority::AUTOMATIC)
+        .when([this](const ::state_machine::GuardContext&) {
+            return custom1_requested_ && custom1ReferenceReady();
+        })
         .transition()
         .from(state_type::Hover)
         .to(state_type::Custom1)
         .on(TRAJECTORY_TRACKING_REQUESTED)
         .priority(transition_priority::COMMAND)
+        .when([this](const ::state_machine::GuardContext&) { return custom1ReferenceReady(); })
+        .transition()
+        .from(state_type::Hover)
+        .to(state_type::Custom1)
+        .priority(transition_priority::AUTOMATIC)
+        .when([this](const ::state_machine::GuardContext&) {
+            return custom1_requested_ && custom1ReferenceReady();
+        })
         .transition()
         .from(state_type::Custom1)
         .to(state_type::Hover)
@@ -317,6 +334,40 @@ ControllerConfig DroneController::getConfig() const {
 void DroneController::setConfig(const ControllerConfig& config) {
     std::lock_guard<std::mutex> lock(config_mutex_);
     config_ = config;
+}
+
+void DroneController::requestCustom1Tracking() {
+    custom1_requested_ = true;
+}
+
+void DroneController::clearCustom1Request() {
+    custom1_requested_ = false;
+}
+
+bool DroneController::custom1Requested() const {
+    return custom1_requested_;
+}
+
+bool DroneController::custom1ReferenceReady() const {
+    const auto config = getConfig();
+    if (config.tracking_backend != TrackingBackend::PX4_LOCAL) {
+        return true;
+    }
+    const auto ready = [this, &config](const MpcTrajectoryState& sample) {
+        if (!passThroughReferenceReady(sample, current_time_, current_time_,
+                                       config.nmpc.reference_timeout)) {
+            return false;
+        }
+        return passThroughPlanMatchesHover(
+            sample, sensor_checks::worldX(sensor_data_, config.tracking_backend),
+            sensor_checks::worldY(sensor_data_, config.tracking_backend),
+            sensor_checks::worldZ(sensor_data_, config.tracking_backend),
+            config.nmpc.plan_hover_xy_tol, config.nmpc.plan_hover_z_tol);
+    };
+    if (ready(mpc_trajectory_buffer_.active())) {
+        return true;
+    }
+    return mpc_trajectory_buffer_.hasPending() && ready(mpc_trajectory_buffer_.pending());
 }
 
 void DroneController::emitLogInfo(const char* message) const {

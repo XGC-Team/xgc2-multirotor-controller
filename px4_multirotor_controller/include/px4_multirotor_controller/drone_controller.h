@@ -82,6 +82,11 @@ class DroneController {
     ControllerConfig getConfig() const;
     void setConfig(const ControllerConfig& config);
 
+    void requestCustom1Tracking();
+    void clearCustom1Request();
+    bool custom1Requested() const;
+    bool custom1ReferenceReady() const;
+
     template <typename... Args>
     void logInfo(const char* format, Args... args) const {
         const auto buffer = formatLogMessage(format, args...);
@@ -129,6 +134,7 @@ class DroneController {
     ActiveTrajectoryCache active_trajectory_cache_;
     NmpcResultBuffer nmpc_result_buffer_;
     double current_time_{0.0};  // 当前时间戳（秒）
+    bool custom1_requested_{false};
 };
 
 }  // namespace px4_multirotor_controller

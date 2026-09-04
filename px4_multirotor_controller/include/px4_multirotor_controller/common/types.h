@@ -11,20 +11,30 @@ namespace px4_multirotor_controller {
 
 // ============ 业务相关类型ID定义 ============
 
-// 控制模式枚举（用于 Custom1State MPC轨迹跟踪）
-enum class ControlMode {
-    PX4_CASCADE_PID = 0,  // PX4串级PID：发送 pos+vel+acc（前馈），type_mask=0b111111000111
-    PURE_SLIDING_MODE = 1,  // 纯滑模控制：只发送 acc=u_h+u_f，type_mask=0b011111000111
-    HYBRID_CONTROL = 2  // 混合控制：发送 pos+vel+acc（滑模），type_mask=0b111111000111
+// Custom1 跟踪策略。启动读一次，禁止用 SM 状态区分。
+enum class TrackingBackend {
+    PX4_LOCAL = 0,  // 世界系 PV/PVA 直通 mavros/setpoint_raw/local
+    NMPC = 1,       // body-rate NMPC
+    DFBC = 2,       // 几何 DFBC attitude-rate
 };
 
-// 跟踪后端选择。默认 legacy_mpc_lifter 保持现有 Custom1State 行为。
-enum class TrackingBackend {
-    LEGACY_MPC_LIFTER = 0,
-    NMPC_ATTITUDE_RATE = 1,
-    DFBC_ATTITUDE_RATE = 2,
-    PX4_LOCAL_RAW = 3,
-};
+inline bool trackingUsesFusedEstimate(TrackingBackend backend) {
+    return backend == TrackingBackend::NMPC || backend == TrackingBackend::DFBC;
+}
+
+constexpr uint16_t kIgnorePxBit = 1u << 0;
+constexpr uint16_t kIgnorePyBit = 1u << 1;
+constexpr uint16_t kIgnorePzBit = 1u << 2;
+constexpr uint16_t kIgnoreVxBit = 1u << 3;
+constexpr uint16_t kIgnoreVyBit = 1u << 4;
+constexpr uint16_t kIgnoreVzBit = 1u << 5;
+constexpr uint16_t kIgnoreAfxBit = 1u << 6;
+constexpr uint16_t kIgnoreAfyBit = 1u << 7;
+constexpr uint16_t kIgnoreAfzBit = 1u << 8;
+constexpr uint16_t kIgnoreYawBit = 1u << 10;
+constexpr uint16_t kIgnoreYawRateBit = 1u << 11;
+constexpr uint16_t kDefaultPvaLocalTypeMask = kIgnoreYawBit | kIgnoreYawRateBit;  // 3072
+constexpr uint16_t kHoverPositionVelocityTypeMask = 0b110111000000;
 
 // 控制器配置参数
 struct ControllerConfig {
@@ -32,17 +42,8 @@ struct ControllerConfig {
     bool skip_takeoff_init_disarm{false};  // 是否跳过起飞初始化阶段的 DISARM 与 ALTCTL 安全门
     double planning_period{0.1};  // MPC 离散规划周期（秒），默认 10Hz
 
-    // ========== MPC轨迹跟踪控制模式 ==========
-    ControlMode control_mode{ControlMode::PX4_CASCADE_PID};  // 默认使用PX4控制
-    TrackingBackend tracking_backend{TrackingBackend::LEGACY_MPC_LIFTER};
-
-    // 滑模控制器参数（用于 PURE_SLIDING_MODE 和 HYBRID_CONTROL 模式）
-    // 理论参考：论文公式(26)(27)(28)
-    struct SlidingModeParams {
-        double k1{3.0};       // 控制增益
-        double k2{3.0};       // 滑模参数（影响收敛速度）
-        double epsilon{0.5};  // 边界层厚度（减小抖振）
-    } sliding_mode;
+    TrackingBackend tracking_backend{TrackingBackend::PX4_LOCAL};
+    uint16_t local_type_mask{kDefaultPvaLocalTypeMask};
 
     // ========== 偏航角控制开关 ==========
     bool enable_yaw_control{false};  // 是否启用偏航角控制（false=忽略偏航角）
@@ -86,6 +87,8 @@ struct ControllerConfig {
         double solve_timeout{0.03};
         double result_timeout{0.1};
         double reference_timeout{0.5};
+        double plan_hover_xy_tol{1.0};
+        double plan_hover_z_tol{1.0};
         double reference_start_delay{0.2};
         double reference_duration{60.0};
         double reference_radius{3.0};

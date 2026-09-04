@@ -15,7 +15,7 @@ ReadyState::ReadyState(DroneController& controller) : controller_(controller) {}
     // 请求 disarm，确保系统处于未解锁状态
     // 但如果健康管理判定飞机可能在空中，跳过disarm
     const auto& sensor_data = controller_.getSensorData();
-    if (sensor_checks::isAirborne(sensor_data)) {
+    if (sensor_checks::isAirborne(sensor_data, controller_.getConfig().tracking_backend)) {
         controller_.logWarn("[ReadyState] Airborne flag set, skipping disarm request");
     } else {
         ::state_machine::Event event(output_event_type::REQUEST_ARMING,

@@ -19,8 +19,19 @@ inline bool isControlStateNew(const SensorData& sensor) {
     return sensor.uav_state_estimate_stats.is_new;
 }
 
+inline bool isWorldPoseNew(const SensorData& sensor, TrackingBackend backend) {
+    return trackingUsesFusedEstimate(backend) ? isControlStateNew(sensor)
+                                              : sensor.local_pos_stats.is_new;
+}
+
 inline bool areBaseSensorsActive(const SensorData& sensor) {
     return isControlStateActive(sensor) && sensor.state_stats.is_active &&
+           sensor.battery_stats.is_active;
+}
+
+inline bool arePassThroughSensorsActive(const SensorData& sensor) {
+    return sensor.local_pos_stats.is_active && sensor.local_velocity_stats.is_active &&
+           sensor.imu_stats.is_active && sensor.state_stats.is_active &&
            sensor.battery_stats.is_active;
 }
 
@@ -66,6 +77,37 @@ inline bool areSensorsAllActive(const SensorData& sensor) {
     return areBaseSensorsActive(sensor) && isControlStateUsableForControl(sensor);
 }
 
+inline bool areSensorsReady(const SensorData& sensor, TrackingBackend backend) {
+    if (!trackingUsesFusedEstimate(backend)) {
+        return arePassThroughSensorsActive(sensor);
+    }
+    return areSensorsAllActive(sensor);
+}
+
+inline double worldX(const SensorData& sensor, TrackingBackend backend) {
+    return trackingUsesFusedEstimate(backend) ? sensor.x : sensor.local_x;
+}
+
+inline double worldY(const SensorData& sensor, TrackingBackend backend) {
+    return trackingUsesFusedEstimate(backend) ? sensor.y : sensor.local_y;
+}
+
+inline double worldZ(const SensorData& sensor, TrackingBackend backend) {
+    return trackingUsesFusedEstimate(backend) ? sensor.z : sensor.local_z;
+}
+
+inline double worldVx(const SensorData& sensor, TrackingBackend backend) {
+    return trackingUsesFusedEstimate(backend) ? sensor.vx : sensor.local_vx;
+}
+
+inline double worldVy(const SensorData& sensor, TrackingBackend backend) {
+    return trackingUsesFusedEstimate(backend) ? sensor.vy : sensor.local_vy;
+}
+
+inline double worldVz(const SensorData& sensor, TrackingBackend backend) {
+    return trackingUsesFusedEstimate(backend) ? sensor.vz : sensor.local_vz;
+}
+
 inline bool isFcuConnected(const SensorData& sensor) {
     return sensor.fcu_connected;
 }
@@ -82,8 +124,8 @@ inline bool isOffboardMode(const SensorData& sensor) {
     return sensor.fcu_mode == "OFFBOARD";
 }
 
-inline bool isAirborne(const SensorData& sensor) {
-    return sensor.fcu_armed && sensor.z > kAirborneAltitudeThreshold;
+inline bool isAirborne(const SensorData& sensor, TrackingBackend backend) {
+    return sensor.fcu_armed && worldZ(sensor, backend) > kAirborneAltitudeThreshold;
 }
 
 }  // namespace sensor_checks
