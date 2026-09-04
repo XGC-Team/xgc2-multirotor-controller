@@ -217,11 +217,6 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
         .on(REFERENCE_TRAJECTORY_FINISHED)
         .priority(transition_priority::AUTOMATIC)
         .transition()
-        .from(state_type::Custom1)
-        .to(state_type::Hover)
-        .on(INPUT_REFERENCE_TRAJECTORY_LOST)
-        .priority(transition_priority::AUTOMATIC)
-        .transition()
         .from(state_type::Normal)
         .to(state_type::Landing)
         .on(LANDING_REQUESTED)
@@ -354,8 +349,7 @@ bool DroneController::custom1ReferenceReady() const {
         return true;
     }
     const auto ready = [this, &config](const MpcTrajectoryState& sample) {
-        if (!passThroughReferenceReady(sample, current_time_, current_time_,
-                                       config.nmpc.reference_timeout)) {
+        if (!passThroughReferenceReady(sample)) {
             return false;
         }
         return passThroughPlanMatchesHover(

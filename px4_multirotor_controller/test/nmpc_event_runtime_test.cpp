@@ -125,7 +125,7 @@ TEST(ActiveTrajectoryCache, AnalyticReferenceSamplesAndBuildsHorizon) {
     EXPECT_EQ(cache.revision(), 3U);
 
     UavReferencePoint sample;
-    ASSERT_TRUE(cache.sample(ros::Time(10.5), 1.0, sample));
+    ASSERT_TRUE(cache.sample(ros::Time(10.5), sample));
     EXPECT_TRUE(sample.position.array().isFinite().all());
     EXPECT_TRUE(sample.snap.array().isFinite().all());
     EXPECT_NEAR(sample.yaw, 0.0, 1e-12);
@@ -133,10 +133,19 @@ TEST(ActiveTrajectoryCache, AnalyticReferenceSamplesAndBuildsHorizon) {
     EXPECT_NEAR(sample.yaw_accel, 0.0, 1e-12);
 
     std::vector<Se3Reference> horizon;
-    ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0), 0.1, 10, 1.0, 9.8066, horizon));
+    ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0), 0.1, 10, 9.8066, horizon));
     EXPECT_EQ(horizon.size(), 12U);
     EXPECT_TRUE(control::packState(horizon.front().state).array().isFinite().all());
     EXPECT_TRUE(control::packControl(horizon.front().control).array().isFinite().all());
+}
+
+TEST(ActiveTrajectoryCache, DoesNotExpireByReceiptAge) {
+    ActiveTrajectoryCache cache;
+    ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), ros::Time(1.0)));
+    EXPECT_TRUE(cache.valid());
+
+    UavReferencePoint sample;
+    EXPECT_TRUE(cache.sample(ros::Time(10.5), sample));
 }
 
 TEST(ActiveTrajectoryCache, AnalyticCurveReferencesSampleAndBuildHorizons) {
@@ -155,8 +164,7 @@ TEST(ActiveTrajectoryCache, AnalyticCurveReferencesSampleAndBuildHorizons) {
             << "analytic_type=" << analytic_type;
 
         UavReferencePoint sample;
-        ASSERT_TRUE(cache.sample(ros::Time(10.5), 1.0, sample))
-            << "analytic_type=" << analytic_type;
+        ASSERT_TRUE(cache.sample(ros::Time(10.5), sample)) << "analytic_type=" << analytic_type;
         EXPECT_TRUE(sample.position.array().isFinite().all()) << "analytic_type=" << analytic_type;
         EXPECT_TRUE(sample.snap.array().isFinite().all()) << "analytic_type=" << analytic_type;
         EXPECT_NEAR(sample.yaw, 0.0, 1e-12) << "analytic_type=" << analytic_type;
@@ -164,7 +172,7 @@ TEST(ActiveTrajectoryCache, AnalyticCurveReferencesSampleAndBuildHorizons) {
         EXPECT_NEAR(sample.yaw_accel, 0.0, 1e-12) << "analytic_type=" << analytic_type;
 
         std::vector<Se3Reference> horizon;
-        ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0), 0.1, 10, 1.0, 9.8066, horizon))
+        ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0), 0.1, 10, 9.8066, horizon))
             << "analytic_type=" << analytic_type;
         EXPECT_EQ(horizon.size(), 12U) << "analytic_type=" << analytic_type;
         EXPECT_TRUE(control::packState(horizon.front().state).array().isFinite().all())
@@ -180,20 +188,20 @@ TEST(ActiveTrajectoryCache, ReportsFiniteReferenceEndBeforeHorizonSamplingFails)
 
     double remaining = 0.0;
     std::vector<Se3Reference> horizon;
-    ASSERT_TRUE(cache.finiteTimeRemaining(ros::Time(68.8), 100.0, remaining));
+    ASSERT_TRUE(cache.finiteTimeRemaining(ros::Time(68.8), remaining));
     EXPECT_NEAR(remaining, 1.2, 1e-9);
-    EXPECT_TRUE(cache.sampleHorizon(ros::Time(68.8), 0.1, 10, 100.0, 9.8066, horizon));
+    EXPECT_TRUE(cache.sampleHorizon(ros::Time(68.8), 0.1, 10, 9.8066, horizon));
 
-    ASSERT_TRUE(cache.finiteTimeRemaining(ros::Time(68.95), 100.0, remaining));
+    ASSERT_TRUE(cache.finiteTimeRemaining(ros::Time(68.95), remaining));
     EXPECT_NEAR(remaining, 1.05, 1e-9);
-    EXPECT_FALSE(cache.sampleHorizon(ros::Time(68.95), 0.1, 10, 100.0, 9.8066, horizon));
+    EXPECT_FALSE(cache.sampleHorizon(ros::Time(68.95), 0.1, 10, 9.8066, horizon));
 }
 
 TEST(ActiveTrajectoryCache, SampledReferenceRequiresFiniteHighOrderSamples) {
     ActiveTrajectoryCache cache;
     ASSERT_TRUE(cache.updateSampled(makeSampledReference(), ros::Time(20.0)));
     UavReferencePoint sample;
-    ASSERT_TRUE(cache.sample(ros::Time(20.05), 1.0, sample));
+    ASSERT_TRUE(cache.sample(ros::Time(20.05), sample));
     EXPECT_NEAR(sample.position.x(), 0.05, 1e-9);
 }
 
@@ -480,7 +488,7 @@ TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangBodyRate) {
         const double t0 = static_cast<double>(phase) * M_PI / 180.0;
         std::vector<Se3Reference> references;
         ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0 + t0), kStageDt,
-                                        UavNmpcSolver::horizonSteps(), 100.0, 9.8066, references));
+                                        UavNmpcSolver::horizonSteps(), 9.8066, references));
 
         Se3StateVector x0 = control::packState(references.front().state);
         const double angle = static_cast<double>(phase) * M_PI / 180.0;
@@ -544,17 +552,16 @@ TEST(Px4LocalPassThrough, HonorsScePvMaskAndDoesNotFillAccel) {
     EXPECT_EQ(sp.type_mask, kScePvMask);
 }
 
-TEST(Px4LocalPassThrough, RejectsStaleReferenceAndAcceptsFreshHold) {
+TEST(Px4LocalPassThrough, DoesNotValidateAlgorithmTimestamp) {
     MpcTrajectoryState sample;
     sample.position_k = Eigen::Vector3d::Ones();
     sample.velocity_k = Eigen::Vector3d::Zero();
     sample.acceleration_k = Eigen::Vector3d::Zero();
     sample.planning_time = ros::Time(1.0);
     sample.is_valid = true;
-    EXPECT_FALSE(passThroughReferenceReady(sample, 2.0, 2.1, 0.5));
-    EXPECT_TRUE(passThroughReferenceReady(sample, 0.9, 1.05, 0.5));
-    sample.planning_time = ros::Time(1.95);
-    EXPECT_TRUE(passThroughReferenceReady(sample, 2.0, 2.0, 0.5));
+    EXPECT_TRUE(passThroughReferenceReady(sample));
+    sample.planning_time = ros::Time(1001.0);
+    EXPECT_TRUE(passThroughReferenceReady(sample));
 }
 
 TEST(Px4LocalPassThrough, PlanMatchesHoverOnUsedPositionAxes) {
@@ -578,11 +585,11 @@ TEST(Px4LocalPassThrough, TakeoverNeedsHoverMatchUntilArmed) {
     sample.planning_time = ros::Time(1.0);
     sample.is_valid = true;
     sample.type_mask = 0;
-    EXPECT_FALSE(
-        passThroughMayTakeSetpoint(sample, 1.0, 1.05, 0.5, 10.0, 2.0, 3.0, 1.0, 1.0, false));
-    EXPECT_TRUE(passThroughMayTakeSetpoint(sample, 1.0, 1.05, 0.5, 10.0, 2.0, 3.0, 1.0, 1.0, true));
-    EXPECT_TRUE(passThroughMayTakeSetpoint(sample, 1.0, 1.05, 0.5, 1.2, 2.1, 3.2, 1.0, 1.0, false));
-    EXPECT_FALSE(passThroughMayTakeSetpoint(sample, 1.0, 2.0, 0.5, 10.0, 2.0, 3.0, 1.0, 1.0, true));
+    EXPECT_FALSE(passThroughMayTakeSetpoint(sample, 10.0, 2.0, 3.0, 1.0, 1.0, false));
+    EXPECT_TRUE(passThroughMayTakeSetpoint(sample, 10.0, 2.0, 3.0, 1.0, 1.0, true));
+    EXPECT_TRUE(passThroughMayTakeSetpoint(sample, 1.2, 2.1, 3.2, 1.0, 1.0, false));
+    sample.planning_time = ros::Time(1001.0);
+    EXPECT_TRUE(passThroughMayTakeSetpoint(sample, 10.0, 2.0, 3.0, 1.0, 1.0, true));
 }
 
 TEST(SensorChecks, PassThroughReadyDoesNotNeedEstimator) {

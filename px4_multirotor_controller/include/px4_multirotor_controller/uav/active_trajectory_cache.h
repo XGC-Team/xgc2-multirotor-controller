@@ -40,16 +40,15 @@ class ActiveTrajectoryCache {
                        const ros::Time& received_time);
     void clear();
 
-    bool sample(const ros::Time& now, double timeout, UavReferencePoint& sample) const;
-    bool sampleHorizon(const ros::Time& now, double stage_dt, int horizon_steps, double timeout,
-                       double gravity,
+    bool sample(const ros::Time& now, UavReferencePoint& sample) const;
+    bool sampleHorizon(const ros::Time& now, double stage_dt, int horizon_steps, double gravity,
                        std::vector<xgc2_math::control::Se3Reference>& references) const;
 
     uint64_t sequence() const;
     uint32_t trajectoryId() const;
     uint32_t revision() const;
-    bool valid(const ros::Time& now, double timeout) const;
-    bool finiteTimeRemaining(const ros::Time& now, double timeout, double& remaining) const;
+    bool valid() const;
+    bool finiteTimeRemaining(const ros::Time& now, double& remaining) const;
 
    private:
     static bool finiteVector(const Eigen::Vector3d& value);
@@ -73,7 +72,6 @@ class ActiveTrajectoryCache {
     uint32_t revision_{0U};
     uint64_t sequence_{0U};
     ros::Time start_time_;
-    ros::Time received_time_;
     uint32_t flags_{0U};
 };
 

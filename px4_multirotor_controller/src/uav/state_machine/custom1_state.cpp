@@ -29,8 +29,7 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
     last_success_time_ = 0.0;
     last_publish_time_ = 0.0;
     consecutive_failures_ = 0;
-    nmpc_reference_seen_ = false;
-    reference_exit_event_posted_ = false;
+    reference_finish_event_posted_ = false;
     sync_strategy_entered_ = false;
     nmpc_stale_output_log_timer_.reset();
 
@@ -94,18 +93,13 @@ void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
     }
     const auto& sample = buffer.active();
     const auto& config = controller_.getConfig();
-    if (!passThroughMayTakeSetpoint(sample, command_time_, current_time,
-                                    config.nmpc.reference_timeout, hover_x_, hover_y_, hover_z_,
+    if (!passThroughMayTakeSetpoint(sample, hover_x_, hover_y_, hover_z_,
                                     config.nmpc.plan_hover_xy_tol, config.nmpc.plan_hover_z_tol,
                                     tracking_armed_)) {
-        if (tracking_armed_) {
-            postReferenceExit(ctx, current_time, event_type::INPUT_REFERENCE_TRAJECTORY_LOST,
-                              "px4_local reference stopped or became stale");
-            return;
-        }
+        tracking_armed_ = false;
         if (shouldRunEvery(trajectory_wait_log_timer_, 1.0, true)) {
             controller_.logWarn(
-                "[Custom1State] Waiting for world-frame PV/PVA before taking setpoint");
+                "[Custom1State] Waiting for finite world-frame PV/PVA before taking setpoint");
         }
         if (shouldPublish(current_time)) {
             publishCurrentHoverSetpoint(ctx, current_time);
@@ -142,29 +136,22 @@ void Custom1State::handleNmpcEventMode(::state_machine::StateContext& ctx, doubl
         publishBackupSetpoint(ctx, current_time);
     }
 
-    if (!controller_.activeTrajectoryCache().valid(
-            ros::Time(current_time), controller_.getConfig().nmpc.reference_timeout)) {
-        if (nmpc_reference_seen_) {
-            postReferenceExit(ctx, current_time, event_type::INPUT_REFERENCE_TRAJECTORY_LOST,
-                              "reference stream stopped or became stale");
-        } else {
-            if (shouldRunEvery(nmpc_wait_log_timer_, 1.0, true)) {
-                controller_.logWarn(
-                    "[Custom1State] Waiting for UAV reference trajectory before NMPC "
-                    "solve");
-            }
-            if (shouldPublish(current_time)) {
-                publishCurrentHoverSetpoint(ctx, current_time);
-            }
+    if (!controller_.activeTrajectoryCache().valid()) {
+        tracking_armed_ = false;
+        if (shouldRunEvery(nmpc_wait_log_timer_, 1.0, true)) {
+            controller_.logWarn(
+                "[Custom1State] Waiting for finite UAV reference trajectory before NMPC solve");
+        }
+        if (shouldPublish(current_time)) {
+            publishCurrentHoverSetpoint(ctx, current_time);
         }
         return;
     }
-    nmpc_reference_seen_ = true;
     tracking_armed_ = true;
 
     if (referenceWillFinishBeforeNextHorizon(current_time)) {
-        postReferenceExit(ctx, current_time, event_type::REFERENCE_TRAJECTORY_FINISHED,
-                          "reference horizon reached planned trajectory end");
+        postReferenceFinished(ctx, current_time,
+                              "reference horizon reached planned trajectory end");
         return;
     }
 
@@ -197,28 +184,23 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
         sync_strategy_entered_ = dfbc_strategy_.enter(controller_.getSensorData(), now);
     }
 
-    if (!controller_.activeTrajectoryCache().valid(now, config.nmpc.reference_timeout)) {
-        if (nmpc_reference_seen_) {
-            postReferenceExit(ctx, current_time, event_type::INPUT_REFERENCE_TRAJECTORY_LOST,
-                              "reference stream stopped or became stale");
-        } else {
-            if (shouldRunEvery(nmpc_wait_log_timer_, 1.0, true)) {
-                controller_.logWarn(
-                    "[Custom1State] Waiting for UAV reference trajectory before synchronous "
-                    "tracking");
-            }
-            if (shouldPublish(current_time)) {
-                publishCurrentHoverSetpoint(ctx, current_time);
-            }
+    if (!controller_.activeTrajectoryCache().valid()) {
+        tracking_armed_ = false;
+        if (shouldRunEvery(nmpc_wait_log_timer_, 1.0, true)) {
+            controller_.logWarn(
+                "[Custom1State] Waiting for finite UAV reference trajectory before synchronous "
+                "tracking");
+        }
+        if (shouldPublish(current_time)) {
+            publishCurrentHoverSetpoint(ctx, current_time);
         }
         return;
     }
-    nmpc_reference_seen_ = true;
     tracking_armed_ = true;
 
     if (referenceWillFinishBeforeNextSynchronousUpdate(current_time)) {
-        postReferenceExit(ctx, current_time, event_type::REFERENCE_TRAJECTORY_FINISHED,
-                          "reference horizon reached planned trajectory end");
+        postReferenceFinished(ctx, current_time,
+                              "reference horizon reached planned trajectory end");
         return;
     }
 
@@ -227,10 +209,8 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
     }
 
     UavReferencePoint reference;
-    if (!controller_.activeTrajectoryCache().sample(now, config.nmpc.reference_timeout,
-                                                    reference)) {
-        postReferenceExit(ctx, current_time, event_type::INPUT_REFERENCE_TRAJECTORY_LOST,
-                          "reference sampling failed");
+    if (!controller_.activeTrajectoryCache().sample(now, reference)) {
+        publishCurrentHoverSetpoint(ctx, current_time);
         return;
     }
 
@@ -287,11 +267,11 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
     if (!result.success) {
         if (result.solver_status == nmpc_solver_status::kReferenceSamplingFailed) {
             if (referenceWillFinishBeforeNextHorizon(current_time)) {
-                postReferenceExit(ctx, current_time, event_type::REFERENCE_TRAJECTORY_FINISHED,
-                                  "reference horizon reached planned trajectory end");
+                postReferenceFinished(ctx, current_time,
+                                      "reference horizon reached planned trajectory end");
             } else {
-                postReferenceExit(ctx, current_time, event_type::INPUT_REFERENCE_TRAJECTORY_LOST,
-                                  "reference horizon sampling failed");
+                ++consecutive_failures_;
+                publishBackupSetpoint(ctx, current_time);
             }
             return;
         }
@@ -340,8 +320,7 @@ void Custom1State::dispatchNmpcRequest(::state_machine::StateContext& ctx, doubl
 void Custom1State::publishBackupSetpoint(::state_machine::StateContext& ctx, double current_time) {
     UavReferencePoint reference;
     Setpoint backup;
-    if (controller_.activeTrajectoryCache().sample(
-            ros::Time(current_time), controller_.getConfig().nmpc.reference_timeout, reference)) {
+    if (controller_.activeTrajectoryCache().sample(ros::Time(current_time), reference)) {
         backup.x = reference.position.x();
         backup.y = reference.position.y();
         backup.z = reference.position.z();
@@ -387,34 +366,31 @@ void Custom1State::publishCurrentHoverSetpoint(::state_machine::StateContext& ct
     last_publish_time_ = current_time;
 }
 
-void Custom1State::postReferenceExit(::state_machine::StateContext& ctx, double current_time,
-                                     uint32_t event_id, const char* reason) {
-    if (reference_exit_event_posted_) {
+void Custom1State::postReferenceFinished(::state_machine::StateContext& ctx, double current_time,
+                                         const char* reason) {
+    if (reference_finish_event_posted_) {
         if (shouldPublish(current_time)) {
             publishCurrentHoverSetpoint(ctx, current_time);
         }
         return;
     }
 
-    reference_exit_event_posted_ = true;
+    reference_finish_event_posted_ = true;
     request_in_flight_ = false;
     tracking_armed_ = false;
     publishCurrentHoverSetpoint(ctx, current_time);
 
-    ::state_machine::Event event(event_id, ::state_machine::EventTimestamp{current_time});
+    ::state_machine::Event event(event_type::REFERENCE_TRAJECTORY_FINISHED,
+                                 ::state_machine::EventTimestamp{current_time});
     event.source = "custom1_state";
     ctx.postInternalEvent(std::move(event));
-    if (event_id == event_type::REFERENCE_TRAJECTORY_FINISHED) {
-        controller_.logInfo("[Custom1State] %s; switching to Hover", reason);
-    } else {
-        controller_.logWarn("[Custom1State] %s; switching to Hover", reason);
-    }
+    controller_.logInfo("[Custom1State] %s; switching to Hover", reason);
 }
 
 bool Custom1State::referenceWillFinishBeforeNextHorizon(double current_time) const {
     double remaining = 0.0;
-    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(
-            ros::Time(current_time), controller_.getConfig().nmpc.reference_timeout, remaining)) {
+    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(ros::Time(current_time),
+                                                                 remaining)) {
         return false;
     }
 
@@ -427,8 +403,8 @@ bool Custom1State::referenceWillFinishBeforeNextHorizon(double current_time) con
 
 bool Custom1State::referenceWillFinishBeforeNextSynchronousUpdate(double current_time) const {
     double remaining = 0.0;
-    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(
-            ros::Time(current_time), controller_.getConfig().nmpc.reference_timeout, remaining)) {
+    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(ros::Time(current_time),
+                                                                 remaining)) {
         return false;
     }
 

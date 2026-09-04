@@ -64,7 +64,6 @@ bool ActiveTrajectoryCache::updateAnalytic(
     if (start_time_.isZero()) {
         start_time_ = received_time;
     }
-    received_time_ = received_time;
     flags_ = flags;
     return true;
 }
@@ -88,7 +87,6 @@ bool ActiveTrajectoryCache::updatePolynomial(
     if (start_time_.isZero()) {
         start_time_ = received_time;
     }
-    received_time_ = received_time;
     flags_ = flags | msg.flags;
     return true;
 }
@@ -112,7 +110,6 @@ bool ActiveTrajectoryCache::updateSampled(
     if (start_time_.isZero()) {
         start_time_ = received_time;
     }
-    received_time_ = received_time;
     flags_ = flags | msg.flags;
     return true;
 }
@@ -125,26 +122,20 @@ void ActiveTrajectoryCache::clear() {
     revision_ = 0U;
     sequence_ = 0U;
     start_time_ = ros::Time();
-    received_time_ = ros::Time();
     flags_ = 0U;
 }
 
-bool ActiveTrajectoryCache::sample(const ros::Time& now, double timeout,
-                                   UavReferencePoint& sample) const {
+bool ActiveTrajectoryCache::sample(const ros::Time& now, UavReferencePoint& sample) const {
     std::shared_ptr<const trajectory::TrajectoryEvaluator3> evaluator;
     ros::Time local_start;
-    ros::Time local_received;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!evaluator_ || start_time_.isZero() ||
-            (timeout > 0.0 && (now - received_time_).toSec() > timeout)) {
+        if (!evaluator_ || start_time_.isZero() || fatalReferenceFlags(flags_)) {
             return false;
         }
         evaluator = evaluator_;
         local_start = start_time_;
-        local_received = received_time_;
     }
-    (void)local_received;
     if (!evaluator) {
         return false;
     }
@@ -158,7 +149,7 @@ bool ActiveTrajectoryCache::sample(const ros::Time& now, double timeout,
 }
 
 bool ActiveTrajectoryCache::sampleHorizon(const ros::Time& now, double stage_dt, int horizon_steps,
-                                          double timeout, double gravity,
+                                          double gravity,
                                           std::vector<control::Se3Reference>& references) const {
     if (horizon_steps <= 0 || stage_dt <= 0.0) {
         return false;
@@ -166,20 +157,16 @@ bool ActiveTrajectoryCache::sampleHorizon(const ros::Time& now, double stage_dt,
 
     std::shared_ptr<const trajectory::TrajectoryEvaluator3> evaluator;
     ros::Time local_start;
-    ros::Time local_received;
     uint32_t local_flags = 0U;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!evaluator_ || start_time_.isZero() ||
-            (timeout > 0.0 && (now - received_time_).toSec() > timeout)) {
+        if (!evaluator_ || start_time_.isZero()) {
             return false;
         }
         evaluator = evaluator_;
         local_start = start_time_;
-        local_received = received_time_;
         local_flags = flags_;
     }
-    (void)local_received;
     if (!evaluator || fatalReferenceFlags(local_flags)) {
         return false;
     }
@@ -224,17 +211,14 @@ uint32_t ActiveTrajectoryCache::revision() const {
     return revision_;
 }
 
-bool ActiveTrajectoryCache::valid(const ros::Time& now, double timeout) const {
+bool ActiveTrajectoryCache::valid() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return evaluator_ != nullptr && !start_time_.isZero() && !fatalReferenceFlags(flags_) &&
-           (timeout <= 0.0 || (now - received_time_).toSec() <= timeout);
+    return evaluator_ != nullptr && !start_time_.isZero() && !fatalReferenceFlags(flags_);
 }
 
-bool ActiveTrajectoryCache::finiteTimeRemaining(const ros::Time& now, double timeout,
-                                                double& remaining) const {
+bool ActiveTrajectoryCache::finiteTimeRemaining(const ros::Time& now, double& remaining) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!evaluator_ || start_time_.isZero() || fatalReferenceFlags(flags_) ||
-        (timeout > 0.0 && (now - received_time_).toSec() > timeout)) {
+    if (!evaluator_ || start_time_.isZero() || fatalReferenceFlags(flags_)) {
         return false;
     }
 

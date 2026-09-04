@@ -56,7 +56,9 @@ void TrajectoryInputProducer::algSetpointCallback(
     traj.acceleration_k.x() = msg->acceleration_or_force.x;
     traj.acceleration_k.y() = msg->acceleration_or_force.y;
     traj.acceleration_k.z() = msg->acceleration_or_force.z;
-    traj.planning_time = msg->header.stamp;
+    // The local receipt stamp is only the origin for between-sample lifting.
+    // Algorithm timestamps never gate reference validity or require clock alignment.
+    traj.planning_time = ros::Time::now();
     const Eigen::Quaterniond yaw_quat = yawToQuaternion(msg->yaw);
     traj.qx = yaw_quat.x();
     traj.qy = yaw_quat.y();

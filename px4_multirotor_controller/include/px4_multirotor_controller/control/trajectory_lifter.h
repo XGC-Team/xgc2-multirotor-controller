@@ -82,18 +82,12 @@ inline Setpoint liftWorldLocal(const MpcTrajectoryState& sample, const ros::Time
     return sp;
 }
 
-inline bool passThroughReferenceReady(const MpcTrajectoryState& sample, double command_time,
-                                      double now, double timeout) {
-    (void)command_time;
+inline bool passThroughReferenceReady(const MpcTrajectoryState& sample) {
     if (!sample.is_valid) {
         return false;
     }
     if (!sample.position_k.allFinite() || !sample.velocity_k.allFinite() ||
         !sample.acceleration_k.allFinite()) {
-        return false;
-    }
-    const double stamp = sample.planning_time.isZero() ? now : sample.planning_time.toSec();
-    if (timeout > 0.0 && now - stamp > timeout) {
         return false;
     }
     return true;
@@ -131,13 +125,12 @@ inline bool passThroughPlanMatchesHover(const MpcTrajectoryState& sample, double
     return true;
 }
 
-/// Hover→Custom1 needs a fresh initial target near hover. After takeover the
-/// plan may recede; only freshness remains.
-inline bool passThroughMayTakeSetpoint(const MpcTrajectoryState& sample, double command_time,
-                                       double now, double timeout, double hover_x, double hover_y,
-                                       double hover_z, double xy_tol, double z_tol,
+/// Hover→Custom1 needs an initial target near hover. After takeover the plan
+/// may recede; reference timestamps never gate tracking.
+inline bool passThroughMayTakeSetpoint(const MpcTrajectoryState& sample, double hover_x,
+                                       double hover_y, double hover_z, double xy_tol, double z_tol,
                                        bool tracking_armed) {
-    if (!passThroughReferenceReady(sample, command_time, now, timeout)) {
+    if (!passThroughReferenceReady(sample)) {
         return false;
     }
     if (tracking_armed) {

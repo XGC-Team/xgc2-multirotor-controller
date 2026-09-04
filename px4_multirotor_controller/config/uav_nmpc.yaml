@@ -35,7 +35,6 @@ nmpc:
   angular_acceleration_weight: [0.04, 0.04, 2.25]
   solve_timeout: 0.03
   result_timeout: 0.1
-  reference_timeout: 0.5
   reference_start_delay: 0.2
   reference_duration: 60.0
   reference_radius: 3.0

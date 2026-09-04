@@ -340,8 +340,6 @@ void DroneRosNode::loadControllerConfig() {
     nh_private_.param("nmpc/solve_timeout", config.nmpc.solve_timeout, config.nmpc.solve_timeout);
     nh_private_.param("nmpc/result_timeout", config.nmpc.result_timeout,
                       config.nmpc.result_timeout);
-    nh_private_.param("nmpc/reference_timeout", config.nmpc.reference_timeout,
-                      config.nmpc.reference_timeout);
     nh_private_.param("nmpc/reference_start_delay", config.nmpc.reference_start_delay,
                       config.nmpc.reference_start_delay);
     nh_private_.param("nmpc/reference_duration", config.nmpc.reference_duration,
@@ -432,10 +430,6 @@ void DroneRosNode::loadControllerConfig() {
     if (!std::isfinite(config.nmpc.result_timeout) || config.nmpc.result_timeout <= 0.0) {
         ROS_WARN("[DroneRosNode] Invalid nmpc/result_timeout; using 0.100 s");
         config.nmpc.result_timeout = 0.1;
-    }
-    if (!std::isfinite(config.nmpc.reference_timeout) || config.nmpc.reference_timeout <= 0.0) {
-        ROS_WARN("[DroneRosNode] Invalid nmpc/reference_timeout; using 0.500 s");
-        config.nmpc.reference_timeout = 0.5;
     }
     if (!std::isfinite(config.nmpc.reference_start_delay) ||
         config.nmpc.reference_start_delay < 0.0) {
@@ -554,7 +548,7 @@ void DroneRosNode::loadControllerConfig() {
             "rate_tau=%.3f thrust_norm=[%.2f, %.2f] alpha_max=[roll_pitch %.2f yaw %.2f] "
             "W_alpha=[%.3f %.3f %.3f] "
             "body_rate_max=[roll_pitch %.2f yaw %.2f] "
-            "solve_timeout=%.3f reference_timeout=%.3f "
+            "solve_timeout=%.3f "
             "reference_type=%d circle_entry=[radius %.2f speed %.2f height %.2f z_amp %.2f] "
             "torus=[omega %.2f scale %.2f]",
             config.nmpc.control_period, config.nmpc.prediction_horizon, config.nmpc.gravity,
@@ -564,7 +558,7 @@ void DroneRosNode::loadControllerConfig() {
             config.nmpc.max_yaw_angular_acceleration, config.nmpc.angular_acceleration_weight.x(),
             config.nmpc.angular_acceleration_weight.y(),
             config.nmpc.angular_acceleration_weight.z(), config.nmpc.max_roll_pitch_body_rate,
-            config.nmpc.max_yaw_body_rate, config.nmpc.solve_timeout, config.nmpc.reference_timeout,
+            config.nmpc.max_yaw_body_rate, config.nmpc.solve_timeout,
             config.nmpc.reference_analytic_type, config.nmpc.reference_radius,
             config.nmpc.reference_line_speed, config.nmpc.reference_height,
             config.nmpc.reference_z_amplitude, config.nmpc.reference_torus_omega,
@@ -591,11 +585,9 @@ void DroneRosNode::loadControllerConfig() {
             config.dfbc.acceleration_correction_limit.z(),
             config.dfbc.acceleration_correction_filter_tau);
     } else if (config.tracking_backend == TrackingBackend::PX4_LOCAL) {
-        ROS_INFO(
-            "[DroneRosNode] UAV PX4 local pass-through: default_mask=%u yaw=%s "
-            "reference_timeout=%.3f",
-            static_cast<unsigned>(config.local_type_mask),
-            config.enable_yaw_control ? "true" : "false", config.nmpc.reference_timeout);
+        ROS_INFO("[DroneRosNode] UAV PX4 local pass-through: default_mask=%u yaw=%s",
+                 static_cast<unsigned>(config.local_type_mask),
+                 config.enable_yaw_control ? "true" : "false");
     }
 
     // ========== 安全限制参数 ==========

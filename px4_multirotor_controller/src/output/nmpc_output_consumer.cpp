@@ -93,8 +93,8 @@ bool NmpcOutputConsumer::handle(const ::state_machine::Event& event) {
     const double stage_dt =
         config.nmpc.prediction_horizon / static_cast<double>(UavNmpcSolver::horizonSteps());
     if (!controller_.activeTrajectoryCache().sampleHorizon(
-            now, stage_dt, UavNmpcSolver::horizonSteps(), config.nmpc.reference_timeout,
-            config.nmpc.gravity, request.references)) {
+            now, stage_dt, UavNmpcSolver::horizonSteps(), config.nmpc.gravity,
+            request.references)) {
         reject(sequence, nmpc_solver_status::kReferenceSamplingFailed);
         return true;
     }

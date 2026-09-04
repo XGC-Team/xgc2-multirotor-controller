@@ -45,8 +45,7 @@ class Custom1State : public ::state_machine::State {
     double request_deadline_{0.0};
     double last_success_time_{0.0};
     uint32_t consecutive_failures_{0};
-    bool nmpc_reference_seen_{false};
-    bool reference_exit_event_posted_{false};
+    bool reference_finish_event_posted_{false};
     ::state_machine::runtime::Timer<> nmpc_wait_log_timer_;
     ::state_machine::runtime::Timer<> nmpc_stale_output_log_timer_;
     ::state_machine::runtime::Timer<> trajectory_wait_log_timer_;
@@ -61,8 +60,8 @@ class Custom1State : public ::state_machine::State {
     void dispatchNmpcRequest(::state_machine::StateContext& ctx, double current_time);
     void publishBackupSetpoint(::state_machine::StateContext& ctx, double current_time);
     void publishCurrentHoverSetpoint(::state_machine::StateContext& ctx, double current_time);
-    void postReferenceExit(::state_machine::StateContext& ctx, double current_time,
-                           uint32_t event_id, const char* reason);
+    void postReferenceFinished(::state_machine::StateContext& ctx, double current_time,
+                               const char* reason);
     bool referenceWillFinishBeforeNextHorizon(double current_time) const;
     bool referenceWillFinishBeforeNextSynchronousUpdate(double current_time) const;
     bool shouldDispatchNmpc(double current_time) const;

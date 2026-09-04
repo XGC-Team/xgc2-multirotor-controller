@@ -110,8 +110,7 @@ std_msgs::Float32MultiArray DebugOutputConsumer::snapshotTrackingError() const {
 
     UavReferencePoint reference;
     const ros::Time now = ros::Time::now();
-    if (!controller_.activeTrajectoryCache().sample(
-            now, controller_.getConfig().nmpc.reference_timeout, reference)) {
+    if (!controller_.activeTrajectoryCache().sample(now, reference)) {
         return msg;
     }
 

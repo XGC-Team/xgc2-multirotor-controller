@@ -86,7 +86,6 @@ struct ControllerConfig {
         double hover_thrust_timeout{0.5};
         double solve_timeout{0.03};
         double result_timeout{0.1};
-        double reference_timeout{0.5};
         double plan_hover_xy_tol{1.0};
         double plan_hover_z_tol{1.0};
         double reference_start_delay{0.2};
@@ -207,7 +206,6 @@ constexpr uint32_t INPUT_NMPC_SOLVE_SUCCEEDED = 60;
 constexpr uint32_t INPUT_NMPC_SOLVE_FAILED = 61;
 constexpr uint32_t INPUT_NMPC_SOLVE_TIMED_OUT = 62;
 constexpr uint32_t INPUT_UAV_STATE_ESTIMATE_UPDATED = 63;
-constexpr uint32_t INPUT_REFERENCE_TRAJECTORY_LOST = 64;
 
 // 内部条件事件
 constexpr uint32_t ALTITUDE_REACHED = 10;
