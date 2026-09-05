@@ -27,6 +27,9 @@ jobs:
 
       - name: Check control output scheduling without ROS
         run: python3 px4_multirotor_controller/test/control_output_scheduling_test.py
+
+      - name: Check NMPC candidate finite rejection without ROS
+        run: python3 px4_multirotor_controller/test/solver_candidate_finite_test.py
   cpp-quality:
     name: C++ quality
     runs-on: ubuntu-latest
