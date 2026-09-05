@@ -48,6 +48,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check landing confirmation without ROS
+        run: python3 px4_multirotor_controller/test/landing_confirmation_test.py
+
       - name: Install published XGC2 products
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"

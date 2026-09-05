@@ -41,7 +41,8 @@ class LandingState : public ::state_machine::State {
     void updateDescentVelocityIfNeeded();
     void publishSetpointIfDue(::state_machine::StateContext& ctx);
     void logStatusIfDue();
-    bool postTimeoutIfNeeded(::state_machine::StateContext& ctx);
+    void reportTimeoutIfNeeded(::state_machine::StateContext& ctx);
+    bool landingFeedbackActive() const;
     void updateTouchdownConfirmation();
     void postTouchdownOnce(::state_machine::StateContext& ctx);
 
@@ -63,7 +64,8 @@ class LandingState : public ::state_machine::State {
     static constexpr int CONSECUTIVE_SETTLED_FRAMES = 5;  // 连续满足条件的帧数阈值
 
     bool touchdown_event_posted_{false};           // 是否已投递 TOUCHDOWN
-    bool timeout_event_posted_{false};             // 是否已投递 LANDING_TIMEOUT
+    bool timeout_reported_{false};                 // Timeout is diagnostic, not touchdown.
+    bool disarm_requested_{false};                 // A request is not confirmation.
     int confirmed_landed_frames_{0};               // 连续满足着陆条件的帧数
     ExitReason exit_reason_{ExitReason::UNKNOWN};  // 退出原因
 };

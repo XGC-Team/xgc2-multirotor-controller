@@ -37,7 +37,8 @@ LandingState::LandingState(DroneController& controller) : controller_(controller
     log_timer_.start();
 
     touchdown_event_posted_ = false;
-    timeout_event_posted_ = false;
+    timeout_reported_ = false;
+    disarm_requested_ = false;
     confirmed_landed_frames_ = 0;
     exit_reason_ = ExitReason::UNKNOWN;
     return {};
@@ -79,9 +80,7 @@ void LandingState::emitLandingSetpoint(::state_machine::StateContext& ctx) {
     updateDescentVelocityIfNeeded();
     publishSetpointIfDue(ctx);
     logStatusIfDue();
-    if (postTimeoutIfNeeded(ctx)) {
-        return {};
-    }
+    reportTimeoutIfNeeded(ctx);
     updateTouchdownConfirmation();
     postTouchdownOnce(ctx);
     return {};
@@ -109,38 +108,51 @@ void LandingState::logStatusIfDue() {
     const auto& sensor_data = controller_.getSensorData();
     controller_.logInfo(
         "[LandingState] Altitude: %.2f m, Descent rate: %.2f m/s, landed "
-        "frames: %d/%d",
+        "frames: %d/%d, disarm requested: %s",
         sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend),
-        landing_setpoint_.vz, confirmed_landed_frames_, CONSECUTIVE_SETTLED_FRAMES);
+        landing_setpoint_.vz, confirmed_landed_frames_, CONSECUTIVE_SETTLED_FRAMES,
+        disarm_requested_ ? "yes (awaiting telemetry)" : "no");
     log_timer_.reset();
 }
 
-bool LandingState::postTimeoutIfNeeded(::state_machine::StateContext& ctx) {
-    if (timeout_event_posted_) {
-        return true;
+void LandingState::reportTimeoutIfNeeded(::state_machine::StateContext& ctx) {
+    if (timeout_reported_) {
+        return;
     }
-
     const double elapsed_time =
         std::chrono::duration<double>(ctx.elapsed(state_type::Landing)).count();
     if (elapsed_time < max_landing_duration_) {
-        return false;
+        return;
     }
+    timeout_reported_ = true;
+    controller_.logWarn(
+        "[LandingState] Landing timeout after %.1f s; NOT confirmed landed/disarmed. "
+        "Keeping Landing output; operator intervention required. No automatic force-disarm.",
+        elapsed_time);
+}
 
-    timeout_event_posted_ = true;
-    exit_reason_ = ExitReason::LANDING_TIMEOUT;
-    ctx.postInternalEvent(
-        ::state_machine::Event(event_type::LANDING_TIMEOUT,
-                               ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
-    return true;
+bool LandingState::landingFeedbackActive() const {
+    const auto& sensor = controller_.getSensorData();
+    const auto backend = controller_.getConfig().tracking_backend;
+    const bool active = trackingUsesFusedEstimate(backend)
+                            ? sensor.uav_state_estimate_stats.is_active
+                            : sensor.local_pos_stats.is_active &&
+                                  sensor.local_velocity_stats.is_active;
+    return active && std::isfinite(sensor_checks::worldZ(sensor, backend)) &&
+           std::isfinite(sensor_checks::worldVz(sensor, backend));
 }
 
 void LandingState::updateTouchdownConfirmation() {
-    if (touchdown_event_posted_ || timeout_event_posted_) {
+    if (touchdown_event_posted_) {
         return;
     }
 
     const auto& sensor_data = controller_.getSensorData();
     const auto backend = controller_.getConfig().tracking_backend;
+    if (!landingFeedbackActive()) {
+        confirmed_landed_frames_ = 0;
+        return;
+    }
     const bool sensor_updated = sensor_checks::isWorldPoseNew(sensor_data, backend);
     if (!sensor_updated) {
         return;
@@ -164,10 +176,34 @@ void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
         return;
     }
 
-    touchdown_event_posted_ = true;
-    exit_reason_ = ExitReason::TOUCHDOWN;
-    ctx.postInternalEvent(::state_machine::Event(
-        event_type::TOUCHDOWN, ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    const auto& sensor = controller_.getSensorData();
+    if (!landingFeedbackActive() || !sensor.state_stats.is_active ||
+        !sensor_checks::isFcuConnected(sensor)) {
+        return;
+    }
+    if (!sensor_checks::isFcuArmed(sensor)) {
+        // A cached or inactive armed=false is not a new FCU acknowledgement.
+        if (!sensor.state_stats.is_new) {
+            return;
+        }
+        touchdown_event_posted_ = true;
+        exit_reason_ = ExitReason::TOUCHDOWN;
+        ctx.postInternalEvent(::state_machine::Event(
+            event_type::TOUCHDOWN, ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+        return;
+    }
+    if (!disarm_requested_) {
+        ::state_machine::Event event(
+            output_event_type::REQUEST_ARMING,
+            ::state_machine::EventTimestamp{controller_.getCurrentTime()});
+        event.payload["arm"] = false;
+        const auto status = ctx.emitOutput(std::move(event));
+        if (status.ok()) {
+            disarm_requested_ = true;
+            controller_.logInfo(
+                "[LandingState] Normal disarm requested; waiting for fresh FCU armed=false");
+        }
+    }
 }
 
 ::state_machine::ActionResult LandingState::onExit(::state_machine::StateContext& ctx) {
@@ -175,46 +211,12 @@ void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
     log_timer_.stop();
     setpoint_publish_timer_.stop();
 
-    const auto& sensor_data = controller_.getSensorData();
-    const double elapsed_time =
-        std::chrono::duration<double>(ctx.elapsed(state_type::Landing)).count();
-
-    // 根据退出原因选择不同的处理方式
-    switch (exit_reason_) {
-        case ExitReason::LANDING_TIMEOUT:
-            // 超时着陆：打印警告并强制上锁
-            controller_.logWarn(
-                "[LandingState] Forced touchdown after %.1f s at altitude %.2f m "
-                "(vz=%.2f m/s)",
-                elapsed_time,
-                sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend),
-                sensor_checks::worldVz(sensor_data, controller_.getConfig().tracking_backend));
-            ctx.emitOutput(::state_machine::Event(
-                output_event_type::REQUEST_KILL,
-                ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
-            break;
-
-        case ExitReason::TOUCHDOWN:
-            // 正常着陆：打印信息并上锁
-            controller_.logInfo(
-                "[LandingState] Landed at altitude: %.2f m (vz=%.2f m/s)",
-                sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend),
-                sensor_checks::worldVz(sensor_data, controller_.getConfig().tracking_backend));
-            {
-                ::state_machine::Event event(
-                    output_event_type::REQUEST_ARMING,
-                    ::state_machine::EventTimestamp{controller_.getCurrentTime()});
-                event.payload["arm"] = false;
-                ctx.emitOutput(std::move(event));
-            }
-            break;
-
-        case ExitReason::UNKNOWN:
-        case ExitReason::OTHER:
-        default:
-            // 其他原因（例如紧急停止）：不执行特定操作
-            controller_.logInfo("[LandingState] Exited due to unknown/other reason");
-            break;
+    (void)ctx;
+    if (exit_reason_ == ExitReason::TOUCHDOWN) {
+        controller_.logInfo("[LandingState] Landing complete: fresh FCU disarm confirmed");
+    } else {
+        controller_.logWarn("[LandingState] Exited without confirmed touchdown/disarm; "
+                            "no automatic force-disarm issued");
     }
     return {};
 }
