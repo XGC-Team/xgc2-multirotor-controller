@@ -1,30 +1,16 @@
 #include "px4_multirotor_controller/output/control_output_consumer.h"
 
-#include <memory>
-#include <string>
-#include <utility>
-
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 
 namespace px4_multirotor_controller {
 
-namespace {
-
-template <typename Message>
-std::unique_ptr<::state_machine::runtime::Task<ros::NodeHandle>> makePublishTask(
-    std::string name, const ros::Publisher& pub, Message msg) {
-    return std::make_unique<::state_machine::runtime::LambdaTask<ros::NodeHandle>>(
-        std::move(name),
-        [pub, msg = std::move(msg)](ros::NodeHandle&) mutable { pub.publish(msg); });
-}
-
-}  // namespace
-
 ControlOutputConsumer::ControlOutputConsumer(
     ros::NodeHandle& nh, ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
     DroneController& controller, uint32_t queue_size)
-    : executor_(executor), controller_(controller) {
+    : controller_(controller) {
+    // Keep the constructor contract, but never put control samples behind blocking RPCs.
+    (void)executor;
     setpoint_raw_pub_ =
         nh.advertise<mavros_msgs::PositionTarget>("mavros/setpoint_raw/local", queue_size);
     attitude_target_pub_ =
@@ -34,13 +20,13 @@ ControlOutputConsumer::ControlOutputConsumer(
 bool ControlOutputConsumer::handle(const ::state_machine::Event& event) {
     switch (event.id) {
         case output_event_type::PUBLISH_SETPOINT:
-            executor_.pushTask(makePublishTask("PublishSetpoint", setpoint_raw_pub_,
-                                               makeSetpointMessage(controller_.getSetpoint())));
+            // ROS/FSM dispatch is serialized on the control thread. ROS owns the
+            // bounded transport queue; no historical control samples enter the RPC FIFO.
+            setpoint_raw_pub_.publish(makeSetpointMessage(controller_.getSetpoint()));
             return true;
         case output_event_type::PUBLISH_ATTITUDE_RATE_TARGET:
-            executor_.pushTask(
-                makePublishTask("PublishAttitudeRateTarget", attitude_target_pub_,
-                                makeAttitudeRateMessage(controller_.getAttitudeRateTarget())));
+            attitude_target_pub_.publish(
+                makeAttitudeRateMessage(controller_.getAttitudeRateTarget()));
             return true;
         default:
             return false;
