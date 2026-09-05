@@ -175,6 +175,20 @@ bool UavNmpcSolver::solve(const Se3StateVector& x0, double thrust_actual,
     }
 
     readSolution();
+    // RTI status is not a validation of the returned numerical buffers.
+    // Reject the entire candidate before it can seed a command or warm start.
+    const bool finite_states = std::all_of(x_solution_.begin(), x_solution_.end(),
+                                           [](const auto& state) { return state.allFinite(); });
+    const bool finite_controls = std::all_of(u_solution_.begin(), u_solution_.end(),
+                                             [](const auto& input) { return input.allFinite(); });
+    if (!finite_states || !finite_controls) {
+        // Wrapper rejection code, distinct from nonnegative acados statuses.
+        constexpr int kNonFiniteSolution = -1001;
+        solver_status_ = kNonFiniteSolution;
+        resetWarmStart();
+        ROS_WARN_THROTTLE(1.0, "[UavNmpcSolver] Rejected non-finite solution");
+        return false;
+    }
     shiftWarmStart(references);
     return true;
 }
