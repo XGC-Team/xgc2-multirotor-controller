@@ -24,6 +24,9 @@ jobs:
         run: |
           git diff --check HEAD
           .xgc2/scripts/check_package_compliance.sh
+
+      - name: Check control output scheduling without ROS
+        run: python3 px4_multirotor_controller/test/control_output_scheduling_test.py
   cpp-quality:
     name: C++ quality
     runs-on: ubuntu-latest

@@ -27,7 +27,6 @@ class ControlOutputConsumer final : public ::state_machine::runtime::EventConsum
     mavros_msgs::PositionTarget makeSetpointMessage(const Setpoint& setpoint) const;
     mavros_msgs::AttitudeTarget makeAttitudeRateMessage(const AttitudeRateTarget& target) const;
 
-    ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor_;
     DroneController& controller_;
     ros::Publisher setpoint_raw_pub_;
     ros::Publisher attitude_target_pub_;
