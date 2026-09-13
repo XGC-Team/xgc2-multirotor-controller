@@ -14,8 +14,7 @@ namespace px4_multirotor_controller {
 
 namespace detail {
 
-inline bool sendArmDisarmCommand(ros::ServiceClient* client, bool arm, bool force_disarm,
-                                 const char* log_prefix) {
+inline bool sendArmDisarmCommand(ros::ServiceClient* client, bool arm, const char* log_prefix) {
     if (!client) {
         ROS_ERROR("[%s] Service client not set!", log_prefix);
         return false;
@@ -26,7 +25,7 @@ inline bool sendArmDisarmCommand(ros::ServiceClient* client, bool arm, bool forc
     mavros_msgs::CommandLong srv;
     srv.request.command = kMavCmdComponentArmDisarm;
     srv.request.param1 = arm ? 1.0 : 0.0;
-    srv.request.param2 = force_disarm ? 1.0 : 0.0;
+    srv.request.param2 = 0.0;
     srv.request.param3 = 0.0;
     srv.request.param4 = 0.0;
     srv.request.param5 = 0.0;
@@ -34,7 +33,7 @@ inline bool sendArmDisarmCommand(ros::ServiceClient* client, bool arm, bool forc
     srv.request.param7 = 0.0;
 
     if (client->call(srv)) {
-        const char* action = arm ? "Arm" : (force_disarm ? "ForceDisarm" : "Disarm");
+        const char* action = arm ? "Arm" : "Disarm";
         ROS_INFO("[%s] %s request sent, result: %s", log_prefix, action,
                  srv.response.success ? "SUCCESS" : "FAILED");
         return srv.response.success;
@@ -52,7 +51,7 @@ class ArmOutputTask : public ::state_machine::runtime::Task<ros::NodeHandle> {
 
     void execute(ros::NodeHandle& nh) override {
         (void)nh;
-        detail::sendArmDisarmCommand(client_, arm_, false, "ArmOutputTask");
+        detail::sendArmDisarmCommand(client_, arm_, "ArmOutputTask");
     }
 
     std::string name() const override {
@@ -61,23 +60,6 @@ class ArmOutputTask : public ::state_machine::runtime::Task<ros::NodeHandle> {
 
    private:
     bool arm_;
-    ros::ServiceClient* client_;
-};
-
-class KillOutputTask : public ::state_machine::runtime::Task<ros::NodeHandle> {
-   public:
-    explicit KillOutputTask(ros::ServiceClient* client) : client_(client) {}
-
-    void execute(ros::NodeHandle& nh) override {
-        (void)nh;
-        detail::sendArmDisarmCommand(client_, false, true, "KillOutputTask");
-    }
-
-    std::string name() const override {
-        return "Kill";
-    }
-
-   private:
     ros::ServiceClient* client_;
 };
 

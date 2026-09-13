@@ -29,10 +29,8 @@ class LandingState : public ::state_machine::State {
    private:
     // 退出原因枚举
     enum class ExitReason {
-        UNKNOWN,          // 未知原因（默认）
-        TOUCHDOWN,        // 正常着陆
-        LANDING_TIMEOUT,  // 降落超时
-        OTHER             // 其他原因（如紧急停止）
+        UNKNOWN,   // 未知原因（默认）
+        TOUCHDOWN  // 正常着陆
     };
 
     static double getDescentVelocity(double altitude);

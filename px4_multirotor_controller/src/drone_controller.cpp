@@ -290,11 +290,6 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
         .from(state_type::Landing)
         .to(state_type::SelfCheck)
         .on(TOUCHDOWN)
-        .priority(transition_priority::AUTOMATIC)
-        .transition()
-        .from(state_type::Landing)
-        .to(state_type::SelfCheck)
-        .on(LANDING_TIMEOUT)
         .priority(transition_priority::AUTOMATIC);
 
     auto machine_result = builder.build();

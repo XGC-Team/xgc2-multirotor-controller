@@ -217,7 +217,6 @@ constexpr uint32_t ALTITUDE_REACHED = 10;
 constexpr uint32_t POSITION_REACHED = 11;
 constexpr uint32_t TIMEOUT = 12;
 constexpr uint32_t TOUCHDOWN = 13;        // 触地（降落完成）
-constexpr uint32_t LANDING_TIMEOUT = 14;  // 降落超时
 constexpr uint32_t TAKEOFF_TIMEOUT = 15;  // 起飞超时
 constexpr uint32_t ALTCTL_READY = 16;  // 定高模式就绪（接收到足够的ALTCTL状态帧）
 constexpr uint32_t OFFBOARD_READY = 17;  // OFFBOARD模式就绪（接收到足够的OFFBOARD状态帧）
@@ -267,7 +266,6 @@ constexpr uint32_t SAFE_VRPN_POSITION_JUMP = 49;       // VRPN位置跳变
 
 namespace output_event_type {
 constexpr uint32_t REQUEST_ARMING = 10000;
-constexpr uint32_t REQUEST_KILL = 10001;
 constexpr uint32_t REQUEST_MODE = 10002;
 constexpr uint32_t PUBLISH_SETPOINT = 10004;
 constexpr uint32_t PUBLISH_ATTITUDE_RATE_TARGET = 10005;

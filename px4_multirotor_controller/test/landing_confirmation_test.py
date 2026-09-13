@@ -75,9 +75,9 @@ struct Setpoint {
     double qx{0}, qy{0}, qz{0}, qw{1}, yaw_rate{0};
 };
 namespace state_type { constexpr uint32_t Landing = 7; }
-namespace event_type { constexpr uint32_t TOUCHDOWN = 10, LANDING_TIMEOUT = 11; }
+namespace event_type { constexpr uint32_t TOUCHDOWN = 10; }
 namespace output_event_type {
-constexpr uint32_t PUBLISH_SETPOINT = 20, REQUEST_ARMING = 21, REQUEST_KILL = 22;
+constexpr uint32_t PUBLISH_SETPOINT = 20, REQUEST_ARMING = 21;
 }
 inline bool shouldRunEvery(state_machine::runtime::Timer<>&, double, bool) { return true; }
 struct DroneController {
@@ -129,7 +129,6 @@ size_t count(const std::vector<state_machine::Event>& events, uint32_t id) {
 void tick(TestLanding& landing, DroneController& controller, state_machine::StateContext& ctx) {
     controller.now += .01;
     landing.onTick(ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_KILL) == 0);
 }
 void settle(TestLanding& landing, DroneController& controller, state_machine::StateContext& ctx) {
     controller.sensor.local_z = controller.sensor.z = .05;
@@ -143,8 +142,7 @@ void testTimeoutAndLateDisarmConfirmation() {
     landing.onEnter(ctx);
     ctx.elapsed_seconds = 100;
     tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::LANDING_TIMEOUT) == 0);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    assert(ctx.internals.empty());
     assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 0);
     assert(!controller.warnings.empty());
     const auto publications = count(ctx.outputs, output_event_type::PUBLISH_SETPOINT);
@@ -179,7 +177,6 @@ void testTimeoutAndLateDisarmConfirmation() {
     tick(landing, controller, ctx);
     assert(count(ctx.internals, event_type::TOUCHDOWN) == 1);
     landing.onExit(ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_KILL) == 0);
     assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 1);
 }
 void testNoCompletionFromInvalidFeedback() {
@@ -228,9 +225,9 @@ void testFusedFeedbackAndReentry() {
     settle(landing, controller, ctx);
     assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 1);
     assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
-    // Externally forced exit is not permission to kill or to claim touchdown.
+    // External exit does not confirm touchdown.
     landing.onExit(ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_KILL) == 0);
+    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
 }
 int main() {
     testTimeoutAndLateDisarmConfirmation();

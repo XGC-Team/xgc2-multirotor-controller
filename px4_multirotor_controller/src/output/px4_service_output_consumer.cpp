@@ -51,15 +51,6 @@ bool Px4ServiceOutputConsumer::handle(const ::state_machine::Event& event) {
                 std::make_unique<ArmOutputTask>(std::get<bool>(it->second), &arming_client_));
             return true;
         }
-        case output_event_type::REQUEST_KILL:
-            if (!clients_initialized_) {
-                ROS_WARN(
-                    "[Px4ServiceOutputConsumer] Arming client not initialized, "
-                    "dropping kill request");
-                return true;
-            }
-            executor_.pushTask(std::make_unique<KillOutputTask>(&arming_client_));
-            return true;
         case output_event_type::REQUEST_MODE: {
             const auto it = event.payload.find("mode");
             if (it == event.payload.end() || !std::holds_alternative<std::string>(it->second)) {
