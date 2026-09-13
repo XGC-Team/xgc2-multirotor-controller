@@ -1,4 +1,4 @@
-# Complete node configuration. Launch loads this file without parameter overrides.
+# PX4 local-setpoint profile with the 1 m takeoff used by SCE1/mixed control.
 acc_saturation_xy: 1000.0
 acc_saturation_z: 1000.0
 debug_print: false
@@ -80,6 +80,6 @@ nmpc:
 position_jump_threshold: 100.0
 skip_takeoff_init_disarm: false
 state_estimate_topic: alg/state_estimator/state
-takeoff_altitude: 3.0
+takeoff_altitude: 1.0
 tracking_backend: px4_local
 vrpn_pose_topic: /vrpn_client_node/$(arg ns)/pose

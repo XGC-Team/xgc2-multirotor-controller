@@ -1,99 +1,10 @@
-<?xml version="1.0"?>
+<?xml version='1.0' encoding='utf-8'?>
 <launch>
-    <arg name="ns" default="uav1"/>
-    <arg name="debug_print" default="false"/>
-    <arg name="vrpn_rigid_body" default="$(arg ns)"/>
-    <arg name="vrpn_client_node" default="/vrpn_client_node"/>
-    <arg name="vrpn_pose_topic" default="$(arg vrpn_client_node)/$(arg vrpn_rigid_body)/pose"/>
-    <arg name="state_estimate_topic" default="alg/state_estimator/state"/>
-    <arg name="tracking_backend" default="px4_local"/>
-    <arg name="local_type_mask" default="3072"/>
-    <arg name="takeoff_altitude" default="3.0"/>
-    <arg name="skip_takeoff_init_disarm" default="false"/>
-    <arg name="fence_x_min" default="-1000000.0"/>
-    <arg name="fence_x_max" default="1000000.0"/>
-    <arg name="fence_y_min" default="-1000000.0"/>
-    <arg name="fence_y_max" default="1000000.0"/>
-    <arg name="fence_z_min" default="-1000000.0"/>
-    <arg name="fence_z_max" default="1000000.0"/>
-    <arg name="position_jump_threshold" default="100.0"/>
-    <arg name="max_velocity_xy" default="1000.0"/>
-    <arg name="max_velocity_z" default="1000.0"/>
-    <arg name="acc_saturation_xy" default="1000.0"/>
-    <arg name="acc_saturation_z" default="1000.0"/>
-    <arg name="enable_yaw_control" default="false"/>
-    <arg name="normalized_thrust_min" default="0.1"/>
-    <arg name="normalized_thrust_max" default="0.9"/>
-    <arg name="max_roll_pitch_body_rate" default="3.4906585"/>
-    <arg name="max_yaw_body_rate" default="0.8726646"/>
-    <arg name="max_roll_pitch_angular_acceleration" default="15.0"/>
-    <arg name="max_yaw_angular_acceleration" default="2.0"/>
-    <arg name="angular_acceleration_weight" default="[0.04, 0.04, 2.25]"/>
-    <arg name="body_rate_time_constant" default="0.08"/>
-    <arg name="reference_start_delay" default="0.2"/>
-    <arg name="reference_duration" default="60.0"/>
-    <arg name="reference_radius" default="3.0"/>
-    <arg name="reference_line_speed" default="1.0"/>
-    <arg name="reference_height" default="3.0"/>
-    <arg name="reference_z_amplitude" default="0.0"/>
-    <arg name="reference_z_frequency" default="0.5"/>
-    <arg name="reference_entry_duration" default="5.0"/>
-    <arg name="reference_analytic_type" default="9"/>
-    <arg name="reference_torus_omega" default="0.3"/>
-    <arg name="reference_torus_scale" default="2.0"/>
-    <arg name="config_file" default="$(find px4_multirotor_controller)/config/uav_nmpc.yaml"/>
-
+    <arg name="ns" default="uav1" />
+    <arg name="config_file" default="$(find px4_multirotor_controller)/config/uav_nmpc.yaml" />
     <group ns="$(arg ns)">
-        <node pkg="px4_multirotor_controller"
-              type="px4_multirotor_controller_node"
-              name="px4_multirotor_controller"
-              output="screen"
-              respawn="false"
-              clear_params="true">
-            <rosparam command="load" file="$(arg config_file)"/>
-            <param name="tracking_backend" value="$(arg tracking_backend)"/>
-            <param name="local_type_mask" value="$(arg local_type_mask)"/>
-            <param name="debug_print" value="$(arg debug_print)"/>
-            <param name="takeoff_altitude" value="$(arg takeoff_altitude)"/>
-            <param name="skip_takeoff_init_disarm"
-                   type="bool"
-                   value="$(arg skip_takeoff_init_disarm)"/>
-            <param name="fence_x_min" value="$(arg fence_x_min)"/>
-            <param name="fence_x_max" value="$(arg fence_x_max)"/>
-            <param name="fence_y_min" value="$(arg fence_y_min)"/>
-            <param name="fence_y_max" value="$(arg fence_y_max)"/>
-            <param name="fence_z_min" value="$(arg fence_z_min)"/>
-            <param name="fence_z_max" value="$(arg fence_z_max)"/>
-            <param name="position_jump_threshold" value="$(arg position_jump_threshold)"/>
-            <param name="max_velocity_xy" value="$(arg max_velocity_xy)"/>
-            <param name="max_velocity_z" value="$(arg max_velocity_z)"/>
-            <param name="acc_saturation_xy" value="$(arg acc_saturation_xy)"/>
-            <param name="acc_saturation_z" value="$(arg acc_saturation_z)"/>
-            <param name="enable_yaw_control" value="$(arg enable_yaw_control)"/>
-            <param name="nmpc/normalized_thrust_min" value="$(arg normalized_thrust_min)"/>
-            <param name="nmpc/normalized_thrust_max" value="$(arg normalized_thrust_max)"/>
-            <param name="nmpc/max_roll_pitch_body_rate" value="$(arg max_roll_pitch_body_rate)"/>
-            <param name="nmpc/max_yaw_body_rate" value="$(arg max_yaw_body_rate)"/>
-            <param name="nmpc/max_roll_pitch_angular_acceleration"
-                   value="$(arg max_roll_pitch_angular_acceleration)"/>
-            <param name="nmpc/max_yaw_angular_acceleration"
-                   value="$(arg max_yaw_angular_acceleration)"/>
-            <rosparam param="nmpc/angular_acceleration_weight"
-                      subst_value="true">$(arg angular_acceleration_weight)</rosparam>
-            <param name="nmpc/body_rate_time_constant" value="$(arg body_rate_time_constant)"/>
-            <param name="nmpc/reference_start_delay" value="$(arg reference_start_delay)"/>
-            <param name="nmpc/reference_duration" value="$(arg reference_duration)"/>
-            <param name="nmpc/reference_radius" value="$(arg reference_radius)"/>
-            <param name="nmpc/reference_line_speed" value="$(arg reference_line_speed)"/>
-            <param name="nmpc/reference_height" value="$(arg reference_height)"/>
-            <param name="nmpc/reference_z_amplitude" value="$(arg reference_z_amplitude)"/>
-            <param name="nmpc/reference_z_frequency" value="$(arg reference_z_frequency)"/>
-            <param name="nmpc/reference_entry_duration" value="$(arg reference_entry_duration)"/>
-            <param name="nmpc/reference_analytic_type" value="$(arg reference_analytic_type)"/>
-            <param name="nmpc/reference_torus_omega" value="$(arg reference_torus_omega)"/>
-            <param name="nmpc/reference_torus_scale" value="$(arg reference_torus_scale)"/>
-            <param name="state_estimate_topic" value="$(arg state_estimate_topic)"/>
-            <param name="vrpn_pose_topic" value="$(arg vrpn_pose_topic)"/>
+        <node pkg="px4_multirotor_controller" type="px4_multirotor_controller_node" name="px4_multirotor_controller" output="screen" respawn="false" clear_params="true">
+            <rosparam command="load" file="$(arg config_file)" subst_value="true" />
         </node>
     </group>
 </launch>
