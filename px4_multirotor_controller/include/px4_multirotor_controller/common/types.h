@@ -116,7 +116,6 @@ struct ControllerConfig {
         double timeout_local_velocity{1.0};
         double timeout_imu{0.5};
         double timeout_state{2.0};
-        double timeout_battery{5.0};
 
         // 位置跳变检测（安全检查）
         double position_jump_threshold{0.3};  // 位置跳变阈值（米）
@@ -147,10 +146,6 @@ struct ControllerConfig {
 
         // 状态估计不可用需要持续多久才触发安全事件（秒）
         double state_estimate_unusable_trip_delay{0.15};
-
-        // 电池（百分比，0.0-1.0）
-        double battery_low{0.3};        // 30%
-        double battery_critical{0.15};  // 15%
     } safety;
 };
 
@@ -229,7 +224,6 @@ constexpr uint32_t SAFE_TIMEOUT_LOCAL_POS = 20;
 constexpr uint32_t SAFE_TIMEOUT_LOCAL_VELOCITY = 21;
 constexpr uint32_t SAFE_TIMEOUT_IMU = 22;
 constexpr uint32_t SAFE_TIMEOUT_STATE = 23;
-constexpr uint32_t SAFE_TIMEOUT_BATTERY = 24;
 constexpr uint32_t SAFE_TIMEOUT_UAV_STATE_ESTIMATE = 27;
 constexpr uint32_t SAFE_UAV_STATE_ESTIMATE_UNUSABLE = 28;
 

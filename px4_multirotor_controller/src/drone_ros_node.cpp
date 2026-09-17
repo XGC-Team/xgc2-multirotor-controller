@@ -111,7 +111,7 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     ROS_INFO("  - mavros/local_position/velocity_local (check only)");
     ROS_INFO("  - mavros/imu/data (check only)");
     ROS_INFO("  - mavros/state");
-    ROS_INFO("  - mavros/battery");
+    ROS_INFO("  - mavros/battery (telemetry only)");
     ROS_INFO("  - %s (check only)", resolveTopicName(nh_, vrpn_pose_topic).c_str());
     ROS_INFO("  - alg/setpoint_raw/local");
     ROS_INFO("  - alg/multirotor_reference_trajectory/active/analytic");

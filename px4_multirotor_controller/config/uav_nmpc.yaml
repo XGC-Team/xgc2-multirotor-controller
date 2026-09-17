@@ -80,6 +80,6 @@ nmpc:
 position_jump_threshold: 100.0
 skip_takeoff_init_disarm: false
 state_estimate_topic: alg/state_estimator/state
-takeoff_altitude: 3.0
+takeoff_altitude: 2.3
 tracking_backend: px4_local
 vrpn_pose_topic: /vrpn_client_node/$(arg ns)/pose

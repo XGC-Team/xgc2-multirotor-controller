@@ -24,7 +24,6 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
                               SAFE_TIMEOUT_UAV_STATE_ESTIMATE);
     }
     checkSensorActiveEdge(ctx, sd.state_stats, ss.was_state_active, SAFE_TIMEOUT_STATE);
-    checkSensorActiveEdge(ctx, sd.battery_stats, ss.was_battery_active, SAFE_TIMEOUT_BATTERY);
 
     const double now = controller_.getCurrentTime();
     const bool control_state_unusable = fused && sensor_checks::isControlStateActive(sd) &&

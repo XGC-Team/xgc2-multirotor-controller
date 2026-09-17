@@ -605,9 +605,18 @@ TEST(SensorChecks, PassThroughReadyDoesNotNeedEstimator) {
     sensor.local_velocity_stats.is_active = true;
     sensor.imu_stats.is_active = true;
     sensor.state_stats.is_active = true;
-    sensor.battery_stats.is_active = true;
     EXPECT_TRUE(sensor_checks::areSensorsReady(sensor, TrackingBackend::PX4_LOCAL));
     EXPECT_FALSE(sensor_checks::areSensorsReady(sensor, TrackingBackend::NMPC));
+}
+
+TEST(SensorChecks, PassThroughReadyDoesNotNeedBattery) {
+    SensorData sensor;
+    sensor.local_pos_stats.is_active = true;
+    sensor.local_velocity_stats.is_active = true;
+    sensor.imu_stats.is_active = true;
+    sensor.state_stats.is_active = true;
+    sensor.battery_stats.is_active = false;
+    EXPECT_TRUE(sensor_checks::areSensorsReady(sensor, TrackingBackend::PX4_LOCAL));
 }
 
 }  // namespace

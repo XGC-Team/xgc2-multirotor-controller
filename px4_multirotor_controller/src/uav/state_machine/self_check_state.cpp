@@ -27,7 +27,7 @@ SelfCheckState::SelfCheckState(DroneController& controller) : controller_(contro
         controller_.logInfo(
             "[SelfCheckState] Checking sensors... "
             "ControlState:%s(state_estimator est=%u flags=0x%08x) LocalPos:%s Velocity:%s "
-            "IMU:%s State:%s Battery:%s VRPNPose:%s "
+            "IMU:%s State:%s VRPNPose:%s "
             "PoseConsistency:%s Diff:%.3fm FCU:%s(%s)",
             control_state_ready ? "OK" : "X",
             static_cast<unsigned>(sensor_data.uav_state_estimator_state),
@@ -35,8 +35,7 @@ SelfCheckState::SelfCheckState(DroneController& controller) : controller_(contro
             sensor_data.local_pos_stats.is_active ? "OK" : "X",
             sensor_data.local_velocity_stats.is_active ? "OK" : "X",
             sensor_data.imu_stats.is_active ? "OK" : "X",
-            sensor_data.state_stats.is_active ? "OK" : "X",
-            sensor_data.battery_stats.is_active ? "OK" : "X", vrpn_pose_active ? "OK" : "X",
+            sensor_data.state_stats.is_active ? "OK" : "X", vrpn_pose_active ? "OK" : "X",
             pose_consistent ? "OK" : "X", vrpn_local_diff, sensor_data.fcu_connected ? "OK" : "X",
             sensor_data.fcu_mode.c_str());
 

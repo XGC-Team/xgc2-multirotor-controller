@@ -25,14 +25,14 @@ inline bool isWorldPoseNew(const SensorData& sensor, TrackingBackend backend) {
 }
 
 inline bool areBaseSensorsActive(const SensorData& sensor) {
-    return isControlStateActive(sensor) && sensor.state_stats.is_active &&
-           sensor.battery_stats.is_active;
+    // Battery is Adapter/instrument/rosbag telemetry (W15 / T7). It is not readiness
+    // and must not force Landing.
+    return isControlStateActive(sensor) && sensor.state_stats.is_active;
 }
 
 inline bool arePassThroughSensorsActive(const SensorData& sensor) {
     return sensor.local_pos_stats.is_active && sensor.local_velocity_stats.is_active &&
-           sensor.imu_stats.is_active && sensor.state_stats.is_active &&
-           sensor.battery_stats.is_active;
+           sensor.imu_stats.is_active && sensor.state_stats.is_active;
 }
 
 inline double vrpnLocalPositionDiff(const SensorData& sensor) {
