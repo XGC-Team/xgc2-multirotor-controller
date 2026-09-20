@@ -27,9 +27,14 @@ class DroneRosNode {
     void dispatchOutputEvents(const std::vector<::state_machine::Event>& events);
     void loadControllerConfig();
     void loadVrpnQualityConfig();
+    void publishLoadFact(const std::string& vrpn_pose_topic,
+                         const std::string& state_estimate_topic);
 
     ros::NodeHandle nh_;
     ros::NodeHandle nh_private_;
+    ros::Publisher record_facts_publisher_;
+    ControllerLoadFact load_fact_;
+    bool load_fact_pending_{false};
 
     SensorData sensor_data_;
     DroneController controller_;

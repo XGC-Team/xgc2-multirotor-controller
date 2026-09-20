@@ -27,6 +27,10 @@ find_package(xgc2_acados REQUIRED CONFIG)
 find_package(xgc2_state_machine REQUIRED CONFIG)
 find_package(xgc2_math REQUIRED CONFIG)
 
+## JsonCpp is supplied by the build image (libjsoncpp-dev); no vendored parser.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JSONCPP REQUIRED jsoncpp)
+
 set(MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS ${hover_thrust_estimator_msgs_INCLUDE_DIRS})
 
 ## Find Eigen3 (required for MpcTrajectoryState)
@@ -248,10 +252,12 @@ include_directories(
 include_directories(
   ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
+  ${JSONCPP_INCLUDE_DIRS}
   ${MULTIROTOR_UAV_NMPC_GENERATED_DIR}
   ${MULTIROTOR_ACADOS_INCLUDE_DIRS}
   ${acados_INCLUDE_DIRS}
 )
+link_directories(${JSONCPP_LIBRARY_DIRS})
 
 file(GLOB MULTIROTOR_UAV_NMPC_MODEL_SOURCES "${MULTIROTOR_UAV_NMPC_GENERATED_DIR}/uav_nmpc_model/*.c")
 file(GLOB MULTIROTOR_UAV_NMPC_COST_SOURCES "${MULTIROTOR_UAV_NMPC_GENERATED_DIR}/uav_nmpc_cost/*.c")
@@ -302,6 +308,7 @@ add_executable(${PROJECT_NAME}_node
   src/main.cpp
   src/drone_ros_node.cpp
   src/drone_controller.cpp
+  src/world_boundary.cpp
   src/input/command_input_producer.cpp
   src/input/sensor_input_producer.cpp
   src/input/trajectory_input_producer.cpp
@@ -349,6 +356,7 @@ target_link_libraries(${PROJECT_NAME}_node
   xgc2_math::geometry
   xgc2_math::trajectory
   ${catkin_LIBRARIES}
+  ${JSONCPP_LIBRARIES}
   pthread
 )
 

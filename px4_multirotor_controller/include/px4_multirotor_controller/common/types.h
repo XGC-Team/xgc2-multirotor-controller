@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <string>
 
+#include "px4_multirotor_controller/common/world_boundary.h"
+
 namespace px4_multirotor_controller {
 
 // ============ 业务相关类型ID定义 ============
@@ -131,10 +133,8 @@ struct ControllerConfig {
         double max_jitter_imu{0.02};
         double max_jitter_state{0.1};
 
-        // 地理围栏（米）
-        double fence_x_min{-10.0}, fence_x_max{10.0};
-        double fence_y_min{-10.0}, fence_y_max{10.0};
-        double fence_z_min{0.0}, fence_z_max{3.0};
+        // Explicit current Experiment boundary; unset is not a made-up site.
+        std::optional<WorldBoundary> world_boundary;
 
         // 速度限制（m/s）
         double max_velocity_xy{5.0};

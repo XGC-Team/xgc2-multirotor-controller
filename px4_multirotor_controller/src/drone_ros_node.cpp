@@ -2,10 +2,15 @@
 
 #include <ros1_utils/namespace_utils.h>
 #include <ros1_utils/param_utils.h>
+#include <std_msgs/String.h>
+#include <time.h>
 
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -19,6 +24,15 @@ namespace px4_multirotor_controller {
 namespace {
 
 constexpr uint32_t kRosQueueSize = 5;
+
+std::uint64_t clockNanoseconds(clockid_t clock) {
+    timespec stamp{};
+    if (clock_gettime(clock, &stamp) != 0) {
+        throw std::runtime_error("cannot capture original controller load clock");
+    }
+    return static_cast<std::uint64_t>(stamp.tv_sec) * 1000000000ULL +
+           static_cast<std::uint64_t>(stamp.tv_nsec);
+}
 
 std::string resolveTopicName(const ros::NodeHandle& nh, const std::string& topic) {
     return nh.resolveName(topic);
@@ -90,6 +104,9 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     nh_private_.param<std::string>("vrpn_pose_topic", vrpn_pose_topic, "pose");
     sensor_input_producer_->setStateEstimateTopic(state_estimate_topic);
     sensor_input_producer_->setVrpnPoseTopic(vrpn_pose_topic);
+    // Receipt topics are the ones just handed to the producer at its set
+    // boundary, never a second parameter observation made earlier at setConfig.
+    publishLoadFact(vrpn_pose_topic, state_estimate_topic);
 
     command_input_producer_ =
         std::make_unique<CommandInputProducer>(nh_, post_input_event, kRosQueueSize);
@@ -206,6 +223,12 @@ void DroneRosNode::dispatchOutputEvents(const std::vector<::state_machine::Event
 void DroneRosNode::loadControllerConfig() {
     // 读取私有参数（使用私有命名空间句柄）
     ControllerConfig config;
+    std::string boundary_json;
+    if (!nh_private_.getParam("world_boundary_json", boundary_json)) {
+        throw std::invalid_argument(
+            "world_boundary_json must explicitly contain worldBoundary or null");
+    }
+    config.safety.world_boundary = parseWorldBoundary(boundary_json);
     ros1_utils::getParamWithLog(nh_private_, "takeoff_altitude", config.takeoff_altitude,
                                 "Takeoff altitude (m)");
     const std::string uav_name = ros1_utils::currentNameFromNamespacePrefix("/uav");
@@ -591,19 +614,7 @@ void DroneRosNode::loadControllerConfig() {
     }
 
     // ========== 安全限制参数 ==========
-    // 位置围栏
-    ros1_utils::getParamWithLog(nh_private_, "fence_x_min", config.safety.fence_x_min,
-                                "Fence X min (m)");
-    ros1_utils::getParamWithLog(nh_private_, "fence_x_max", config.safety.fence_x_max,
-                                "Fence X max (m)");
-    ros1_utils::getParamWithLog(nh_private_, "fence_y_min", config.safety.fence_y_min,
-                                "Fence Y min (m)");
-    ros1_utils::getParamWithLog(nh_private_, "fence_y_max", config.safety.fence_y_max,
-                                "Fence Y max (m)");
-    ros1_utils::getParamWithLog(nh_private_, "fence_z_min", config.safety.fence_z_min,
-                                "Fence Z min (m)");
-    ros1_utils::getParamWithLog(nh_private_, "fence_z_max", config.safety.fence_z_max,
-                                "Fence Z max (m)");
+    // The explicit worldBoundary above is the only geofence configuration.
 
     // 位置跳变检测
     ros1_utils::getParamWithLog(nh_private_, "position_jump_threshold",
@@ -632,6 +643,48 @@ void DroneRosNode::loadControllerConfig() {
 
     // 将配置传递给控制器
     controller_.setConfig(config);
+    // Capture the original load clocks at the setConfig boundary only. The
+    // receipt is published after the sensor producer accepts its topics.
+    try {
+        load_fact_.ros_time_ns = ros::Time::now().toNSec();
+        load_fact_.unix_time_ns = clockNanoseconds(CLOCK_REALTIME);
+        load_fact_.monotonic_time_ns = clockNanoseconds(CLOCK_MONOTONIC);
+        load_fact_.node_name = ros::this_node::getName();
+        load_fact_.instance_id = boost::uuids::to_string(boost::uuids::random_generator()());
+        load_fact_.tracking_backend = tracking_backend;
+        load_fact_.position_distance_limit_metres =
+            HealthMonitorState::kPositionDistanceLimitMetres;
+        load_fact_pending_ = true;
+    } catch (const std::exception&) {
+        load_fact_pending_ = false;
+        ROS_WARN("[DroneRosNode] Loaded controller configuration; Record load receipt unavailable");
+    }
+}
+
+void DroneRosNode::publishLoadFact(const std::string& vrpn_pose_topic,
+                                   const std::string& state_estimate_topic) {
+    if (!load_fact_pending_) {
+        return;
+    }
+    load_fact_pending_ = false;
+    // One latched load receipt, outside the control loop. A late recorder gets
+    // these original clocks, never a fabricated new application timestamp.
+    // Receipt transport is evidence only and cannot change flight admission.
+    try {
+        load_fact_.canonical_pose_topic = nh_.resolveName(vrpn_pose_topic);
+        load_fact_.local_pose_topic = nh_.resolveName("mavros/local_position/pose");
+        load_fact_.world_pose_topic =
+            trackingUsesFusedEstimate(controller_.getConfig().tracking_backend)
+                ? nh_.resolveName(state_estimate_topic)
+                : load_fact_.local_pose_topic;
+        std_msgs::String message;
+        message.data =
+            controllerLoadFactJSON(controller_.getConfig().safety.world_boundary, load_fact_);
+        record_facts_publisher_ = nh_.advertise<std_msgs::String>("/xgc/record_facts", 1, true);
+        record_facts_publisher_.publish(message);
+    } catch (const std::exception&) {
+        ROS_WARN("[DroneRosNode] Loaded controller configuration; Record load receipt unavailable");
+    }
 }
 
 void DroneRosNode::loadVrpnQualityConfig() {

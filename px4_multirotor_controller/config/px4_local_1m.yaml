@@ -1,4 +1,5 @@
 # PX4 local-setpoint profile with the 1 m takeoff used by SCE1/mixed control.
+# Launch adds the required private world_boundary_json string on top of this file.
 acc_saturation_xy: 1000.0
 acc_saturation_z: 1000.0
 debug_print: false
@@ -29,12 +30,6 @@ dfbc:
   yaw_gain: 0.3
   yaw_rate_damping: 0.2
 enable_yaw_control: false
-fence_x_max: 1000000.0
-fence_x_min: -1000000.0
-fence_y_max: 1000000.0
-fence_y_min: -1000000.0
-fence_z_max: 1000000.0
-fence_z_min: -1000000.0
 hover_thrust:
   enabled: true
   min_altitude: 0.5

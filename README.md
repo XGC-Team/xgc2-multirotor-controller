@@ -21,7 +21,7 @@ sudo apt install ros-noetic-xgc2-multirotor-controller
 ```bash
 source /opt/ros/noetic/setup.bash
 roslaunch --files multirotor_reference_trajectory uav_multirotor_reference_trajectory.launch
-roslaunch --files px4_multirotor_controller uav_nmpc_controller.launch
+roslaunch --files px4_multirotor_controller uav_nmpc_controller.launch world_boundary_json:=null
 ```
 
 ## Control-state source

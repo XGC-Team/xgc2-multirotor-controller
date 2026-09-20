@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 python3 "$REPO_ROOT/px4_multirotor_controller/test/position_distance_test.py"
+python3 "$REPO_ROOT/px4_multirotor_controller/test/world_boundary_test.py"
 
 work_dir="${RUNNER_TEMP:-/tmp}/xgc2-multirotor-controller-compliance"
 install_root="${RUNNER_TEMP:-/tmp}/xgc2-multirotor-controller-install-root"
@@ -28,4 +29,4 @@ source devel/setup.bash
 test "$(rospack find multirotor_reference_trajectory)" = "$work_dir/src/xgc2-multirotor-controller/multirotor_reference_trajectory"
 test "$(rospack find px4_multirotor_controller)" = "$work_dir/src/xgc2-multirotor-controller/px4_multirotor_controller"
 roslaunch --files multirotor_reference_trajectory uav_multirotor_reference_trajectory.launch >/tmp/xgc2-multirotor-reference-files.txt
-roslaunch --files px4_multirotor_controller uav_nmpc_controller.launch >/tmp/xgc2-px4-controller-files.txt
+roslaunch --files px4_multirotor_controller uav_nmpc_controller.launch world_boundary_json:=null >/tmp/xgc2-px4-controller-files.txt

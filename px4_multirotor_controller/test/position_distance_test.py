@@ -21,6 +21,7 @@ SUPPORT = r'''
 #include <string>
 #include <utility>
 #include <vector>
+#include "px4_multirotor_controller/common/world_boundary.h"
 namespace state_machine {
 using EventId = uint32_t;
 struct ActionResult {};
@@ -63,8 +64,8 @@ struct SensorData {
 struct ControllerConfig {
     TrackingBackend tracking_backend{TrackingBackend::PX4_LOCAL};
     struct Safety {
-        double fence_x_min{-100}, fence_x_max{100}, fence_y_min{-100}, fence_y_max{100};
-        double fence_z_min{-100}, fence_z_max{100}, max_velocity_xy{5}, max_velocity_z{2};
+        std::optional<WorldBoundary> world_boundary;
+        double max_velocity_xy{5}, max_velocity_z{2};
         double acc_saturation_xy{3}, acc_saturation_z{3}, state_estimate_unusable_trip_delay{.15};
     } safety;
 };

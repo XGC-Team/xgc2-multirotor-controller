@@ -15,6 +15,7 @@ dpkg -s "ros-${ROS_DISTRO}-xgc2-px4-multirotor-controller-msgs" >/dev/null
 dpkg -s "ros-${ROS_DISTRO}-xgc2-ros1-utils" >/dev/null
 dpkg -s libxgc2-state-machine-dev >/dev/null
 dpkg -s libxgc2-math-dev >/dev/null
+dpkg -s libjsoncpp1 >/dev/null
 dpkg -s xgc2-acados >/dev/null
 xgc2_acados_version="$(dpkg-query -W -f='${Version}' xgc2-acados)"
 dpkg --compare-versions "${xgc2_acados_version}" ge "0.1.0-10~focal"
@@ -43,7 +44,7 @@ test -f "/opt/ros/${ROS_DISTRO}/include/px4_multirotor_controller/uav/state_mach
 test -x "/opt/ros/${ROS_DISTRO}/lib/px4_multirotor_controller/px4_multirotor_controller_node"
 test -f "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so"
 roslaunch --files multirotor_reference_trajectory uav_multirotor_reference_trajectory.launch >/tmp/xgc2-multirotor-reference-files.txt
-roslaunch --files px4_multirotor_controller uav_nmpc_controller.launch >/tmp/xgc2-px4-controller-files.txt
+roslaunch --files px4_multirotor_controller uav_nmpc_controller.launch world_boundary_json:=null >/tmp/xgc2-px4-controller-files.txt
 
 while IFS= read -r file; do
   if ! file -b "${file}" | grep -q '^ELF'; then

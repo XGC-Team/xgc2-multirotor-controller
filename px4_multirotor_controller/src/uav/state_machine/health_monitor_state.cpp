@@ -66,9 +66,8 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
         const double x = sensor_checks::worldX(sd, controller_config.tracking_backend);
         const double y = sensor_checks::worldY(sd, controller_config.tracking_backend);
         const double z = sensor_checks::worldZ(sd, controller_config.tracking_backend);
-        const bool currently_violated =
-            (x < cfg.fence_x_min || x > cfg.fence_x_max || y < cfg.fence_y_min ||
-             y > cfg.fence_y_max || z < cfg.fence_z_min || z > cfg.fence_z_max);
+        const bool currently_violated = cfg.world_boundary && cfg.world_boundary->control_bounds &&
+                                        cfg.world_boundary->control_bounds->outside(x, y, z);
         if (!ss.geofence_violated && currently_violated) {
             postSafetyEvent(ctx, SAFE_GEOFENCE_VIOLATION, "post geofence safety event");
         }
