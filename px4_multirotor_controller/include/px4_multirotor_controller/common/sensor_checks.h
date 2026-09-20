@@ -2,8 +2,6 @@
 
 #include <rigid_state_estimator_msgs/RigidStateEstimate.h>
 
-#include <cmath>
-
 #include "px4_multirotor_controller/common/types.h"
 
 namespace px4_multirotor_controller {
@@ -33,17 +31,6 @@ inline bool areBaseSensorsActive(const SensorData& sensor) {
 inline bool arePassThroughSensorsActive(const SensorData& sensor) {
     return sensor.local_pos_stats.is_active && sensor.local_velocity_stats.is_active &&
            sensor.imu_stats.is_active && sensor.state_stats.is_active;
-}
-
-inline double vrpnLocalPositionDiff(const SensorData& sensor) {
-    const double dx = sensor.vrpn_x - sensor.local_x;
-    const double dy = sensor.vrpn_y - sensor.local_y;
-    const double dz = sensor.vrpn_z - sensor.local_z;
-    return std::sqrt(dx * dx + dy * dy + dz * dz);
-}
-
-inline bool isVrpnPoseConsistent(const SensorData& sensor, double position_tolerance = 0.05) {
-    return vrpnLocalPositionDiff(sensor) < position_tolerance;
 }
 
 inline bool isStateEstimateUsableForControl(const SensorData& sensor) {

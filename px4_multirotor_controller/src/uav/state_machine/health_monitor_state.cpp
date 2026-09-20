@@ -18,6 +18,24 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
     const auto& cfg = controller_config.safety;
     auto& ss = safety_state_;
 
+    // The existing producer/stats manager sets is_new; the ROS owner clears it
+    // after this ordered FSM update. No second timer or input-update scheduler.
+    if (sd.vrpn_pose_stats.is_new || sd.local_pos_stats.is_new) {
+        received_canonical_pose_ = received_canonical_pose_ || sd.vrpn_pose_stats.is_new;
+        received_local_pose_ = received_local_pose_ || sd.local_pos_stats.is_new;
+        if (received_canonical_pose_ && received_local_pose_) {
+            // The existing vrpn_* input slot now carries namespaced canonical
+            // pose: its world offset is already applied upstream. Never use the
+            // tracking backend's fused estimate or apply another offset here.
+            position_distance_.metres = std::hypot(sd.vrpn_x - sd.local_x,
+                                                   sd.vrpn_y - sd.local_y,
+                                                   sd.vrpn_z - sd.local_z);
+            position_distance_.available = std::isfinite(position_distance_.metres);
+            position_distance_.exceeded = position_distance_.available &&
+                                          position_distance_.metres > kPositionDistanceLimitMetres;
+        }
+    }
+
     const bool fused = trackingUsesFusedEstimate(controller_config.tracking_backend);
     if (fused) {
         checkSensorActiveEdge(ctx, sd.uav_state_estimate_stats, ss.was_uav_state_estimate_active,

@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+python3 "$REPO_ROOT/px4_multirotor_controller/test/position_distance_test.py"
+
 work_dir="${RUNNER_TEMP:-/tmp}/xgc2-multirotor-controller-compliance"
 install_root="${RUNNER_TEMP:-/tmp}/xgc2-multirotor-controller-install-root"
 
