@@ -26,6 +26,9 @@ using namespace event_type;  // 简化事件常量引用
 DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(sensor_data) {
     logInfo("[DroneController] Initializing...");
 
+    auto health_monitor = std::make_unique<HealthMonitorState>(*this);
+    health_monitor_ = health_monitor.get();
+
     auto builder = ::state_machine::StateMachine::builder("FlightStateMachine");
     builder.region(region_type::HEALTH)
         .name("health")
@@ -33,7 +36,7 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
         .initial(state_type::HealthMonitor)
         .state(state_type::HealthMonitor)
         .name("HealthMonitor")
-        .impl(std::make_unique<HealthMonitorState>(*this))
+        .impl(std::move(health_monitor))
         .endRegion()
         .region(region_type::CONTROL)
         .name("flight")
@@ -109,6 +112,35 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
         .to(state_type::Takeoff)
         .on(TAKEOFF_REQUESTED)
         .priority(transition_priority::COMMAND)
+        .when([this](const ::state_machine::GuardContext&) {
+            const auto& distance = getPositionDistance();
+            return distance.available && !distance.exceeded;
+        })
+        // Health (order 0) updates this shared result before flight (order 10).
+        // Scope the protection to existing flight states, NOT Normal/Ready.
+        // Leaving these states for Landing consumes the condition once; there
+        // is no repeated Land event or Landing self-transition.
+        .transition()
+        .from(state_type::Takeoff)
+        .to(state_type::Landing)
+        .priority(transition_priority::EMERGENCY)
+        .when([this](const ::state_machine::GuardContext&) {
+            return getPositionDistance().exceeded;
+        })
+        .transition()
+        .from(state_type::Hover)
+        .to(state_type::Landing)
+        .priority(transition_priority::EMERGENCY)
+        .when([this](const ::state_machine::GuardContext&) {
+            return getPositionDistance().exceeded;
+        })
+        .transition()
+        .from(state_type::Custom1)
+        .to(state_type::Landing)
+        .priority(transition_priority::EMERGENCY)
+        .when([this](const ::state_machine::GuardContext&) {
+            return getPositionDistance().exceeded;
+        })
         .transition()
         .from(state_type::TakeoffInit)
         .to(state_type::Ready)

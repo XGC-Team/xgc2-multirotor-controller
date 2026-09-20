@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 #include <state_machine/state_machine.hpp>
 
 #include "px4_multirotor_controller/common/types.h"
@@ -10,7 +11,19 @@ class DroneController;
 
 class HealthMonitorState final : public ::state_machine::State {
    public:
+    // One cached comparison of canonical pose and MAVROS local pose, in metres.
+    struct PositionDistance {
+        double metres{std::numeric_limits<double>::quiet_NaN()};
+        bool available{false};
+        bool exceeded{false};
+    };
+    static constexpr double kPositionDistanceLimitMetres = 1.0;
+
     explicit HealthMonitorState(DroneController& controller);
+
+    const PositionDistance& positionDistance() const {
+        return position_distance_;
+    }
 
     std::string name() const override {
         return "HealthMonitor";
@@ -44,6 +57,9 @@ class HealthMonitorState final : public ::state_machine::State {
 
     DroneController& controller_;
     SafetyState safety_state_;
+    PositionDistance position_distance_;
+    bool received_canonical_pose_{false};
+    bool received_local_pose_{false};
 };
 
 }  // namespace px4_multirotor_controller

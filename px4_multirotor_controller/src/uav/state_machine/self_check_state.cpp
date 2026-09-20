@@ -20,14 +20,14 @@ SelfCheckState::SelfCheckState(DroneController& controller) : controller_(contro
     if (status_log_timer_.elapsed().count() >= LOG_INTERVAL) {
         const auto& sensor_data = controller_.getSensorData();
         const bool vrpn_pose_active = sensor_data.vrpn_pose_stats.is_active;
-        const bool pose_consistent = sensor_checks::isVrpnPoseConsistent(sensor_data);
+        const auto& distance = controller_.getPositionDistance();
         const bool control_state_ready = sensor_checks::isControlStateUsableForControl(sensor_data);
-        const double vrpn_local_diff = sensor_checks::vrpnLocalPositionDiff(sensor_data);
+        const char* consistency = !distance.available ? "WAIT" : (distance.exceeded ? "OVER" : "OK");
 
         controller_.logInfo(
             "[SelfCheckState] Checking sensors... "
             "ControlState:%s(state_estimator est=%u flags=0x%08x) LocalPos:%s Velocity:%s "
-            "IMU:%s State:%s VRPNPose:%s "
+            "IMU:%s State:%s Pose:%s "
             "PoseConsistency:%s Diff:%.3fm FCU:%s(%s)",
             control_state_ready ? "OK" : "X",
             static_cast<unsigned>(sensor_data.uav_state_estimator_state),
@@ -36,7 +36,7 @@ SelfCheckState::SelfCheckState(DroneController& controller) : controller_(contro
             sensor_data.local_velocity_stats.is_active ? "OK" : "X",
             sensor_data.imu_stats.is_active ? "OK" : "X",
             sensor_data.state_stats.is_active ? "OK" : "X", vrpn_pose_active ? "OK" : "X",
-            pose_consistent ? "OK" : "X", vrpn_local_diff, sensor_data.fcu_connected ? "OK" : "X",
+            consistency, distance.metres, sensor_data.fcu_connected ? "OK" : "X",
             sensor_data.fcu_mode.c_str());
 
         status_log_timer_.reset();

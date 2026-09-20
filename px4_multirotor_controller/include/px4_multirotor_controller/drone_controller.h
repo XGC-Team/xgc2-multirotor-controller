@@ -10,6 +10,7 @@
 #include "px4_multirotor_controller/uav/active_trajectory_cache.h"
 #include "px4_multirotor_controller/uav/mpc_trajectory_buffer.h"
 #include "px4_multirotor_controller/uav/nmpc_result_buffer.h"
+#include "px4_multirotor_controller/uav/state_machine/health_monitor_state.h"
 
 namespace px4_multirotor_controller {
 
@@ -28,6 +29,10 @@ class DroneController {
     // 数据访问接口（供State对象使用）
     const SensorData& getSensorData() const {
         return sensor_data_;
+    }
+
+    const HealthMonitorState::PositionDistance& getPositionDistance() const {
+        return health_monitor_->positionDistance();
     }
 
     Setpoint& getSetpoint() {
@@ -121,6 +126,7 @@ class DroneController {
 
     // 状态机（拥有所有状态的所有权）
     std::unique_ptr<::state_machine::StateMachine> state_machine_;
+    HealthMonitorState* health_monitor_{nullptr};  // Owned by state_machine_.
 
     // 配置
     mutable std::mutex config_mutex_;

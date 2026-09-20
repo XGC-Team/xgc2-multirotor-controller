@@ -387,6 +387,33 @@ install(DIRECTORY tools
 
 ## Add gtest based cpp test target and link libraries
 if(CATKIN_ENABLE_TESTING)
+  # Reuse the production node's exact sources and dependencies, without main.
+  # The fixture creates DroneController only; it never consumes ROS/MAVLink outputs.
+  get_target_property(MULTIROTOR_POSITION_TEST_SOURCES ${PROJECT_NAME}_node SOURCES)
+  list(REMOVE_ITEM MULTIROTOR_POSITION_TEST_SOURCES src/main.cpp)
+  get_target_property(MULTIROTOR_POSITION_TEST_LIBRARIES ${PROJECT_NAME}_node LINK_LIBRARIES)
+  catkin_add_gtest(px4_multirotor_controller_position_distance_runtime_test
+    test/position_distance_runtime_test.cpp
+    ${MULTIROTOR_POSITION_TEST_SOURCES}
+  )
+  if(TARGET px4_multirotor_controller_position_distance_runtime_test)
+    multirotor_prefer_devel_runtime(px4_multirotor_controller_position_distance_runtime_test)
+    target_include_directories(px4_multirotor_controller_position_distance_runtime_test
+      BEFORE PRIVATE
+      ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${CATKIN_DEVEL_PREFIX}/include
+      ${MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS}
+    )
+    add_dependencies(px4_multirotor_controller_position_distance_runtime_test
+      ${catkin_EXPORTED_TARGETS}
+    )
+    target_link_libraries(px4_multirotor_controller_position_distance_runtime_test
+      ${MULTIROTOR_POSITION_TEST_LIBRARIES}
+      gtest_main
+    )
+  endif()
+
   catkin_add_gtest(px4_multirotor_controller_nmpc_event_runtime_test
     test/nmpc_event_runtime_test.cpp
     src/tracking/dfbc_attitude_rate_strategy.cpp

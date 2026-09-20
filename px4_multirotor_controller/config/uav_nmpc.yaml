@@ -82,4 +82,5 @@ skip_takeoff_init_disarm: false
 state_estimate_topic: alg/state_estimator/state
 takeoff_altitude: 2.3
 tracking_backend: px4_local
-vrpn_pose_topic: /vrpn_client_node/$(arg ns)/pose
+# Canonical robot pose; the ground station has already applied the world offset.
+vrpn_pose_topic: pose
