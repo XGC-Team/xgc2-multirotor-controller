@@ -16,8 +16,11 @@ inline bool positionTargetIgnored(uint16_t mask, uint16_t bit) {
     return (mask & bit) != 0U;
 }
 
-/// World-frame PV/PVA lift. τ = now − stamp. Ignored axes are not filled and
-/// stay ignored in the output mask. Incoming type_mask is kept when nonzero.
+/// World-frame PV/PVA lift. The current ingress uses local receipt time as
+/// planning_time, not the planner's effective time. This is a segment lift,
+/// not a cross-plan continuity, freshness, or delay-compensation guarantee.
+/// Ignored derivatives do not contribute to active fields; ignored output
+/// axes stay ignored. Incoming type_mask is kept when nonzero.
 inline Setpoint liftWorldLocal(const MpcTrajectoryState& sample, const ros::Time& now,
                                uint16_t default_mask, bool enable_yaw) {
     Setpoint sp;
@@ -40,27 +43,30 @@ inline Setpoint liftWorldLocal(const MpcTrajectoryState& sample, const ros::Time
         tau = 0.0;
     }
 
+    const double vx = positionTargetIgnored(mask, kIgnoreVxBit) ? 0.0 : sample.velocity_k.x();
+    const double vy = positionTargetIgnored(mask, kIgnoreVyBit) ? 0.0 : sample.velocity_k.y();
+    const double vz = positionTargetIgnored(mask, kIgnoreVzBit) ? 0.0 : sample.velocity_k.z();
     const double ax = positionTargetIgnored(mask, kIgnoreAfxBit) ? 0.0 : sample.acceleration_k.x();
     const double ay = positionTargetIgnored(mask, kIgnoreAfyBit) ? 0.0 : sample.acceleration_k.y();
     const double az = positionTargetIgnored(mask, kIgnoreAfzBit) ? 0.0 : sample.acceleration_k.z();
 
     if (!positionTargetIgnored(mask, kIgnorePxBit)) {
-        sp.x = sample.position_k.x() + sample.velocity_k.x() * tau + 0.5 * ax * tau * tau;
+        sp.x = sample.position_k.x() + vx * tau + 0.5 * ax * tau * tau;
     }
     if (!positionTargetIgnored(mask, kIgnorePyBit)) {
-        sp.y = sample.position_k.y() + sample.velocity_k.y() * tau + 0.5 * ay * tau * tau;
+        sp.y = sample.position_k.y() + vy * tau + 0.5 * ay * tau * tau;
     }
     if (!positionTargetIgnored(mask, kIgnorePzBit)) {
-        sp.z = sample.position_k.z() + sample.velocity_k.z() * tau + 0.5 * az * tau * tau;
+        sp.z = sample.position_k.z() + vz * tau + 0.5 * az * tau * tau;
     }
     if (!positionTargetIgnored(mask, kIgnoreVxBit)) {
-        sp.vx = sample.velocity_k.x() + ax * tau;
+        sp.vx = vx + ax * tau;
     }
     if (!positionTargetIgnored(mask, kIgnoreVyBit)) {
-        sp.vy = sample.velocity_k.y() + ay * tau;
+        sp.vy = vy + ay * tau;
     }
     if (!positionTargetIgnored(mask, kIgnoreVzBit)) {
-        sp.vz = sample.velocity_k.z() + az * tau;
+        sp.vz = vz + az * tau;
     }
     if (!positionTargetIgnored(mask, kIgnoreAfxBit)) {
         sp.ax = ax;

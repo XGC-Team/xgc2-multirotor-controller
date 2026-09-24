@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.16)
+project(p06_trajectory_lifter_probe LANGUAGES CXX)
+# Standalone native-header check. No acados solver, ROS node or robot is started.
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+find_package(catkin REQUIRED COMPONENTS roscpp ros1_utils)
+find_package(Eigen3 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JSONCPP REQUIRED jsoncpp)
+add_executable(p06_trajectory_lifter_probe ../p06_trajectory_lifter_probe.cpp)
+target_include_directories(p06_trajectory_lifter_probe PRIVATE
+  ../../include ${catkin_INCLUDE_DIRS} ${EIGEN3_INCLUDE_DIRS} ${JSONCPP_INCLUDE_DIRS})
+target_link_libraries(p06_trajectory_lifter_probe PRIVATE Eigen3::Eigen ${catkin_LIBRARIES} ${JSONCPP_LIBRARIES})
+target_compile_options(p06_trajectory_lifter_probe PRIVATE -Wall -Wextra -Werror -pedantic)
+enable_testing()
+add_test(NAME p06_trajectory_lifter_probe COMMAND p06_trajectory_lifter_probe)
