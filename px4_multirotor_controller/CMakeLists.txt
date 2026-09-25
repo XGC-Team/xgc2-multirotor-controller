@@ -393,6 +393,24 @@ install(DIRECTORY tools
 ## Testing ##
 #############
 
+## Deterministic replay of the controller core (test/replay). Off by default.
+option(PX4_CONTROLLER_REPLAY_HARNESS "Build the controller-core replay harness" OFF)
+if(PX4_CONTROLLER_REPLAY_HARNESS)
+  get_target_property(MULTIROTOR_REPLAY_SOURCES ${PROJECT_NAME}_node SOURCES)
+  list(REMOVE_ITEM MULTIROTOR_REPLAY_SOURCES src/main.cpp)
+  get_target_property(MULTIROTOR_REPLAY_LIBRARIES ${PROJECT_NAME}_node LINK_LIBRARIES)
+  add_executable(${PROJECT_NAME}_replay_harness test/replay/replay_harness.cpp ${MULTIROTOR_REPLAY_SOURCES})
+  multirotor_prefer_devel_runtime(${PROJECT_NAME}_replay_harness)
+  target_include_directories(${PROJECT_NAME}_replay_harness BEFORE PRIVATE
+    ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CATKIN_DEVEL_PREFIX}/include
+    ${MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS}
+  )
+  add_dependencies(${PROJECT_NAME}_replay_harness ${catkin_EXPORTED_TARGETS})
+  target_link_libraries(${PROJECT_NAME}_replay_harness ${MULTIROTOR_REPLAY_LIBRARIES})
+endif()
+
 ## Add gtest based cpp test target and link libraries
 if(CATKIN_ENABLE_TESTING)
   # Reuse the production node's exact sources and dependencies, without main.
