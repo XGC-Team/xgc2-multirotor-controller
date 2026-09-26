@@ -12,6 +12,7 @@
 #include <xgc2_math/trajectory.hpp>
 
 #include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
 
 namespace px4_multirotor_controller {
@@ -32,23 +33,23 @@ struct UavReferencePoint {
 class ActiveTrajectoryCache {
    public:
     bool updateAnalytic(const multirotor_reference_trajectory_msgs::AnalyticReference& msg,
-                        const ros::Time& received_time);
+                        const Time& received_time);
     bool updatePolynomial(
         const multirotor_reference_trajectory_msgs::ActivePolynomialReference& msg,
-        const ros::Time& received_time);
+        const Time& received_time);
     bool updateSampled(const multirotor_reference_trajectory_msgs::SampledReference& msg,
-                       const ros::Time& received_time);
+                       const Time& received_time);
     void clear();
 
-    bool sample(const ros::Time& now, UavReferencePoint& sample) const;
-    bool sampleHorizon(const ros::Time& now, double stage_dt, int horizon_steps, double gravity,
+    bool sample(const Time& now, UavReferencePoint& sample) const;
+    bool sampleHorizon(const Time& now, double stage_dt, int horizon_steps, double gravity,
                        std::vector<xgc2_math::control::Se3Reference>& references) const;
 
     uint64_t sequence() const;
     uint32_t trajectoryId() const;
     uint32_t revision() const;
     bool valid() const;
-    bool finiteTimeRemaining(const ros::Time& now, double& remaining) const;
+    bool finiteTimeRemaining(const Time& now, double& remaining) const;
 
    private:
     static bool finiteVector(const Eigen::Vector3d& value);
@@ -71,7 +72,7 @@ class ActiveTrajectoryCache {
     uint32_t trajectory_id_{0U};
     uint32_t revision_{0U};
     uint64_t sequence_{0U};
-    ros::Time start_time_;
+    Time start_time_;
     uint32_t flags_{0U};
 };
 

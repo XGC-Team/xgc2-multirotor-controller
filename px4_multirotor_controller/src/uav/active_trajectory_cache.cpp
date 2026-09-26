@@ -1,4 +1,7 @@
 #include "px4_multirotor_controller/uav/active_trajectory_cache.h"
+#include "px4_multirotor_controller/common/time.h"
+// Temporary: reference messages still arrive here as ROS types (next step).
+#include "px4_multirotor_controller/ros_time_conversion.h"
 
 #include <algorithm>
 #include <cmath>
@@ -47,7 +50,7 @@ void appendCoefficients(const std::vector<double>& flat, size_t offset, size_t c
 
 bool ActiveTrajectoryCache::updateAnalytic(
     const multirotor_reference_trajectory_msgs::AnalyticReference& msg,
-    const ros::Time& received_time) {
+    const Time& received_time) {
     uint32_t flags = 0U;
     auto evaluator = buildAnalyticEvaluator(msg, flags);
     if (!evaluator || fatalReferenceFlags(flags)) {
@@ -60,7 +63,7 @@ bool ActiveTrajectoryCache::updateAnalytic(
     trajectory_id_ = msg.trajectory_id;
     revision_ = msg.revision;
     ++sequence_;
-    start_time_ = msg.start_time.isZero() ? msg.header.stamp : msg.start_time;
+    start_time_ = toCoreTime(msg.start_time.isZero() ? msg.header.stamp : msg.start_time);
     if (start_time_.isZero()) {
         start_time_ = received_time;
     }
@@ -70,7 +73,7 @@ bool ActiveTrajectoryCache::updateAnalytic(
 
 bool ActiveTrajectoryCache::updatePolynomial(
     const multirotor_reference_trajectory_msgs::ActivePolynomialReference& msg,
-    const ros::Time& received_time) {
+    const Time& received_time) {
     auto evaluator = std::make_unique<trajectory::PiecewisePolynomialEvaluator3>();
     uint32_t flags = 0U;
     if (!buildPolynomialEvaluator(msg, *evaluator, flags) || fatalReferenceFlags(flags)) {
@@ -83,7 +86,7 @@ bool ActiveTrajectoryCache::updatePolynomial(
     trajectory_id_ = msg.trajectory_id;
     revision_ = msg.revision;
     ++sequence_;
-    start_time_ = msg.start_time.isZero() ? msg.header.stamp : msg.start_time;
+    start_time_ = toCoreTime(msg.start_time.isZero() ? msg.header.stamp : msg.start_time);
     if (start_time_.isZero()) {
         start_time_ = received_time;
     }
@@ -93,7 +96,7 @@ bool ActiveTrajectoryCache::updatePolynomial(
 
 bool ActiveTrajectoryCache::updateSampled(
     const multirotor_reference_trajectory_msgs::SampledReference& msg,
-    const ros::Time& received_time) {
+    const Time& received_time) {
     auto evaluator = std::make_unique<trajectory::SampledEvaluator3>();
     uint32_t flags = 0U;
     if (!buildSampledEvaluator(msg, *evaluator, flags) || fatalReferenceFlags(flags)) {
@@ -106,7 +109,7 @@ bool ActiveTrajectoryCache::updateSampled(
     trajectory_id_ = msg.trajectory_id;
     revision_ = msg.revision;
     ++sequence_;
-    start_time_ = msg.start_time.isZero() ? msg.header.stamp : msg.start_time;
+    start_time_ = toCoreTime(msg.start_time.isZero() ? msg.header.stamp : msg.start_time);
     if (start_time_.isZero()) {
         start_time_ = received_time;
     }
@@ -121,13 +124,13 @@ void ActiveTrajectoryCache::clear() {
     trajectory_id_ = 0U;
     revision_ = 0U;
     sequence_ = 0U;
-    start_time_ = ros::Time();
+    start_time_ = Time();
     flags_ = 0U;
 }
 
-bool ActiveTrajectoryCache::sample(const ros::Time& now, UavReferencePoint& sample) const {
+bool ActiveTrajectoryCache::sample(const Time& now, UavReferencePoint& sample) const {
     std::shared_ptr<const trajectory::TrajectoryEvaluator3> evaluator;
-    ros::Time local_start;
+    Time local_start;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!evaluator_ || start_time_.isZero() || fatalReferenceFlags(flags_)) {
@@ -148,7 +151,7 @@ bool ActiveTrajectoryCache::sample(const ros::Time& now, UavReferencePoint& samp
     return true;
 }
 
-bool ActiveTrajectoryCache::sampleHorizon(const ros::Time& now, double stage_dt, int horizon_steps,
+bool ActiveTrajectoryCache::sampleHorizon(const Time& now, double stage_dt, int horizon_steps,
                                           double gravity,
                                           std::vector<control::Se3Reference>& references) const {
     if (horizon_steps <= 0 || stage_dt <= 0.0) {
@@ -156,7 +159,7 @@ bool ActiveTrajectoryCache::sampleHorizon(const ros::Time& now, double stage_dt,
     }
 
     std::shared_ptr<const trajectory::TrajectoryEvaluator3> evaluator;
-    ros::Time local_start;
+    Time local_start;
     uint32_t local_flags = 0U;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -216,7 +219,7 @@ bool ActiveTrajectoryCache::valid() const {
     return evaluator_ != nullptr && !start_time_.isZero() && !fatalReferenceFlags(flags_);
 }
 
-bool ActiveTrajectoryCache::finiteTimeRemaining(const ros::Time& now, double& remaining) const {
+bool ActiveTrajectoryCache::finiteTimeRemaining(const Time& now, double& remaining) const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!evaluator_ || start_time_.isZero() || fatalReferenceFlags(flags_)) {
         return false;

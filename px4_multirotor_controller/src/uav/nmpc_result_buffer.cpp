@@ -1,4 +1,5 @@
 #include "px4_multirotor_controller/uav/nmpc_result_buffer.h"
+#include "px4_multirotor_controller/common/time.h"
 
 namespace px4_multirotor_controller {
 
@@ -20,7 +21,7 @@ bool NmpcResultBuffer::consumeNewerThan(uint64_t sequence, NmpcSolveResult& resu
     return true;
 }
 
-bool NmpcResultBuffer::hasFreshSuccess(const ros::Time& now, double timeout) const {
+bool NmpcResultBuffer::hasFreshSuccess(const Time& now, double timeout) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return has_result_ && latest_.success &&
            (timeout <= 0.0 || (now - latest_.stamp).toSec() <= timeout);

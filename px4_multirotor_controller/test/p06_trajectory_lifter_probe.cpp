@@ -53,14 +53,14 @@ pc::MpcTrajectoryState sample(double p, double v, double a, double origin) {
     s.position_k = Eigen::Vector3d(p, 0, 0);
     s.velocity_k = Eigen::Vector3d(v, 0, 0);
     s.acceleration_k = Eigen::Vector3d(a, 0, 0);
-    s.planning_time = ros::Time(origin);
+    s.planning_time = pc::Time(origin);
     s.type_mask = pc::kDefaultPvaLocalTypeMask;
     s.is_valid = true;
     return s;
 }
 pc::Setpoint lift(const pc::MpcTrajectoryState& s, double t,
                   uint16_t mask = pc::kDefaultPvaLocalTypeMask) {
-    return pc::liftWorldLocal(s, ros::Time(t), mask, false);
+    return pc::liftWorldLocal(s, pc::Time(t), mask, false);
 }
 Values difference(const pc::Setpoint& right, const pc::Setpoint& left) {
     auto r = values(right);
@@ -70,7 +70,6 @@ Values difference(const pc::Setpoint& right, const pc::Setpoint& left) {
 }
 
 int main() {
-    ros::Time::init();
     std::cout << std::setprecision(17);
     std::cout << "P06 header probe; no ROS graph, controller state machine or flight test\n"
               << "values_order=px,py,pz,vx,vy,vz,ax,ay,az tolerance=" << tolerance << '\n';
@@ -119,16 +118,16 @@ int main() {
            {0,0,0,1,0,0,2,0,0});
     record("characterization/late_effective_origin_seam", difference(lift(next,10.15),lift(old,10.15)),
            {.0025,0,0,.1,0,0,2,0,0});
-    next.planning_time = ros::Time(10.15);
+    next.planning_time = pc::Time(10.15);
     record("characterization/late_receipt_origin_seam", difference(lift(next,10.15),lift(old,10.15)),
            {-.05,0,0,0,0,0,2,0,0});
     auto receipt = s;
-    receipt.planning_time = ros::Time(10.2);
+    receipt.planning_time = pc::Time(10.2);
     record("characterization/receipt_not_effective_time", difference(lift(receipt,10.25),lift(s,10.25)),
            {-.49,0,0,-.6,0,0,0,0,0});
     record("characterization/long_age_no_expiry", lift(s,110), {15201,0,0,302,0,0,3,0,0});
     auto zero = s;
-    zero.planning_time = ros::Time(0.0);
+    zero.planning_time = pc::Time(0.0);
     record("characterization/zero_origin", lift(zero,10.25), {1,0,0,2,0,0,3,0,0});
     record("characterization/future_origin_clamped", lift(s,9.9), {1,0,0,2,0,0,3,0,0});
     record("characterization/clock_rollback_rewinds", difference(lift(s,9.9),lift(s,10.25)),
@@ -136,12 +135,12 @@ int main() {
 
     // Inputs below model receipt-origin callbacks, not the ROS callback itself.
     pc::MpcTrajectoryBuffer buffer;
-    check("regression/empty_buffer", !buffer.hasPending() && !buffer.promotePending(ros::Time(10.0)));
+    check("regression/empty_buffer", !buffer.hasPending() && !buffer.promotePending(pc::Time(10.0)));
     buffer.cachePending(s);
     check("regression/promote", buffer.promotePending(buffer.pending().planning_time));
     const auto before_duplicate = lift(buffer.active(),10.25);
     receipt = s;
-    receipt.planning_time = ros::Time(10.25);
+    receipt.planning_time = pc::Time(10.25);
     buffer.cachePending(receipt);
     buffer.promotePending(buffer.pending().planning_time);
     record("characterization/duplicate_receipt_rebases", difference(lift(buffer.active(),10.25),before_duplicate),
@@ -152,8 +151,8 @@ int main() {
     record("characterization/last_receipt_wins_not_sequence", lift(buffer.active(),11.1), {1,0,0,0,0,0,0,0,0});
     pc::TrajectoryLifter short_period(pc::TrajectoryLifterConfig{.001});
     pc::TrajectoryLifter long_period(pc::TrajectoryLifterConfig{100});
-    record("characterization/period_is_not_horizon", difference(short_period.lift(s,ros::Time(110.0)),
-           long_period.lift(s,ros::Time(110.0))), {});
+    record("characterization/period_is_not_horizon", difference(short_period.lift(s,pc::Time(110.0)),
+           long_period.lift(s,pc::Time(110.0))), {});
     auto frame = s;
     frame.coordinate_frame = 8;
     check("characterization/body_frame_not_rejected", lift(frame,10.25).coordinate_frame == 8);

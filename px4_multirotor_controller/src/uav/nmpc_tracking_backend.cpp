@@ -1,4 +1,5 @@
 #include "px4_multirotor_controller/uav/nmpc_tracking_backend.h"
+#include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/common/core_log.h"
 
 
@@ -104,8 +105,8 @@ bool UavNmpcTrackingBackend::enter(const SensorData& sensor) {
     }
 
     solver_.resetWarmStart();
-    last_control_time_ = ros::Time(0);
-    last_log_time_ = ros::Time(0);
+    last_control_time_ = Time(0);
+    last_log_time_ = Time(0);
     input_bounds_locked_ = false;
     initial_hover_thrust_ = 0.0;
     effective_specific_thrust_min_ = 0.0;
@@ -125,7 +126,7 @@ bool UavNmpcTrackingBackend::enter(const SensorData& sensor) {
 }
 
 bool UavNmpcTrackingBackend::compute(const SensorData& sensor, const MpcTrajectoryState& reference,
-                                     const ros::Time& now, AttitudeRateTarget& target) {
+                                     const Time& now, AttitudeRateTarget& target) {
     if (!entered_) {
         return false;
     }
@@ -146,7 +147,7 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor, const MpcTrajecto
 
 bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
                                      const std::vector<Se3Reference>& references,
-                                     const ros::Time& now, AttitudeRateTarget& target) {
+                                     const Time& now, AttitudeRateTarget& target) {
     if (!entered_) {
         return false;
     }
@@ -347,14 +348,14 @@ bool UavNmpcTrackingBackend::feedbackState(const SensorData& sensor, Se3StateVec
 }
 
 std::vector<Se3Reference> UavNmpcTrackingBackend::buildReferenceHorizon(
-    const MpcTrajectoryState& reference, const ros::Time& now) const {
+    const MpcTrajectoryState& reference, const Time& now) const {
     std::vector<Se3Reference> refs;
     refs.reserve(static_cast<size_t>(UavNmpcSolver::horizonSteps()) + 2U);
 
     const double stage_dt =
         config_.nmpc.prediction_horizon / static_cast<double>(UavNmpcSolver::horizonSteps());
     for (int i = 0; i <= UavNmpcSolver::horizonSteps() + 1; ++i) {
-        const double dt = (now + ros::Duration(i * stage_dt) - reference.planning_time).toSec();
+        const double dt = (now + Duration(i * stage_dt) - reference.planning_time).toSec();
         refs.push_back(sampleReference(reference, dt));
     }
     return refs;
@@ -393,7 +394,7 @@ Se3Reference UavNmpcTrackingBackend::sampleReference(const MpcTrajectoryState& r
 }
 
 bool UavNmpcTrackingBackend::hoverThrustReady(const SensorData& sensor,
-                                              const ros::Time& now) const {
+                                              const Time& now) const {
     if (!config_.nmpc.hover_thrust_enabled) {
         return false;
     }

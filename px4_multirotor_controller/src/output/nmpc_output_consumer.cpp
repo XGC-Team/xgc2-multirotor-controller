@@ -1,4 +1,5 @@
 #include "px4_multirotor_controller/output/nmpc_output_consumer.h"
+#include "px4_multirotor_controller/ros_time_conversion.h"
 
 #include <px4_multirotor_controller_msgs/NmpcDebugSample.h>
 
@@ -93,7 +94,7 @@ bool NmpcOutputConsumer::handle(const ::state_machine::Event& event) {
     const double stage_dt =
         config.nmpc.prediction_horizon / static_cast<double>(UavNmpcSolver::horizonSteps());
     if (!controller_.activeTrajectoryCache().sampleHorizon(
-            now, stage_dt, UavNmpcSolver::horizonSteps(), config.nmpc.gravity,
+            toCoreTime(now), stage_dt, UavNmpcSolver::horizonSteps(), config.nmpc.gravity,
             request.references)) {
         reject(sequence, nmpc_solver_status::kReferenceSamplingFailed);
         return true;
@@ -129,7 +130,7 @@ void NmpcOutputConsumer::workerLoop() {
 
         NmpcSolveResult result;
         result.sequence = request.sequence;
-        result.stamp = request.now;
+        result.stamp = toCoreTime(request.now);
         backend_.configure(controller_.getConfig());
         if (request.sequence == 1) {
             backend_.exit();
@@ -140,7 +141,7 @@ void NmpcOutputConsumer::workerLoop() {
         }
         if (entered) {
             result.success =
-                backend_.compute(request.sensor, request.references, request.now, result.target);
+                backend_.compute(request.sensor, request.references, toCoreTime(request.now), result.target);
             result.solver_status = backend_.status();
             result.solve_time_ms = backend_.solveTimeMs();
             publishDebug(request.sequence, request.now);
@@ -167,7 +168,7 @@ void NmpcOutputConsumer::reject(uint64_t sequence, int solver_status) {
     result.sequence = sequence;
     result.success = false;
     result.solver_status = solver_status;
-    result.stamp = ros::Time::now();
+    result.stamp = toCoreTime(ros::Time::now());
     controller_.nmpcResultBuffer().store(result);
     postResultEvent(sequence, false);
 }

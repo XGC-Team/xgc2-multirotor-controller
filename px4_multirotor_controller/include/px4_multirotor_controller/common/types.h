@@ -8,6 +8,7 @@
 #include <string>
 
 #include "px4_multirotor_controller/common/world_boundary.h"
+#include "px4_multirotor_controller/common/time.h"
 
 namespace px4_multirotor_controller {
 
@@ -432,7 +433,7 @@ struct MpcTrajectoryState {
     Eigen::Vector3d acceleration_k;  // τ_i(k)：控制输入（加速度）
 
     // 时间戳
-    ros::Time planning_time;  // k*ε：MPC规划时刻
+    Time planning_time;  // k*ε：MPC规划时刻
 
     // 姿态和控制字段
     double qx{0.0}, qy{0.0}, qz{0.0}, qw{1.0};  // 四元数

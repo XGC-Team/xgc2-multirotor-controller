@@ -1,10 +1,10 @@
 #pragma once
 
-#include <ros/ros.h>
 
 #include <mutex>
 
 #include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/common/time.h"
 
 namespace px4_multirotor_controller {
 
@@ -20,7 +20,7 @@ struct NmpcSolveResult {
     bool timed_out{false};
     int solver_status{0};
     double solve_time_ms{0.0};
-    ros::Time stamp;
+    Time stamp;
     AttitudeRateTarget target;
 };
 
@@ -28,7 +28,7 @@ class NmpcResultBuffer {
    public:
     void store(const NmpcSolveResult& result);
     bool consumeNewerThan(uint64_t sequence, NmpcSolveResult& result) const;
-    bool hasFreshSuccess(const ros::Time& now, double timeout) const;
+    bool hasFreshSuccess(const Time& now, double timeout) const;
 
    private:
     mutable std::mutex mutex_;

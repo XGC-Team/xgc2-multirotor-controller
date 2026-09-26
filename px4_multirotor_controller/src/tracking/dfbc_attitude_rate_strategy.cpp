@@ -1,4 +1,5 @@
 #include "px4_multirotor_controller/tracking/dfbc_attitude_rate_strategy.h"
+#include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/common/core_log.h"
 
 #include <algorithm>
@@ -36,13 +37,13 @@ void DfbcAttitudeRateStrategy::configure(const ControllerConfig& config) {
     controller_.configure(dfbc_config);
 }
 
-bool DfbcAttitudeRateStrategy::enter(const SensorData& sensor, const ros::Time& now) {
+bool DfbcAttitudeRateStrategy::enter(const SensorData& sensor, const Time& now) {
     if (!hoverThrustReady(sensor, now)) {
         PMC_LOG_WARN_THROTTLE(1.0, "[DfbcAttitudeRateStrategy] Waiting for hover thrust estimate");
         return false;
     }
     entered_ = true;
-    last_log_time_ = ros::Time();
+    last_log_time_ = Time();
     controller_.reset();
     PMC_LOG_INFO("[DfbcAttitudeRateStrategy] DFBC attitude-rate tracking started");
     return true;
@@ -150,7 +151,7 @@ bool DfbcAttitudeRateStrategy::feedbackState(const SensorData& sensor,
            state.body_rate.array().isFinite().all();
 }
 
-bool DfbcAttitudeRateStrategy::measuredAcceleration(const SensorData& sensor, const ros::Time& now,
+bool DfbcAttitudeRateStrategy::measuredAcceleration(const SensorData& sensor, const Time& now,
                                                     Eigen::Vector3d& acceleration) const {
     if (!config_.dfbc.acceleration_correction_enabled) {
         return false;
@@ -182,7 +183,7 @@ xgc2_math::trajectory::FlatOutput3 DfbcAttitudeRateStrategy::flatReference(
 }
 
 bool DfbcAttitudeRateStrategy::hoverThrustReady(const SensorData& sensor,
-                                                const ros::Time& now) const {
+                                                const Time& now) const {
     if (!config_.nmpc.hover_thrust_enabled) {
         return false;
     }
