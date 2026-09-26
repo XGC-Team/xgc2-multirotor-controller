@@ -2,6 +2,7 @@
 
 #include <state_machine/state_machine.hpp>
 
+#include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/state_machine/timing.h"
 
@@ -33,7 +34,7 @@ class HoverState : public ::state_machine::State {
     void publishSetpointIfDue(::state_machine::StateContext& ctx);
 
     DroneController& controller_;
-    ::state_machine::runtime::Timer<> setpoint_publish_timer_;  // Setpoint 输出事件节流计时器
+    ControllerTimer setpoint_publish_timer_;  // Setpoint 输出事件节流计时器
 
     static constexpr uint16_t HOVER_POSITION_VELOCITY_TYPE_MASK = 0b110111000000;
     static constexpr uint16_t IGNORE_YAW_BIT = 1u << 10;

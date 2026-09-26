@@ -2,6 +2,7 @@
 
 #include <state_machine/state_machine.hpp>
 
+#include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/state_machine/timing.h"
 
@@ -32,7 +33,7 @@ class SelfCheckState : public ::state_machine::State {
    private:
     DroneController& controller_;
 
-    ::state_machine::runtime::Timer<> status_log_timer_;  // 状态日志节流计时器
+    ControllerTimer status_log_timer_;  // 状态日志节流计时器
 
     static constexpr double LOG_INTERVAL = 2.0;  // 日志打印间隔（秒）
 };

@@ -2,6 +2,7 @@
 
 #include <state_machine/state_machine.hpp>
 
+#include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/state_machine/timing.h"
 
@@ -38,8 +39,8 @@ class TakeoffArmRequestState : public ::state_machine::State {
     void postArmReadyOnce(::state_machine::StateContext& ctx);
 
     DroneController& controller_;
-    ::state_machine::runtime::Timer<> arm_request_timer_;       // ARM 请求计时器
-    ::state_machine::runtime::Timer<> setpoint_publish_timer_;  // Setpoint 输出事件节流计时器
+    ControllerTimer arm_request_timer_;       // ARM 请求计时器
+    ControllerTimer setpoint_publish_timer_;  // Setpoint 输出事件节流计时器
     int confirmed_arm_frames_{0};         // 接收到的连续 ARM 状态帧数
     bool arm_ready_event_posted_{false};  // 是否已经投递 ARM_READY
 
