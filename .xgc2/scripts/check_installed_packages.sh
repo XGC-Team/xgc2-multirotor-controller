@@ -43,6 +43,8 @@ test -f "/opt/ros/${ROS_DISTRO}/include/px4_multirotor_controller/drone_controll
 test -f "/opt/ros/${ROS_DISTRO}/include/px4_multirotor_controller/uav/state_machine/custom1_state.h"
 test -x "/opt/ros/${ROS_DISTRO}/lib/px4_multirotor_controller/px4_multirotor_controller_node"
 test -f "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so"
+test -f "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_core.so"
+test -f "/opt/ros/${ROS_DISTRO}/lib/libmultirotor_reference_trajectory_core.so"
 roslaunch --files multirotor_reference_trajectory uav_multirotor_reference_trajectory.launch >/tmp/xgc2-multirotor-reference-files.txt
 roslaunch --files px4_multirotor_controller uav_nmpc_controller.launch world_boundary_json:=null >/tmp/xgc2-px4-controller-files.txt
 
@@ -57,6 +59,8 @@ while IFS= read -r file; do
   fi
 done < <(find "/opt/ros/${ROS_DISTRO}/lib/px4_multirotor_controller" \
   "/opt/ros/${ROS_DISTRO}/lib/multirotor_reference_trajectory" \
-  "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so" -type f 2>/dev/null | sort -u)
+  "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so" \
+  "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_core.so" \
+  "/opt/ros/${ROS_DISTRO}/lib/libmultirotor_reference_trajectory_core.so" -type f 2>/dev/null | sort -u)
 
 echo "Installed package check passed"
