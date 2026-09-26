@@ -85,6 +85,8 @@ for ros_package in "${ROS_PACKAGES[@]}"; do
   copy_ros_package "${ros_package}"
 done
 copy_path "${PREFIX_ROOT}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so" "${pkg_root}"
+copy_path "${PREFIX_ROOT}/lib/libpx4_multirotor_controller_core.so" "${pkg_root}"
+copy_path "${PREFIX_ROOT}/lib/libmultirotor_reference_trajectory_core.so" "${pkg_root}"
 
 mkdir -p "${pkg_root}/DEBIAN" "${pkg_root}/usr/share/doc/${PACKAGE}"
 cat > "${pkg_root}/DEBIAN/control" <<EOF
