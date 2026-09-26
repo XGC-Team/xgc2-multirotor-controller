@@ -51,6 +51,29 @@ inline reference::AnalyticReference toCoreReference(const multirotor_reference_t
     return r;
 }
 
+// The reverse, for the request the controller itself sends (reference
+// activation). frame_id is the edge's.
+inline multirotor_reference_trajectory_msgs::AnalyticReference toRosReference(const reference::AnalyticReference& r) {
+    multirotor_reference_trajectory_msgs::AnalyticReference m;
+    m.header.stamp = toRosTime(r.header.stamp);
+    m.request_id = r.request_id;
+    m.trajectory_id = r.trajectory_id;
+    m.revision = r.revision;
+    m.analytic_type = r.analytic_type;
+    m.flags = r.flags;
+    m.start_time = toRosTime(r.start_time);
+    m.duration = r.duration;
+    m.origin.position.x = r.origin.position.x;
+    m.origin.position.y = r.origin.position.y;
+    m.origin.position.z = r.origin.position.z;
+    m.origin.orientation.x = r.origin.orientation.x;
+    m.origin.orientation.y = r.origin.orientation.y;
+    m.origin.orientation.z = r.origin.orientation.z;
+    m.origin.orientation.w = r.origin.orientation.w;
+    m.params = r.params;
+    return m;
+}
+
 inline reference::ActivePolynomialReference toCoreReference(
     const multirotor_reference_trajectory_msgs::ActivePolynomialReference& m) {
     reference::ActivePolynomialReference r;
