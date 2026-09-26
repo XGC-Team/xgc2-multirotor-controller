@@ -1,6 +1,7 @@
 #include "px4_multirotor_controller/uav/nmpc_tracking_backend.h"
+#include "px4_multirotor_controller/common/time.h"
+#include "px4_multirotor_controller/common/core_log.h"
 
-#include <ros/console.h>
 
 #include <algorithm>
 #include <cmath>
@@ -96,7 +97,7 @@ void UavNmpcTrackingBackend::configure(const ControllerConfig& config) {
 bool UavNmpcTrackingBackend::enter(const SensorData& sensor) {
     if (!solver_.configureAngularAccelerationWeights(config_.nmpc.angular_acceleration_weight) ||
         !solver_.initialize()) {
-        ROS_ERROR(
+        PMC_LOG_ERROR(
             "[UavNmpcTrackingBackend] Cannot enter NMPC tracking: solver "
             "init failed");
         entered_ = false;
@@ -104,8 +105,8 @@ bool UavNmpcTrackingBackend::enter(const SensorData& sensor) {
     }
 
     solver_.resetWarmStart();
-    last_control_time_ = ros::Time(0);
-    last_log_time_ = ros::Time(0);
+    last_control_time_ = Time(0);
+    last_log_time_ = Time(0);
     input_bounds_locked_ = false;
     initial_hover_thrust_ = 0.0;
     effective_specific_thrust_min_ = 0.0;
@@ -118,20 +119,20 @@ bool UavNmpcTrackingBackend::enter(const SensorData& sensor) {
     last_commanded_body_rate_.setZero();
     entered_ = true;
 
-    ROS_INFO(
+    PMC_LOG_INFO(
         "[UavNmpcTrackingBackend] NMPC tracking started "
         "(external reference required, hover_thrust=required)");
     return true;
 }
 
 bool UavNmpcTrackingBackend::compute(const SensorData& sensor, const MpcTrajectoryState& reference,
-                                     const ros::Time& now, AttitudeRateTarget& target) {
+                                     const Time& now, AttitudeRateTarget& target) {
     if (!entered_) {
         return false;
     }
 
     if (!reference.is_valid) {
-        ROS_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Waiting for external reference");
+        PMC_LOG_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Waiting for external reference");
         return false;
     }
 
@@ -146,28 +147,28 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor, const MpcTrajecto
 
 bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
                                      const std::vector<Se3Reference>& references,
-                                     const ros::Time& now, AttitudeRateTarget& target) {
+                                     const Time& now, AttitudeRateTarget& target) {
     if (!entered_) {
         return false;
     }
 
     if (references.size() < static_cast<size_t>(UavNmpcSolver::horizonSteps()) + 2U) {
-        ROS_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Reference horizon too short");
+        PMC_LOG_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Reference horizon too short");
         return false;
     }
 
     Se3StateVector x0;
     if (!feedbackState(sensor, x0)) {
-        ROS_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Waiting for feedback state");
+        PMC_LOG_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Waiting for feedback state");
         return false;
     }
 
     if (!hoverThrustReady(sensor, now)) {
-        ROS_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Waiting for hover thrust estimate");
+        PMC_LOG_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Waiting for hover thrust estimate");
         return false;
     }
     if (!lockInputBounds(sensor.hover_thrust_estimate)) {
-        ROS_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Invalid NMPC thrust bounds");
+        PMC_LOG_WARN_THROTTLE(1.0, "[UavNmpcTrackingBackend] Invalid NMPC thrust bounds");
         return false;
     }
 
@@ -265,7 +266,7 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
         const Se3ControlVector ref0_u = control::packControl(tracking_references.front().control);
         const Se3StateVector ref1_x = control::packState(tracking_references[1].state);
         const Eigen::Vector3d position_error = x0.segment<3>(0) - ref0_x.segment<3>(0);
-        ROS_WARN_THROTTLE(1.0,
+        PMC_LOG_WARN_THROTTLE(1.0,
                           "[UavNmpcTrackingBackend] input debug: x0_p=[%.3f %.3f %.3f] "
                           "x0_v=[%.3f %.3f %.3f] x0_q=[%.3f %.3f %.3f %.3f] "
                           "x0_w=[%.3f %.3f %.3f] ref0_p=[%.3f %.3f %.3f] "
@@ -294,7 +295,7 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
             control::packState(tracking_references[UavNmpcSolver::horizonSteps()].state);
         const Eigen::Vector3d pos_err = x0.segment<3>(0) - ref0_x.segment<3>(0);
         const Eigen::Vector3d vel_err = x0.segment<3>(3) - ref0_x.segment<3>(3);
-        ROS_INFO(
+        PMC_LOG_INFO(
             "[UavNmpcTrackingBackend] solve %.2f ms status=%d u=[%.3f %.3f "
             "%.3f %.3f] omega_cmd=[%.3f %.3f %.3f] omega_pred=[%.3f %.3f %.3f] hover=%.3f "
             "initial_hover=%.3f thrust_norm=%.3f thrust_bounds=[%.3f %.3f] thrust_actual=%.3f "
@@ -347,14 +348,14 @@ bool UavNmpcTrackingBackend::feedbackState(const SensorData& sensor, Se3StateVec
 }
 
 std::vector<Se3Reference> UavNmpcTrackingBackend::buildReferenceHorizon(
-    const MpcTrajectoryState& reference, const ros::Time& now) const {
+    const MpcTrajectoryState& reference, const Time& now) const {
     std::vector<Se3Reference> refs;
     refs.reserve(static_cast<size_t>(UavNmpcSolver::horizonSteps()) + 2U);
 
     const double stage_dt =
         config_.nmpc.prediction_horizon / static_cast<double>(UavNmpcSolver::horizonSteps());
     for (int i = 0; i <= UavNmpcSolver::horizonSteps() + 1; ++i) {
-        const double dt = (now + ros::Duration(i * stage_dt) - reference.planning_time).toSec();
+        const double dt = (now + Duration(i * stage_dt) - reference.planning_time).toSec();
         refs.push_back(sampleReference(reference, dt));
     }
     return refs;
@@ -393,7 +394,7 @@ Se3Reference UavNmpcTrackingBackend::sampleReference(const MpcTrajectoryState& r
 }
 
 bool UavNmpcTrackingBackend::hoverThrustReady(const SensorData& sensor,
-                                              const ros::Time& now) const {
+                                              const Time& now) const {
     if (!config_.nmpc.hover_thrust_enabled) {
         return false;
     }
@@ -437,7 +438,7 @@ bool UavNmpcTrackingBackend::lockInputBounds(double hover_thrust) {
         return false;
     }
     input_bounds_locked_ = true;
-    ROS_INFO(
+    PMC_LOG_INFO(
         "[UavNmpcTrackingBackend] Locked NMPC thrust bounds from hover=%.3f norm=[%.3f %.3f] "
         "specific=[%.3f %.3f]",
         initial_hover_thrust_, config_.nmpc.normalized_thrust_min,

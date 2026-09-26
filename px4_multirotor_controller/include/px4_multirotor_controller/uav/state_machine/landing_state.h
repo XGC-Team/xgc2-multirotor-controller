@@ -2,6 +2,7 @@
 
 #include <state_machine/state_machine.hpp>
 
+#include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/state_machine/timing.h"
 
@@ -47,8 +48,8 @@ class LandingState : public ::state_machine::State {
     DroneController& controller_;
     Setpoint landing_setpoint_;                                 // 降落设定点
     double initial_altitude_{0.0};                              // 初始高度
-    ::state_machine::runtime::Timer<> log_timer_;               // 日志节流计时器
-    ::state_machine::runtime::Timer<> setpoint_publish_timer_;  // Setpoint 输出事件节流计时器
+    ControllerTimer log_timer_;               // 日志节流计时器
+    ControllerTimer setpoint_publish_timer_;  // Setpoint 输出事件节流计时器
     double max_landing_duration_{LANDING_TIMEOUT};
     static constexpr uint16_t LANDING_VELOCITY_TYPE_MASK = 0b110111000111;
     static constexpr double LANDING_ALTITUDE_THRESHOLD = 0.3;  // 切换下降速度的高度阈值

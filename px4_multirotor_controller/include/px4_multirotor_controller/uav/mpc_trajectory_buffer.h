@@ -1,6 +1,7 @@
 #pragma once
 
 #include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/common/time.h"
 
 namespace px4_multirotor_controller {
 
@@ -26,7 +27,7 @@ class MpcTrajectoryBuffer {
         pending_.new_data_received = false;
     }
 
-    bool promotePending(const ros::Time& activation_time) {
+    bool promotePending(const Time& activation_time) {
         if (!pending_.is_valid) {
             return false;
         }

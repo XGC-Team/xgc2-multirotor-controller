@@ -1,4 +1,5 @@
 #include "px4_multirotor_controller/output/debug_output_consumer.h"
+#include "px4_multirotor_controller/ros_time_conversion.h"
 
 #include <cmath>
 #include <memory>
@@ -110,7 +111,7 @@ std_msgs::Float32MultiArray DebugOutputConsumer::snapshotTrackingError() const {
 
     UavReferencePoint reference;
     const ros::Time now = ros::Time::now();
-    if (!controller_.activeTrajectoryCache().sample(now, reference)) {
+    if (!controller_.activeTrajectoryCache().sample(toCoreTime(now), reference)) {
         return msg;
     }
 

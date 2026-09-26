@@ -1,4 +1,6 @@
 #include "px4_multirotor_controller/tracking/px4_local_raw_strategy.h"
+#include "px4_multirotor_controller/common/time.h"
+#include "px4_multirotor_controller/common/core_log.h"
 
 #include "px4_multirotor_controller/control/trajectory_lifter.h"
 
@@ -8,9 +10,9 @@ void Px4LocalRawStrategy::configure(const ControllerConfig& config) {
     config_ = config;
 }
 
-bool Px4LocalRawStrategy::enter(const SensorData&, const ros::Time&) {
+bool Px4LocalRawStrategy::enter(const SensorData&, const Time&) {
     entered_ = true;
-    ROS_INFO("[Px4LocalStrategy] world-frame PV/PVA pass-through started");
+    PMC_LOG_INFO("[Px4LocalStrategy] world-frame PV/PVA pass-through started");
     return true;
 }
 

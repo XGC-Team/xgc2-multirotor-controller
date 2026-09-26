@@ -1,6 +1,8 @@
 #include "px4_multirotor_controller/drone_controller.h"
+#include "px4_multirotor_controller/common/core_log.h"
 
-#include <ros/ros.h>
+#include "px4_multirotor_controller/common/controller_clock.h"
+
 
 #include <stdexcept>
 
@@ -336,6 +338,8 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
 void DroneController::update(double current_time) {
     // 1. 更新当前时间
     current_time_ = current_time;
+    // State timers measure the controller's time (see controller_clock.h).
+    ControllerClock::set(current_time);
 
     // 2. 更新状态机
     if (state_machine_) {
@@ -387,15 +391,15 @@ bool DroneController::custom1ReferenceReady() const {
 }
 
 void DroneController::emitLogInfo(const char* message) const {
-    ROS_INFO("%s", message);
+    PMC_LOG_INFO("%s", message);
 }
 
 void DroneController::emitLogWarn(const char* message) const {
-    ROS_WARN("%s", message);
+    PMC_LOG_WARN("%s", message);
 }
 
 void DroneController::emitLogError(const char* message) const {
-    ROS_ERROR("%s", message);
+    PMC_LOG_ERROR("%s", message);
 }
 
 }  // namespace px4_multirotor_controller

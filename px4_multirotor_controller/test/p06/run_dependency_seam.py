@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Explicit offline dependency seam, NOT a ROS/native build or flight test.
 
-Compile the owning lifter/buffer headers unchanged. Only ros::Time and the
-small types/Eigen surface they consume are doubled below. Never silently
+Compile the owning lifter/buffer headers unchanged. Only the small
+types/Eigen surface they consume is doubled below; the core Time
+(common/time.h) is ROS-free and used as is. Never silently
 fall back to these doubles in the native CMake target or production build.
 """
 import argparse
@@ -17,31 +18,8 @@ import subprocess
 import sys
 import time
 
-ROS = r'''#pragma once
-#include <cmath>
-#include <cstdint>
-namespace ros {
-class Duration {
- public:
-  explicit Duration(int64_t n) : ns_(n) {}
-  double toSec() const { return ns_ / 1000000000.0; }
- private: int64_t ns_;
-};
-class Time {
- public:
-  explicit Time(double s = 0) : ns_(std::llround(s * 1000000000.0)) {}
-  bool isZero() const { return ns_ == 0; }
-  static void init() { valid_ = true; }
-  static bool isValid() { return valid_; }
-  friend Duration operator-(const Time& a, const Time& b) { return Duration(a.ns_ - b.ns_); }
- private:
-  int64_t ns_;
-  inline static bool valid_ = false;
-};
-}
-'''
 TYPES = r'''#pragma once
-#include <ros/ros.h>
+#include "px4_multirotor_controller/common/time.h"
 #include <cmath>
 #include <cstdint>
 // Test-only dependency surface. This is not Eigen, the ROS clock or the product ABI.
@@ -70,7 +48,7 @@ struct Setpoint {
 };
 struct MpcTrajectoryState {
  Eigen::Vector3d position_k,velocity_k,acceleration_k;
- ros::Time planning_time;
+ Time planning_time;
  double qx{0},qy{0},qz{0},qw{1},yaw_rate{0};
  uint16_t type_mask{0}; uint8_t coordinate_frame{1};
  bool is_valid{false},new_data_received{false};
@@ -101,14 +79,14 @@ def main():
         parser.error("output must be outside the source package")
     probe = Path(__file__).resolve().parents[1] / "p06_trajectory_lifter_probe.cpp"
     inputs = [root/"include/px4_multirotor_controller/control/trajectory_lifter.h",
-              root/"include/px4_multirotor_controller/uav/mpc_trajectory_buffer.h", probe,
+              root/"include/px4_multirotor_controller/uav/mpc_trajectory_buffer.h",
+              root/"include/px4_multirotor_controller/common/time.h", probe,
               Path(__file__).resolve()]
     for path in inputs:
         if not path.is_file(): parser.error(f"missing input: {path}")
     out.mkdir(parents=True, exist_ok=False)  # Preserve all previous runs.
     seam = out / "dependency-seam"
-    for name, text in [("ros/ros.h", ROS),
-                       ("px4_multirotor_controller/common/types.h", TYPES)]:
+    for name, text in [("px4_multirotor_controller/common/types.h", TYPES)]:
         path = seam/name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")

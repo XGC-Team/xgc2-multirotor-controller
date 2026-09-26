@@ -12,21 +12,21 @@
 #include "px4_multirotor_controller/tracking/px4_local_raw_strategy.h"
 #include "px4_multirotor_controller/uav/active_trajectory_cache.h"
 #include "px4_multirotor_controller/uav/nmpc_result_buffer.h"
-#include "rigid_state_estimator_msgs/RigidStateEstimate.h"
+#include "px4_multirotor_controller/common/state_estimate_status.h"
 #include "xgc2_math/control.hpp"
 
 namespace px4_multirotor_controller {
 namespace {
 
-multirotor_reference_trajectory_msgs::AnalyticReference makeAnalyticReference() {
-    multirotor_reference_trajectory_msgs::AnalyticReference msg;
-    msg.header.stamp = ros::Time(10.0);
+reference::AnalyticReference makeAnalyticReference() {
+    reference::AnalyticReference msg;
+    msg.header.stamp = Time(10.0);
     msg.request_id = 1U;
     msg.trajectory_id = 2U;
     msg.revision = 3U;
     msg.analytic_type =
-        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HEIGHT_CIRCLE;
-    msg.start_time = ros::Time(10.0);
+        reference::AnalyticReference::ANALYTIC_HEIGHT_CIRCLE;
+    msg.start_time = Time(10.0);
     msg.duration = 60.0;
     msg.origin.position.z = 3.0;
     msg.origin.orientation.w = 1.0;
@@ -34,7 +34,7 @@ multirotor_reference_trajectory_msgs::AnalyticReference makeAnalyticReference() 
     return msg;
 }
 
-multirotor_reference_trajectory_msgs::AnalyticReference makeAnalyticCurveReference(
+reference::AnalyticReference makeAnalyticCurveReference(
     uint16_t analytic_type) {
     auto msg = makeAnalyticReference();
     msg.analytic_type = analytic_type;
@@ -43,19 +43,19 @@ multirotor_reference_trajectory_msgs::AnalyticReference makeAnalyticCurveReferen
     msg.origin.position.y = 0.0;
     msg.origin.position.z = 1.5;
     switch (analytic_type) {
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE:
+        case reference::AnalyticReference::ANALYTIC_LINE:
             msg.params = {1.0, 0.5, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
             break;
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE:
+        case reference::AnalyticReference::ANALYTIC_LEMNISCATE:
             msg.params = {1.0, 0.7, 1.0};
             break;
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_YZ:
+        case reference::AnalyticReference::ANALYTIC_HELIX_YZ:
             msg.params = {0.5, 0.6, 10.0};
             break;
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_XY:
+        case reference::AnalyticReference::ANALYTIC_HELIX_XY:
             msg.params = {0.5, 0.6, 10.0};
             break;
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_TORUS_KNOT:
+        case reference::AnalyticReference::ANALYTIC_TORUS_KNOT:
             msg.params = {0.5, 0.25};
             break;
         default:
@@ -64,15 +64,15 @@ multirotor_reference_trajectory_msgs::AnalyticReference makeAnalyticCurveReferen
     return msg;
 }
 
-multirotor_reference_trajectory_msgs::SampledReference makeSampledReference() {
-    multirotor_reference_trajectory_msgs::SampledReference msg;
-    msg.header.stamp = ros::Time(20.0);
+reference::SampledReference makeSampledReference() {
+    reference::SampledReference msg;
+    msg.header.stamp = Time(20.0);
     msg.trajectory_id = 4U;
     msg.revision = 5U;
-    msg.start_time = ros::Time(20.0);
+    msg.start_time = Time(20.0);
     msg.sample_dt = 0.1;
     for (int i = 0; i < 3; ++i) {
-        multirotor_reference_trajectory_msgs::FlatReferencePoint point;
+        reference::FlatReferencePoint point;
         point.t_from_start = 0.1 * static_cast<double>(i);
         point.position.x = point.t_from_start;
         point.position.z = 3.0;
@@ -101,7 +101,7 @@ SensorData makeDfbcSensor() {
     sensor.qw = 1.0;
     sensor.uav_state_estimate_stats.is_active = true;
     sensor.uav_state_estimator_state =
-        rigid_state_estimator_msgs::RigidStateEstimate::STATE_RUNNING;
+        state_estimate::STATE_RUNNING;
     sensor.hover_thrust_estimate = 0.3;
     sensor.hover_thrust_estimate_stamp = 10.0;
     sensor.hover_thrust_estimate_available = true;
@@ -121,12 +121,12 @@ UavReferencePoint makeDfbcReference() {
 
 TEST(ActiveTrajectoryCache, AnalyticReferenceSamplesAndBuildsHorizon) {
     ActiveTrajectoryCache cache;
-    ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), ros::Time(10.0)));
+    ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), Time(10.0)));
     EXPECT_EQ(cache.trajectoryId(), 2U);
     EXPECT_EQ(cache.revision(), 3U);
 
     UavReferencePoint sample;
-    ASSERT_TRUE(cache.sample(ros::Time(10.5), sample));
+    ASSERT_TRUE(cache.sample(Time(10.5), sample));
     EXPECT_TRUE(sample.position.array().isFinite().all());
     EXPECT_TRUE(sample.snap.array().isFinite().all());
     EXPECT_NEAR(sample.yaw, 0.0, 1e-12);
@@ -134,7 +134,7 @@ TEST(ActiveTrajectoryCache, AnalyticReferenceSamplesAndBuildsHorizon) {
     EXPECT_NEAR(sample.yaw_accel, 0.0, 1e-12);
 
     std::vector<Se3Reference> horizon;
-    ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0), 0.1, 10, 9.8066, horizon));
+    ASSERT_TRUE(cache.sampleHorizon(Time(10.0), 0.1, 10, 9.8066, horizon));
     EXPECT_EQ(horizon.size(), 12U);
     EXPECT_TRUE(control::packState(horizon.front().state).array().isFinite().all());
     EXPECT_TRUE(control::packControl(horizon.front().control).array().isFinite().all());
@@ -142,30 +142,30 @@ TEST(ActiveTrajectoryCache, AnalyticReferenceSamplesAndBuildsHorizon) {
 
 TEST(ActiveTrajectoryCache, DoesNotExpireByReceiptAge) {
     ActiveTrajectoryCache cache;
-    ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), ros::Time(1.0)));
+    ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), Time(1.0)));
     EXPECT_TRUE(cache.valid());
 
     UavReferencePoint sample;
-    EXPECT_TRUE(cache.sample(ros::Time(10.5), sample));
+    EXPECT_TRUE(cache.sample(Time(10.5), sample));
 }
 
 TEST(ActiveTrajectoryCache, AnalyticCurveReferencesSampleAndBuildHorizons) {
     const uint16_t analytic_types[] = {
-        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE,
-        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE,
-        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_YZ,
-        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_XY,
-        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_TORUS_KNOT,
+        reference::AnalyticReference::ANALYTIC_LINE,
+        reference::AnalyticReference::ANALYTIC_LEMNISCATE,
+        reference::AnalyticReference::ANALYTIC_HELIX_YZ,
+        reference::AnalyticReference::ANALYTIC_HELIX_XY,
+        reference::AnalyticReference::ANALYTIC_TORUS_KNOT,
     };
 
     for (const auto analytic_type : analytic_types) {
         ActiveTrajectoryCache cache;
         ASSERT_TRUE(
-            cache.updateAnalytic(makeAnalyticCurveReference(analytic_type), ros::Time(10.0)))
+            cache.updateAnalytic(makeAnalyticCurveReference(analytic_type), Time(10.0)))
             << "analytic_type=" << analytic_type;
 
         UavReferencePoint sample;
-        ASSERT_TRUE(cache.sample(ros::Time(10.5), sample)) << "analytic_type=" << analytic_type;
+        ASSERT_TRUE(cache.sample(Time(10.5), sample)) << "analytic_type=" << analytic_type;
         EXPECT_TRUE(sample.position.array().isFinite().all()) << "analytic_type=" << analytic_type;
         EXPECT_TRUE(sample.snap.array().isFinite().all()) << "analytic_type=" << analytic_type;
         EXPECT_NEAR(sample.yaw, 0.0, 1e-12) << "analytic_type=" << analytic_type;
@@ -173,7 +173,7 @@ TEST(ActiveTrajectoryCache, AnalyticCurveReferencesSampleAndBuildHorizons) {
         EXPECT_NEAR(sample.yaw_accel, 0.0, 1e-12) << "analytic_type=" << analytic_type;
 
         std::vector<Se3Reference> horizon;
-        ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0), 0.1, 10, 9.8066, horizon))
+        ASSERT_TRUE(cache.sampleHorizon(Time(10.0), 0.1, 10, 9.8066, horizon))
             << "analytic_type=" << analytic_type;
         EXPECT_EQ(horizon.size(), 12U) << "analytic_type=" << analytic_type;
         EXPECT_TRUE(control::packState(horizon.front().state).array().isFinite().all())
@@ -185,24 +185,24 @@ TEST(ActiveTrajectoryCache, AnalyticCurveReferencesSampleAndBuildHorizons) {
 
 TEST(ActiveTrajectoryCache, ReportsFiniteReferenceEndBeforeHorizonSamplingFails) {
     ActiveTrajectoryCache cache;
-    ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), ros::Time(10.0)));
+    ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), Time(10.0)));
 
     double remaining = 0.0;
     std::vector<Se3Reference> horizon;
-    ASSERT_TRUE(cache.finiteTimeRemaining(ros::Time(68.8), remaining));
+    ASSERT_TRUE(cache.finiteTimeRemaining(Time(68.8), remaining));
     EXPECT_NEAR(remaining, 1.2, 1e-9);
-    EXPECT_TRUE(cache.sampleHorizon(ros::Time(68.8), 0.1, 10, 9.8066, horizon));
+    EXPECT_TRUE(cache.sampleHorizon(Time(68.8), 0.1, 10, 9.8066, horizon));
 
-    ASSERT_TRUE(cache.finiteTimeRemaining(ros::Time(68.95), remaining));
+    ASSERT_TRUE(cache.finiteTimeRemaining(Time(68.95), remaining));
     EXPECT_NEAR(remaining, 1.05, 1e-9);
-    EXPECT_FALSE(cache.sampleHorizon(ros::Time(68.95), 0.1, 10, 9.8066, horizon));
+    EXPECT_FALSE(cache.sampleHorizon(Time(68.95), 0.1, 10, 9.8066, horizon));
 }
 
 TEST(ActiveTrajectoryCache, SampledReferenceRequiresFiniteHighOrderSamples) {
     ActiveTrajectoryCache cache;
-    ASSERT_TRUE(cache.updateSampled(makeSampledReference(), ros::Time(20.0)));
+    ASSERT_TRUE(cache.updateSampled(makeSampledReference(), Time(20.0)));
     UavReferencePoint sample;
-    ASSERT_TRUE(cache.sample(ros::Time(20.05), sample));
+    ASSERT_TRUE(cache.sample(Time(20.05), sample));
     EXPECT_NEAR(sample.position.x(), 0.05, 1e-9);
 }
 
@@ -211,56 +211,56 @@ TEST(NmpcResultBuffer, KeepsNewestSequence) {
     NmpcSolveResult newer;
     newer.sequence = 2;
     newer.success = true;
-    newer.stamp = ros::Time(1.0);
+    newer.stamp = Time(1.0);
     buffer.store(newer);
 
     NmpcSolveResult older;
     older.sequence = 1;
     older.success = false;
-    older.stamp = ros::Time(2.0);
+    older.stamp = Time(2.0);
     buffer.store(older);
 
     NmpcSolveResult output;
     ASSERT_TRUE(buffer.consumeNewerThan(0, output));
     EXPECT_EQ(output.sequence, 2U);
     EXPECT_TRUE(output.success);
-    EXPECT_TRUE(buffer.hasFreshSuccess(ros::Time(1.05), 0.1));
-    EXPECT_FALSE(buffer.hasFreshSuccess(ros::Time(1.2), 0.1));
+    EXPECT_TRUE(buffer.hasFreshSuccess(Time(1.05), 0.1));
+    EXPECT_FALSE(buffer.hasFreshSuccess(Time(1.2), 0.1));
 }
 
 TEST(SensorChecks, StateEstimatorSourceRequiresUsableEstimate) {
     SensorData sensor;
     sensor.uav_state_estimate_stats.is_active = true;
     sensor.uav_state_estimator_state =
-        rigid_state_estimator_msgs::RigidStateEstimate::STATE_RUNNING;
+        state_estimate::STATE_RUNNING;
     sensor.uav_state_estimator_flags = 0u;
     EXPECT_TRUE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_state =
-        rigid_state_estimator_msgs::RigidStateEstimate::STATE_COASTING;
+        state_estimate::STATE_COASTING;
     EXPECT_TRUE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
-    sensor.uav_state_estimator_flags = rigid_state_estimator_msgs::RigidStateEstimate::FLAG_FAULT;
+    sensor.uav_state_estimator_flags = state_estimate::FLAG_FAULT;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_flags =
-        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_FILTER_DEGRADED |
-        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_VRPN_SUSPECTED |
-        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_POSE_TIME_ALIGNMENT_REJECTED |
-        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_INNOVATION_REJECTED;
+        state_estimate::FLAG_FILTER_DEGRADED |
+        state_estimate::FLAG_VRPN_SUSPECTED |
+        state_estimate::FLAG_POSE_TIME_ALIGNMENT_REJECTED |
+        state_estimate::FLAG_INNOVATION_REJECTED;
     EXPECT_TRUE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_flags =
-        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_VRPN_FAULT;
+        state_estimate::FLAG_VRPN_FAULT;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_flags =
-        rigid_state_estimator_msgs::RigidStateEstimate::FLAG_FILTER_IMU_ONLY;
+        state_estimate::FLAG_FILTER_IMU_ONLY;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 
     sensor.uav_state_estimator_flags = 0u;
     sensor.uav_state_estimator_state =
-        rigid_state_estimator_msgs::RigidStateEstimate::STATE_SELF_CHECK;
+        state_estimate::STATE_SELF_CHECK;
     EXPECT_FALSE(sensor_checks::isStateEstimateUsableForControl(sensor));
 }
 
@@ -352,7 +352,7 @@ TEST(DfbcAttitudeRateStrategy, DisablesYawAndClampsBodyRates) {
 
     DfbcAttitudeRateStrategy strategy;
     strategy.configure(config);
-    const ros::Time now(10.0);
+    const Time now(10.0);
     ASSERT_TRUE(strategy.enter(makeDfbcSensor(), now));
 
     TrackingStrategyInput input;
@@ -378,12 +378,12 @@ TEST(Px4LocalRawStrategy, OutputsPositionVelocityAccelerationAndIgnoresYaw) {
 
     Px4LocalRawStrategy strategy;
     strategy.configure(config);
-    ASSERT_TRUE(strategy.enter(makeDfbcSensor(), ros::Time(10.0)));
+    ASSERT_TRUE(strategy.enter(makeDfbcSensor(), Time(10.0)));
 
     TrackingStrategyInput input;
     input.sensor = makeDfbcSensor();
-    input.now = ros::Time(10.0);
-    input.stamp = ros::Time(10.0);
+    input.now = Time(10.0);
+    input.stamp = Time(10.0);
     input.reference = makeDfbcReference();
     input.reference.position = Eigen::Vector3d(1.0, 2.0, 3.0);
     input.reference.velocity = Eigen::Vector3d(0.4, 0.5, 0.6);
@@ -409,7 +409,6 @@ TEST(Px4LocalRawStrategy, OutputsPositionVelocityAccelerationAndIgnoresYaw) {
 }
 
 TEST(UavNmpcSolver, SolvesHoverEquilibrium) {
-    ros::Time::init();
     UavNmpcSolver solver;
     ASSERT_TRUE(solver.initialize());
 
@@ -440,7 +439,6 @@ TEST(UavNmpcSolver, ValidatesRuntimeAngularAccelerationWeights) {
 }
 
 TEST(UavNmpcSolver, AppliesRuntimeSpecificThrustBounds) {
-    ros::Time::init();
     UavNmpcSolver solver;
     ASSERT_TRUE(solver.configureInputBounds(8.0, 12.0, 3.0, 1.0, 15.0, 2.0));
     ASSERT_TRUE(solver.initialize());
@@ -475,12 +473,11 @@ TEST(UavNmpcBridge, RecoversBodyRateFromReferenceAttitudeDelta) {
 }
 
 TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangBodyRate) {
-    ros::Time::init();
     UavNmpcSolver solver;
     ASSERT_TRUE(solver.initialize());
 
     ActiveTrajectoryCache cache;
-    ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), ros::Time(10.0)));
+    ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), Time(10.0)));
 
     constexpr double kStageDt = 0.1;
     constexpr double kSaturationGuard = 3.0;
@@ -489,7 +486,7 @@ TEST(UavNmpcSolver, AnalyticReferenceSmallErrorsDoNotBangBodyRate) {
     for (int phase = 0; phase < 360; phase += 30) {
         const double t0 = static_cast<double>(phase) * M_PI / 180.0;
         std::vector<Se3Reference> references;
-        ASSERT_TRUE(cache.sampleHorizon(ros::Time(10.0 + t0), kStageDt,
+        ASSERT_TRUE(cache.sampleHorizon(Time(10.0 + t0), kStageDt,
                                         UavNmpcSolver::horizonSteps(), 9.8066, references));
 
         Se3StateVector x0 = control::packState(references.front().state);
@@ -526,11 +523,11 @@ TEST(Px4LocalPassThrough, LiftsPvaWithMeasuredStamp) {
     sample.position_k = Eigen::Vector3d(1.0, 2.0, 3.0);
     sample.velocity_k = Eigen::Vector3d(0.4, 0.0, 0.0);
     sample.acceleration_k = Eigen::Vector3d(2.0, 0.0, 0.0);
-    sample.planning_time = ros::Time(1.0);
+    sample.planning_time = Time(1.0);
     sample.type_mask = 0;
     sample.is_valid = true;
 
-    const Setpoint sp = liftWorldLocal(sample, ros::Time(1.1), kDefaultPvaLocalTypeMask, false);
+    const Setpoint sp = liftWorldLocal(sample, Time(1.1), kDefaultPvaLocalTypeMask, false);
     EXPECT_NEAR(sp.x, 1.0 + 0.4 * 0.1 + 0.5 * 2.0 * 0.01, 1e-12);
     EXPECT_NEAR(sp.vx, 0.4 + 2.0 * 0.1, 1e-12);
     EXPECT_NEAR(sp.ax, 2.0, 1e-12);
@@ -543,11 +540,11 @@ TEST(Px4LocalPassThrough, HonorsScePvMaskAndDoesNotFillAccel) {
     sample.position_k = Eigen::Vector3d(9.0, 8.0, 1.5);
     sample.velocity_k = Eigen::Vector3d(0.2, -0.1, 0.0);
     sample.acceleration_k = Eigen::Vector3d(3.0, 3.0, 3.0);
-    sample.planning_time = ros::Time(2.0);
+    sample.planning_time = Time(2.0);
     sample.type_mask = kScePvMask;
     sample.is_valid = true;
 
-    const Setpoint sp = liftWorldLocal(sample, ros::Time(2.2), kDefaultPvaLocalTypeMask, false);
+    const Setpoint sp = liftWorldLocal(sample, Time(2.2), kDefaultPvaLocalTypeMask, false);
     EXPECT_NEAR(sp.x, 0.0, 1e-12);
     EXPECT_NEAR(sp.y, 0.0, 1e-12);
     EXPECT_NEAR(sp.z, 1.5, 1e-12);
@@ -564,10 +561,10 @@ TEST(Px4LocalPassThrough, DoesNotValidateAlgorithmTimestamp) {
     sample.position_k = Eigen::Vector3d::Ones();
     sample.velocity_k = Eigen::Vector3d::Zero();
     sample.acceleration_k = Eigen::Vector3d::Zero();
-    sample.planning_time = ros::Time(1.0);
+    sample.planning_time = Time(1.0);
     sample.is_valid = true;
     EXPECT_TRUE(passThroughReferenceReady(sample));
-    sample.planning_time = ros::Time(1001.0);
+    sample.planning_time = Time(1001.0);
     EXPECT_TRUE(passThroughReferenceReady(sample));
 }
 
@@ -589,13 +586,13 @@ TEST(Px4LocalPassThrough, TakeoverNeedsHoverMatchUntilArmed) {
     sample.position_k = Eigen::Vector3d(1.0, 2.0, 3.0);
     sample.velocity_k = Eigen::Vector3d::Zero();
     sample.acceleration_k = Eigen::Vector3d::Zero();
-    sample.planning_time = ros::Time(1.0);
+    sample.planning_time = Time(1.0);
     sample.is_valid = true;
     sample.type_mask = 0;
     EXPECT_FALSE(passThroughMayTakeSetpoint(sample, 10.0, 2.0, 3.0, 1.0, 1.0, false));
     EXPECT_TRUE(passThroughMayTakeSetpoint(sample, 10.0, 2.0, 3.0, 1.0, 1.0, true));
     EXPECT_TRUE(passThroughMayTakeSetpoint(sample, 1.2, 2.1, 3.2, 1.0, 1.0, false));
-    sample.planning_time = ros::Time(1001.0);
+    sample.planning_time = Time(1001.0);
     EXPECT_TRUE(passThroughMayTakeSetpoint(sample, 10.0, 2.0, 3.0, 1.0, 1.0, true));
 }
 

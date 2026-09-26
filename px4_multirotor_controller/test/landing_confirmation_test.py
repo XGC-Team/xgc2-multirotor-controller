@@ -79,7 +79,8 @@ namespace event_type { constexpr uint32_t TOUCHDOWN = 10; }
 namespace output_event_type {
 constexpr uint32_t PUBLISH_SETPOINT = 20, REQUEST_ARMING = 21;
 }
-inline bool shouldRunEvery(state_machine::runtime::Timer<>&, double, bool) { return true; }
+template<class Clock>
+inline bool shouldRunEvery(state_machine::runtime::Timer<Clock>&, double, bool) { return true; }
 struct DroneController {
     SensorData sensor;
     Config config;
@@ -247,6 +248,7 @@ class LandingConfirmationTest(unittest.TestCase):
             (root / "support.hpp").write_text(SUPPORT)
             for name in (
                 "state_machine/state_machine.hpp",
+                "state_machine/runtime/steady_timer.hpp",
                 "px4_multirotor_controller/common/types.h",
                 "px4_multirotor_controller/state_machine/timing.h",
                 "px4_multirotor_controller/common/sensor_checks.h",

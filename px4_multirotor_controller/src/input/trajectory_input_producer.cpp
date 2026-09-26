@@ -1,4 +1,6 @@
 #include "px4_multirotor_controller/input/trajectory_input_producer.h"
+#include "px4_multirotor_controller/ros_reference_conversion.h"
+#include "px4_multirotor_controller/ros_time_conversion.h"
 
 #include <ros/ros.h>
 
@@ -58,7 +60,7 @@ void TrajectoryInputProducer::algSetpointCallback(
     traj.acceleration_k.z() = msg->acceleration_or_force.z;
     // The local receipt stamp is only the origin for between-sample lifting.
     // Algorithm timestamps never gate reference validity or require clock alignment.
-    traj.planning_time = ros::Time::now();
+    traj.planning_time = toCoreTime(ros::Time::now());
     const Eigen::Quaterniond yaw_quat = yawToQuaternion(msg->yaw);
     traj.qx = yaw_quat.x();
     traj.qy = yaw_quat.y();
@@ -81,7 +83,7 @@ void TrajectoryInputProducer::activeAnalyticCallback(
         ROS_ERROR("[TrajectoryInputProducer] Received null active analytic trajectory");
         return;
     }
-    if (!active_trajectory_cache_.updateAnalytic(*msg, ros::Time::now())) {
+    if (!active_trajectory_cache_.updateAnalytic(toCoreReference(*msg), toCoreTime(ros::Time::now()))) {
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active analytic trajectory");
         return;
     }
@@ -95,7 +97,7 @@ void TrajectoryInputProducer::activePolynomialCallback(
         ROS_ERROR("[TrajectoryInputProducer] Received null active polynomial trajectory");
         return;
     }
-    if (!active_trajectory_cache_.updatePolynomial(*msg, ros::Time::now())) {
+    if (!active_trajectory_cache_.updatePolynomial(toCoreReference(*msg), toCoreTime(ros::Time::now()))) {
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active polynomial trajectory");
         return;
     }
@@ -109,7 +111,7 @@ void TrajectoryInputProducer::activeSampledCallback(
         ROS_ERROR("[TrajectoryInputProducer] Received null active sampled trajectory");
         return;
     }
-    if (!active_trajectory_cache_.updateSampled(*msg, ros::Time::now())) {
+    if (!active_trajectory_cache_.updateSampled(toCoreReference(*msg), toCoreTime(ros::Time::now()))) {
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active sampled trajectory");
         return;
     }

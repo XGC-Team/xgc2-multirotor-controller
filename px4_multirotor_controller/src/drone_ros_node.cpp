@@ -200,6 +200,11 @@ void DroneRosNode::controlLoopCallback() {
     // 获取当前时间（转换为秒）
     double current_time = ros::Time::now().toSec();
 
+    // 0. Topic stats are written on the ROS side; hand the core its copy.
+    if (sensor_input_producer_) {
+        sensor_input_producer_->syncStats();
+    }
+
     // 1. 更新控制器（传入当前时间用于频率控制）
     // 传感器数据通过引用自动同步，无需拷贝
     controller_.update(current_time);

@@ -283,40 +283,38 @@ target_link_libraries(px4_multirotor_controller_uav_nmpc_generated
 set_target_properties(px4_multirotor_controller_uav_nmpc_generated PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(px4_multirotor_controller_uav_nmpc_runtime
+  src/core_log.cpp
   src/nmpc/uav_nmpc_solver.cpp
   src/uav/nmpc_tracking_backend.cpp
 )
+# ROS-free, like the core library below: no directory-level (catkin) include
+# directories and no ROS libraries.
+set_target_properties(px4_multirotor_controller_uav_nmpc_runtime PROPERTIES INCLUDE_DIRECTORIES "")
 target_include_directories(px4_multirotor_controller_uav_nmpc_runtime BEFORE PRIVATE
   ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CATKIN_DEVEL_PREFIX}/include
+  ${EIGEN3_INCLUDE_DIRS}
+  ${MULTIROTOR_UAV_NMPC_GENERATED_DIR}
+  ${MULTIROTOR_ACADOS_INCLUDE_DIRS}
+  ${acados_INCLUDE_DIRS}
 )
 add_dependencies(px4_multirotor_controller_uav_nmpc_runtime ${catkin_EXPORTED_TARGETS})
 add_dependencies(px4_multirotor_controller_uav_nmpc_runtime px4_multirotor_controller_uav_nmpc_generated)
 target_link_libraries(px4_multirotor_controller_uav_nmpc_runtime
   px4_multirotor_controller_uav_nmpc_generated
   xgc2_math::control
-  ${catkin_LIBRARIES}
   "-Wl,--no-as-needed"
   ${MULTIROTOR_ACADOS_LIBRARIES}
   "-Wl,--as-needed"
   m
 )
 
-## Declare a C++ executable
-add_executable(${PROJECT_NAME}_node
-  src/main.cpp
-  src/drone_ros_node.cpp
+## The controller core: ROS-free. It gets no directory-level (catkin) include
+## directories and links no ROS library; -Wl,--no-undefined makes any ROS
+## symbol it used fail the link. The node and test targets link it.
+add_library(px4_multirotor_controller_core
   src/drone_controller.cpp
   src/world_boundary.cpp
-  src/input/command_input_producer.cpp
-  src/input/sensor_input_producer.cpp
-  src/input/trajectory_input_producer.cpp
-  src/output/control_output_consumer.cpp
-  src/output/debug_output_consumer.cpp
-  src/output/nmpc_output_consumer.cpp
-  src/output/px4_service_output_consumer.cpp
-  src/output/reference_activation_output_consumer.cpp
   src/tracking/dfbc_attitude_rate_strategy.cpp
   src/tracking/px4_local_raw_strategy.cpp
   src/uav/nmpc_result_buffer.cpp
@@ -332,6 +330,44 @@ add_executable(${PROJECT_NAME}_node
   src/uav/state_machine/hover_state.cpp
   src/uav/state_machine/landing_state.cpp
   src/uav/state_machine/custom1_state.cpp
+)
+set_target_properties(px4_multirotor_controller_core PROPERTIES INCLUDE_DIRECTORIES "")
+target_include_directories(px4_multirotor_controller_core BEFORE PUBLIC
+  ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${EIGEN3_INCLUDE_DIRS}
+  ${JSONCPP_INCLUDE_DIRS}
+  ${MULTIROTOR_UAV_NMPC_GENERATED_DIR}
+  ${MULTIROTOR_ACADOS_INCLUDE_DIRS}
+  ${acados_INCLUDE_DIRS}
+)
+add_dependencies(px4_multirotor_controller_core px4_multirotor_controller_uav_nmpc_generated)
+target_link_libraries(px4_multirotor_controller_core
+  px4_multirotor_controller_uav_nmpc_runtime
+  xgc2_state_machine::state_machine
+  xgc2_math::control
+  xgc2_math::geometry
+  xgc2_math::trajectory
+  ${JSONCPP_LIBRARIES}
+  pthread
+)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  set_property(TARGET px4_multirotor_controller_core APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--no-undefined")
+endif()
+
+## Declare a C++ executable: the ROS node (edge only) around the core.
+add_executable(${PROJECT_NAME}_node
+  src/main.cpp
+  src/drone_ros_node.cpp
+  src/ros_log_sink.cpp
+  src/input/command_input_producer.cpp
+  src/input/sensor_input_producer.cpp
+  src/input/trajectory_input_producer.cpp
+  src/output/control_output_consumer.cpp
+  src/output/debug_output_consumer.cpp
+  src/output/nmpc_output_consumer.cpp
+  src/output/px4_service_output_consumer.cpp
+  src/output/reference_activation_output_consumer.cpp
 )
 multirotor_prefer_devel_runtime(${PROJECT_NAME}_node)
 
@@ -350,6 +386,7 @@ add_dependencies(${PROJECT_NAME}_node
 
 ## Specify libraries to link
 target_link_libraries(${PROJECT_NAME}_node
+  px4_multirotor_controller_core
   px4_multirotor_controller_uav_nmpc_runtime
   xgc2_state_machine::state_machine
   xgc2_math::control
@@ -364,7 +401,7 @@ target_link_libraries(${PROJECT_NAME}_node
 ## Install ##
 #############
 
-install(TARGETS px4_multirotor_controller_uav_nmpc_runtime ${PROJECT_NAME}_node
+install(TARGETS px4_multirotor_controller_uav_nmpc_runtime px4_multirotor_controller_core ${PROJECT_NAME}_node
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
@@ -392,6 +429,42 @@ install(DIRECTORY tools
 #############
 ## Testing ##
 #############
+
+## Deterministic replay of the controller core (test/replay). Off by default.
+option(PX4_CONTROLLER_REPLAY_HARNESS "Build the controller-core replay harness" OFF)
+if(PX4_CONTROLLER_REPLAY_HARNESS)
+  get_target_property(MULTIROTOR_REPLAY_SOURCES ${PROJECT_NAME}_node SOURCES)
+  list(REMOVE_ITEM MULTIROTOR_REPLAY_SOURCES src/main.cpp)
+  get_target_property(MULTIROTOR_REPLAY_LIBRARIES ${PROJECT_NAME}_node LINK_LIBRARIES)
+  add_executable(${PROJECT_NAME}_replay_harness test/replay/replay_harness.cpp ${MULTIROTOR_REPLAY_SOURCES})
+  multirotor_prefer_devel_runtime(${PROJECT_NAME}_replay_harness)
+  target_include_directories(${PROJECT_NAME}_replay_harness BEFORE PRIVATE
+    ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CATKIN_DEVEL_PREFIX}/include
+    ${MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS}
+  )
+  add_dependencies(${PROJECT_NAME}_replay_harness ${catkin_EXPORTED_TARGETS})
+  target_link_libraries(${PROJECT_NAME}_replay_harness ${MULTIROTOR_REPLAY_LIBRARIES})
+
+  # ActiveTrajectoryCache golden output (the recorded flight sends no reference).
+  add_executable(${PROJECT_NAME}_reference_cache_golden test/replay/reference_cache_golden.cpp ${MULTIROTOR_REPLAY_SOURCES})
+  multirotor_prefer_devel_runtime(${PROJECT_NAME}_reference_cache_golden)
+  target_include_directories(${PROJECT_NAME}_reference_cache_golden BEFORE PRIVATE
+    ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CATKIN_DEVEL_PREFIX}/include
+    ${MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS}
+  )
+  add_dependencies(${PROJECT_NAME}_reference_cache_golden ${catkin_EXPORTED_TARGETS})
+  target_link_libraries(${PROJECT_NAME}_reference_cache_golden ${MULTIROTOR_REPLAY_LIBRARIES})
+
+  # px4_multirotor_controller::Time/Duration must equal ros::Time/Duration bit for bit.
+  add_executable(${PROJECT_NAME}_time_equivalence test/replay/time_equivalence.cpp)
+  target_include_directories(${PROJECT_NAME}_time_equivalence BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include ${catkin_INCLUDE_DIRS})
+  target_link_libraries(${PROJECT_NAME}_time_equivalence ${catkin_LIBRARIES})
+endif()
 
 ## Add gtest based cpp test target and link libraries
 if(CATKIN_ENABLE_TESTING)

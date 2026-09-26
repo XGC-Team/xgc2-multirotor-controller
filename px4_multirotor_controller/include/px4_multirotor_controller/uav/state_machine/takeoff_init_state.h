@@ -2,6 +2,7 @@
 
 #include <state_machine/state_machine.hpp>
 
+#include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/state_machine/timing.h"
 
@@ -45,8 +46,8 @@ class TakeoffInitState : public ::state_machine::State {
     bool skip_altctl_gate_{false};           // 是否跳过 DISARM 与 ALTCTL 安全门
     bool altctl_ready_event_posted_{false};  // 是否已经投递 ALTCTL_READY
     int altctl_frame_count_{0};              // 接收到的连续 ALTCTL 状态帧数
-    ::state_machine::runtime::Timer<> altctl_request_timer_;  // ALTCTL模式请求计时器
-    ::state_machine::runtime::Timer<> setpoint_publish_timer_;  // Setpoint 输出事件节流计时器
+    ControllerTimer altctl_request_timer_;  // ALTCTL模式请求计时器
+    ControllerTimer setpoint_publish_timer_;  // Setpoint 输出事件节流计时器
 
     static constexpr int REQUIRED_ALTCTL_FRAMES = 2;
     static constexpr uint16_t TAKEOFF_POSITION_TYPE_MASK = 0b111111111000;

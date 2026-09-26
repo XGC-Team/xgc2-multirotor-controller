@@ -2,6 +2,7 @@
 
 #include <state_machine/state_machine.hpp>
 
+#include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/control/trajectory_lifter.h"
 #include "px4_multirotor_controller/state_machine/timing.h"
@@ -50,9 +51,9 @@ class Custom1State : public ::state_machine::State {
     double last_success_time_{0.0};
     uint32_t consecutive_failures_{0};
     bool reference_finish_event_posted_{false};
-    ::state_machine::runtime::Timer<> nmpc_wait_log_timer_;
-    ::state_machine::runtime::Timer<> nmpc_stale_output_log_timer_;
-    ::state_machine::runtime::Timer<> trajectory_wait_log_timer_;
+    ControllerTimer nmpc_wait_log_timer_;
+    ControllerTimer nmpc_stale_output_log_timer_;
+    ControllerTimer trajectory_wait_log_timer_;
     DfbcAttitudeRateStrategy dfbc_strategy_;
     Px4LocalRawStrategy px4_local_raw_strategy_;
     bool sync_strategy_entered_{false};

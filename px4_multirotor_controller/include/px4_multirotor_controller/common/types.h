@@ -1,13 +1,12 @@
 #pragma once
 
-#include <ros/ros.h>
-#include <ros1_utils/topic_stats.h>
 
 #include <Eigen/Dense>  // 用于 MpcTrajectoryState
 #include <cstdint>
 #include <string>
 
 #include "px4_multirotor_controller/common/world_boundary.h"
+#include "px4_multirotor_controller/common/time.h"
 
 namespace px4_multirotor_controller {
 
@@ -336,7 +335,17 @@ struct SensorData {
     uint8_t fcu_system_status{0};  // 系统状态码（MAV_STATE 原始值）
 
     // 话题统计数据
-    using TopicStats = ros1_utils::TopicStats;
+    // Per-topic receive statistics. The core reads is_active/is_new; the ROS
+    // edge fills the whole struct (sensor_input_producer.cpp, syncStats).
+    struct TopicStats {
+        double frequency_hz{-1.0};
+        double dt_max{0.0};
+        double time_since_last_msg{0.0};
+        double jitter{0.0};
+        Time last_message_time;
+        bool is_active{false};
+        bool is_new{false};
+    };
     TopicStats uav_state_estimate_stats, local_pos_stats, local_velocity_stats, imu_stats,
         state_stats, battery_stats;
 
@@ -432,7 +441,7 @@ struct MpcTrajectoryState {
     Eigen::Vector3d acceleration_k;  // τ_i(k)：控制输入（加速度）
 
     // 时间戳
-    ros::Time planning_time;  // k*ε：MPC规划时刻
+    Time planning_time;  // k*ε：MPC规划时刻
 
     // 姿态和控制字段
     double qx{0.0}, qy{0.0}, qz{0.0}, qw{1.0};  // 四元数

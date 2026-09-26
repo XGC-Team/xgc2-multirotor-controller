@@ -1,4 +1,5 @@
 #include "px4_multirotor_controller/uav/state_machine/custom1_state.h"
+#include "px4_multirotor_controller/common/time.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -67,7 +68,7 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
     controller_.logInfo(
         "[Custom1State] Custom1 latched (px4_local); holding hover until world PV/PVA");
     px4_local_raw_strategy_.configure(config);
-    px4_local_raw_strategy_.enter(controller_.getSensorData(), ros::Time(command_time_));
+    px4_local_raw_strategy_.enter(controller_.getSensorData(), Time(command_time_));
     return {};
 }
 
@@ -116,7 +117,7 @@ void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
         return;
     }
 
-    controller_.getSetpoint() = liftWorldLocal(sample, ros::Time(current_time),
+    controller_.getSetpoint() = liftWorldLocal(sample, Time(current_time),
                                                config.local_type_mask, config.enable_yaw_control);
     ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
                                           ::state_machine::EventTimestamp{current_time}));
@@ -178,7 +179,7 @@ void Custom1State::handleNmpcEventMode(::state_machine::StateContext& ctx, doubl
 void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateContext& ctx,
                                                      double current_time) {
     const ControllerConfig config = controller_.getConfig();
-    const ros::Time now(current_time);
+    const Time now(current_time);
 
     dfbc_strategy_.configure(config);
     if (!sync_strategy_entered_) {
@@ -321,7 +322,7 @@ void Custom1State::dispatchNmpcRequest(::state_machine::StateContext& ctx, doubl
 void Custom1State::publishBackupSetpoint(::state_machine::StateContext& ctx, double current_time) {
     UavReferencePoint reference;
     Setpoint backup;
-    if (controller_.activeTrajectoryCache().sample(ros::Time(current_time), reference)) {
+    if (controller_.activeTrajectoryCache().sample(Time(current_time), reference)) {
         backup.x = reference.position.x();
         backup.y = reference.position.y();
         backup.z = reference.position.z();
@@ -390,7 +391,7 @@ void Custom1State::postReferenceFinished(::state_machine::StateContext& ctx, dou
 
 bool Custom1State::referenceWillFinishBeforeNextHorizon(double current_time) const {
     double remaining = 0.0;
-    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(ros::Time(current_time),
+    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(Time(current_time),
                                                                  remaining)) {
         return false;
     }
@@ -404,7 +405,7 @@ bool Custom1State::referenceWillFinishBeforeNextHorizon(double current_time) con
 
 bool Custom1State::referenceWillFinishBeforeNextSynchronousUpdate(double current_time) const {
     double remaining = 0.0;
-    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(ros::Time(current_time),
+    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(Time(current_time),
                                                                  remaining)) {
         return false;
     }

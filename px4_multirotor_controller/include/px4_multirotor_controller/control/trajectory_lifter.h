@@ -1,10 +1,10 @@
 #pragma once
 
-#include <ros/ros.h>
 
 #include <cmath>
 
 #include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/common/time.h"
 
 namespace px4_multirotor_controller {
 
@@ -21,7 +21,7 @@ inline bool positionTargetIgnored(uint16_t mask, uint16_t bit) {
 /// not a cross-plan continuity, freshness, or delay-compensation guarantee.
 /// Ignored derivatives do not contribute to active fields; ignored output
 /// axes stay ignored. Incoming type_mask is kept when nonzero.
-inline Setpoint liftWorldLocal(const MpcTrajectoryState& sample, const ros::Time& now,
+inline Setpoint liftWorldLocal(const MpcTrajectoryState& sample, const Time& now,
                                uint16_t default_mask, bool enable_yaw) {
     Setpoint sp;
     if (!sample.is_valid) {
@@ -36,7 +36,7 @@ inline Setpoint liftWorldLocal(const MpcTrajectoryState& sample, const ros::Time
     }
 
     double tau = 0.0;
-    if (!sample.planning_time.isZero() && now.isValid()) {
+    if (!sample.planning_time.isZero() && !now.isZero()) {
         tau = (now - sample.planning_time).toSec();
     }
     if (tau < 0.0) {
@@ -151,7 +151,7 @@ class TrajectoryLifter {
         const TrajectoryLifterConfig& config = TrajectoryLifterConfig{})
         : config_(config) {}
 
-    inline Setpoint lift(const MpcTrajectoryState& mpc_traj, const ros::Time& current_time,
+    inline Setpoint lift(const MpcTrajectoryState& mpc_traj, const Time& current_time,
                          uint16_t default_mask = kDefaultPvaLocalTypeMask,
                          bool enable_yaw = false) const {
         return liftWorldLocal(mpc_traj, current_time, default_mask, enable_yaw);
