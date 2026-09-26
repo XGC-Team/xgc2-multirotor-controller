@@ -412,6 +412,18 @@ if(PX4_CONTROLLER_REPLAY_HARNESS)
   add_dependencies(${PROJECT_NAME}_replay_harness ${catkin_EXPORTED_TARGETS})
   target_link_libraries(${PROJECT_NAME}_replay_harness ${MULTIROTOR_REPLAY_LIBRARIES})
 
+  # ActiveTrajectoryCache golden output (the recorded flight sends no reference).
+  add_executable(${PROJECT_NAME}_reference_cache_golden test/replay/reference_cache_golden.cpp ${MULTIROTOR_REPLAY_SOURCES})
+  multirotor_prefer_devel_runtime(${PROJECT_NAME}_reference_cache_golden)
+  target_include_directories(${PROJECT_NAME}_reference_cache_golden BEFORE PRIVATE
+    ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CATKIN_DEVEL_PREFIX}/include
+    ${MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS}
+  )
+  add_dependencies(${PROJECT_NAME}_reference_cache_golden ${catkin_EXPORTED_TARGETS})
+  target_link_libraries(${PROJECT_NAME}_reference_cache_golden ${MULTIROTOR_REPLAY_LIBRARIES})
+
   # px4_multirotor_controller::Time/Duration must equal ros::Time/Duration bit for bit.
   add_executable(${PROJECT_NAME}_time_equivalence test/replay/time_equivalence.cpp)
   target_include_directories(${PROJECT_NAME}_time_equivalence BEFORE PRIVATE
