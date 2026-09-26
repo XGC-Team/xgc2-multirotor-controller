@@ -1,9 +1,5 @@
 #include "multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h"
 
-#include <geometry_msgs/Point.h>
-#include <geometry_msgs/Vector3.h>
-#include <ros/time.h>
-
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -30,27 +26,27 @@ double finiteOr(double value, double fallback) {
     return std::isfinite(value) ? value : fallback;
 }
 
-Eigen::Vector3d pointToVector(const geometry_msgs::Point& point) {
+Eigen::Vector3d pointToVector(const reference::Point& point) {
     return Eigen::Vector3d(point.x, point.y, point.z);
 }
 
-Eigen::Vector3d vectorToEigen(const geometry_msgs::Vector3& value) {
+Eigen::Vector3d vectorToEigen(const reference::Vector3& value) {
     return Eigen::Vector3d(value.x, value.y, value.z);
 }
 
-Eigen::Quaterniond quaternionToEigen(const geometry_msgs::Quaternion& value) {
+Eigen::Quaterniond quaternionToEigen(const reference::Quaternion& value) {
     return Eigen::Quaterniond(value.w, value.x, value.y, value.z);
 }
 
-geometry_msgs::Point toPoint(const Eigen::Vector3d& value) {
-    geometry_msgs::Point point;
+reference::Point toPoint(const Eigen::Vector3d& value) {
+    reference::Point point;
     point.x = value.x();
     point.y = value.y();
     point.z = value.z();
     return point;
 }
 
-double yawFromQuaternion(const geometry_msgs::Quaternion& q) {
+double yawFromQuaternion(const reference::Quaternion& q) {
     const double siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
     const double cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
     return finiteOr(std::atan2(siny_cosp, cosy_cosp), 0.0);
@@ -66,13 +62,13 @@ double adjustedStartTime(double requested, double now, double min_lead_time) {
 
 trajectory::WaypointConstraintType3 constraintType(uint8_t value) {
     switch (value) {
-        case multirotor_reference_trajectory_msgs::WaypointReferenceRequest::CONSTRAINT_SPHERE:
+        case reference::WaypointReferenceRequest::CONSTRAINT_SPHERE:
             return trajectory::WaypointConstraintType3::kSphere;
-        case multirotor_reference_trajectory_msgs::WaypointReferenceRequest::CONSTRAINT_BOX:
+        case reference::WaypointReferenceRequest::CONSTRAINT_BOX:
             return trajectory::WaypointConstraintType3::kBox;
-        case multirotor_reference_trajectory_msgs::WaypointReferenceRequest::CONSTRAINT_GATE:
+        case reference::WaypointReferenceRequest::CONSTRAINT_GATE:
             return trajectory::WaypointConstraintType3::kGate;
-        case multirotor_reference_trajectory_msgs::WaypointReferenceRequest::CONSTRAINT_POINT:
+        case reference::WaypointReferenceRequest::CONSTRAINT_POINT:
         default:
             return trajectory::WaypointConstraintType3::kPoint;
     }
@@ -82,14 +78,14 @@ void appendCoefficients(const std::vector<double>& input, std::vector<double>& o
     output.insert(output.end(), input.begin(), input.end());
 }
 
-double paramAt(const multirotor_reference_trajectory_msgs::AnalyticReference& msg, size_t index,
+double paramAt(const reference::AnalyticReference& msg, size_t index,
                double fallback) {
     return index < msg.params.size() && std::isfinite(msg.params[index]) ? msg.params[index]
                                                                          : fallback;
 }
 
 bool buildWaypointProblemFromMessage(
-    const multirotor_reference_trajectory_msgs::WaypointReferenceRequest& msg,
+    const reference::WaypointReferenceRequest& msg,
     const ReferenceTrajectoryConfig& config, trajectory::WaypointProblem3& problem,
     uint32_t& flags) {
     flags = msg.flags;
@@ -187,7 +183,7 @@ void ReferenceTrajectoryRuntime::reset() {
         completed_plan_ = PlanningResult{};
         clearPlanningQueuesLocked();
     }
-    state_ = multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_SELF_CHECK;
+    state_ = reference::ReferenceStatus::STATE_SELF_CHECK;
     current_time_sec_ = 0.0;
     flags_ = 0U;
     pending_kind_ = PendingKind::kNone;
@@ -197,9 +193,9 @@ void ReferenceTrajectoryRuntime::reset() {
     active_start_sec_ = 0.0;
     active_duration_ = 0.0;
     active_evaluator_.reset();
-    active_analytic_ = multirotor_reference_trajectory_msgs::AnalyticReference{};
-    active_sampled_ = multirotor_reference_trajectory_msgs::SampledReference{};
-    active_polynomial_ = multirotor_reference_trajectory_msgs::ActivePolynomialReference{};
+    active_analytic_ = reference::AnalyticReference{};
+    active_sampled_ = reference::SampledReference{};
+    active_polynomial_ = reference::ActivePolynomialReference{};
     setupMachine();
 }
 
@@ -216,12 +212,12 @@ void ReferenceTrajectoryRuntime::update(double now_sec) {
         transition_result.status.ok() ? machine_->update({64, 64, true}) : transition_result;
     if (!tick_result.status.ok()) {
         flags_ |= trajectory::kFlagInvalidInput;
-        state_ = multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_SELF_CHECK;
+        state_ = reference::ReferenceStatus::STATE_SELF_CHECK;
     }
 }
 
 bool ReferenceTrajectoryRuntime::acceptAnalytic(
-    const multirotor_reference_trajectory_msgs::AnalyticReference& msg) {
+    const reference::AnalyticReference& msg) {
     uint32_t flags = 0U;
     auto evaluator = buildAnalyticEvaluator(msg, flags);
     if (!evaluator) {
@@ -237,14 +233,14 @@ bool ReferenceTrajectoryRuntime::acceptAnalytic(
         clearPlanningQueuesLocked();
     }
     pending_analytic_ = msg;
-    pending_analytic_.start_time = ros::Time(
+    pending_analytic_.start_time = Time(
         adjustedStartTime(msg.start_time.toSec(), current_time_sec_, config_.min_lead_time));
     pending_kind_ = PendingKind::kAnalytic;
     return true;
 }
 
 bool ReferenceTrajectoryRuntime::acceptSampled(
-    const multirotor_reference_trajectory_msgs::SampledReference& msg) {
+    const reference::SampledReference& msg) {
     trajectory::SampledEvaluator3 evaluator;
     uint32_t flags = 0U;
     if (!buildSampledEvaluator(msg, evaluator, flags)) {
@@ -260,14 +256,14 @@ bool ReferenceTrajectoryRuntime::acceptSampled(
         clearPlanningQueuesLocked();
     }
     pending_sampled_ = msg;
-    pending_sampled_.start_time = ros::Time(
+    pending_sampled_.start_time = Time(
         adjustedStartTime(msg.start_time.toSec(), current_time_sec_, config_.min_lead_time));
     pending_kind_ = PendingKind::kSampled;
     return true;
 }
 
 bool ReferenceTrajectoryRuntime::acceptWaypoint(
-    const multirotor_reference_trajectory_msgs::WaypointReferenceRequest& msg) {
+    const reference::WaypointReferenceRequest& msg) {
     trajectory::WaypointProblem3 problem;
     uint32_t flags = 0U;
     if (!buildWaypointProblem(msg, problem, flags)) {
@@ -340,7 +336,15 @@ bool ReferenceTrajectoryRuntime::requestPendingWaypointPlan() {
         has_completed_plan_ = false;
         completed_plan_ = PlanningResult{};
         clearPlanningQueuesLocked();
-        planning_requests_.push(std::move(request));
+        if (!config_.inline_planning) {
+            planning_requests_.push(std::move(request));
+        }
+    }
+    if (config_.inline_planning) {
+        PlanningResult result = solveWaypointPlan(request);
+        std::lock_guard<std::mutex> lock(planning_mutex_);
+        planning_results_.push(std::move(result));
+        return true;
     }
     planning_condition_.notify_one();
     return true;
@@ -391,16 +395,16 @@ ReferenceTrajectoryRuntime::PlanningResult ReferenceTrajectoryRuntime::solveWayp
         return result;
     }
 
-    multirotor_reference_trajectory_msgs::ActivePolynomialReference msg;
+    reference::ActivePolynomialReference msg;
     msg.header = request.msg.header;
-    msg.header.stamp = ros::Time(request.now_sec);
+    msg.header.stamp = Time(request.now_sec);
     msg.trajectory_id = request.msg.trajectory_id;
     msg.revision = request.msg.revision;
     if (msg.revision == 0U) {
         msg.revision = request.active_revision + 1U;
     }
     msg.flags = flags | request.msg.flags;
-    msg.start_time = ros::Time(adjustedStartTime(request.msg.header.stamp.toSec(), request.now_sec,
+    msg.start_time = Time(adjustedStartTime(request.msg.header.stamp.toSec(), request.now_sec,
                                                  request.config.min_lead_time));
     msg.duration = evaluator->duration();
     msg.order = evaluator->order();
@@ -484,21 +488,21 @@ void ReferenceTrajectoryRuntime::enterState(uint8_t state) {
     state_ = state;
 }
 
-multirotor_reference_trajectory_msgs::ReferenceStatus ReferenceTrajectoryRuntime::makeStatus(
+reference::ReferenceStatus ReferenceTrajectoryRuntime::makeStatus(
     double stamp_sec) const {
-    multirotor_reference_trajectory_msgs::ReferenceStatus status;
-    status.header.stamp = ros::Time(stamp_sec);
+    reference::ReferenceStatus status;
+    status.header.stamp = Time(stamp_sec);
     status.state = state_;
     status.flags = flags_;
     status.active_trajectory_id = active_trajectory_id_;
     status.active_revision = active_revision_;
-    status.active_type = multirotor_reference_trajectory_msgs::ReferenceStatus::TYPE_NONE;
+    status.active_type = reference::ReferenceStatus::TYPE_NONE;
     if (active_type_ == trajectory::TrajectoryModelType::kAnalytic) {
-        status.active_type = multirotor_reference_trajectory_msgs::ReferenceStatus::TYPE_ANALYTIC;
+        status.active_type = reference::ReferenceStatus::TYPE_ANALYTIC;
     } else if (active_type_ == trajectory::TrajectoryModelType::kPolynomial) {
-        status.active_type = multirotor_reference_trajectory_msgs::ReferenceStatus::TYPE_POLYNOMIAL;
+        status.active_type = reference::ReferenceStatus::TYPE_POLYNOMIAL;
     } else if (active_type_ == trajectory::TrajectoryModelType::kSampled) {
-        status.active_type = multirotor_reference_trajectory_msgs::ReferenceStatus::TYPE_SAMPLED;
+        status.active_type = reference::ReferenceStatus::TYPE_SAMPLED;
     }
     return status;
 }
@@ -611,7 +615,7 @@ void ReferenceTrajectoryRuntime::setupMachine() {
 
 std::unique_ptr<trajectory::TrajectoryEvaluator3>
 ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
-    const multirotor_reference_trajectory_msgs::AnalyticReference& msg, uint32_t& flags) const {
+    const reference::AnalyticReference& msg, uint32_t& flags) const {
     flags = msg.flags;
     const bool has_duration = msg.duration > 0.0;
     const double duration = has_duration ? msg.duration : 60.0;
@@ -629,7 +633,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
 
     std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator;
     switch (msg.analytic_type) {
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HOLD: {
+        case reference::AnalyticReference::ANALYTIC_HOLD: {
             trajectory::HoldCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = duration;
@@ -639,8 +643,8 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
             evaluator = std::make_unique<trajectory::HoldCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_CIRCLE:
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HEIGHT_CIRCLE: {
+        case reference::AnalyticReference::ANALYTIC_CIRCLE:
+        case reference::AnalyticReference::ANALYTIC_HEIGHT_CIRCLE: {
             trajectory::CircleCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = duration;
@@ -648,7 +652,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
             params.radius = radius;
             params.line_speed = line_speed;
             params.height = height;
-            params.z_amplitude = msg.analytic_type == multirotor_reference_trajectory_msgs::
+            params.z_amplitude = msg.analytic_type == reference::
                                                           AnalyticReference::ANALYTIC_HEIGHT_CIRCLE
                                      ? z_amplitude
                                      : 0.0;
@@ -656,7 +660,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
             evaluator = std::make_unique<trajectory::CircleCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_FIGURE_EIGHT: {
+        case reference::AnalyticReference::ANALYTIC_FIGURE_EIGHT: {
             trajectory::FigureEightCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = duration;
@@ -667,7 +671,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
             evaluator = std::make_unique<trajectory::FigureEightCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE: {
+        case reference::AnalyticReference::ANALYTIC_LINE: {
             trajectory::LineCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
@@ -682,7 +686,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
             evaluator = std::make_unique<trajectory::LineCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE: {
+        case reference::AnalyticReference::ANALYTIC_LEMNISCATE: {
             trajectory::LemniscateCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
@@ -693,7 +697,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
             evaluator = std::make_unique<trajectory::LemniscateCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_YZ: {
+        case reference::AnalyticReference::ANALYTIC_HELIX_YZ: {
             trajectory::HelixYzCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
@@ -704,7 +708,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
             evaluator = std::make_unique<trajectory::HelixYzCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_HELIX_XY: {
+        case reference::AnalyticReference::ANALYTIC_HELIX_XY: {
             trajectory::HelixXyCurveParameters3 params;
             params.flags = msg.flags;
             params.duration = has_duration ? duration : params.duration;
@@ -715,7 +719,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
             evaluator = std::make_unique<trajectory::HelixXyCurveEvaluator3>(params);
             break;
         }
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_TORUS_KNOT: {
+        case reference::AnalyticReference::ANALYTIC_TORUS_KNOT: {
             trajectory::TorusKnotCurveParameters3 torus_params;
             torus_params.flags = msg.flags;
             torus_params.duration = has_duration ? duration : torus_params.duration;
@@ -745,7 +749,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
             }
             break;
         }
-        case multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_CIRCLE_ENTRY:
+        case reference::AnalyticReference::ANALYTIC_CIRCLE_ENTRY:
         default: {
             trajectory::CircleEntryCurveParameters3 params;
             params.flags = msg.flags;
@@ -779,7 +783,7 @@ ReferenceTrajectoryRuntime::buildAnalyticEvaluator(
 }
 
 bool ReferenceTrajectoryRuntime::buildSampledEvaluator(
-    const multirotor_reference_trajectory_msgs::SampledReference& msg,
+    const reference::SampledReference& msg,
     trajectory::SampledEvaluator3& evaluator, uint32_t& flags) const {
     flags = msg.flags;
     std::vector<trajectory::SampledPoint3> samples;
@@ -807,13 +811,13 @@ bool ReferenceTrajectoryRuntime::buildSampledEvaluator(
 }
 
 bool ReferenceTrajectoryRuntime::buildWaypointProblem(
-    const multirotor_reference_trajectory_msgs::WaypointReferenceRequest& msg,
+    const reference::WaypointReferenceRequest& msg,
     trajectory::WaypointProblem3& problem, uint32_t& flags) const {
     return buildWaypointProblemFromMessage(msg, config_, problem, flags);
 }
 
 void ReferenceTrajectoryRuntime::setActiveAnalytic(
-    const multirotor_reference_trajectory_msgs::AnalyticReference& msg,
+    const reference::AnalyticReference& msg,
     std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator, uint32_t flags) {
     active_type_ = trajectory::TrajectoryModelType::kAnalytic;
     active_trajectory_id_ = msg.trajectory_id;
@@ -826,7 +830,7 @@ void ReferenceTrajectoryRuntime::setActiveAnalytic(
 }
 
 void ReferenceTrajectoryRuntime::setActiveSampled(
-    const multirotor_reference_trajectory_msgs::SampledReference& msg,
+    const reference::SampledReference& msg,
     std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator, uint32_t flags) {
     active_type_ = trajectory::TrajectoryModelType::kSampled;
     active_trajectory_id_ = msg.trajectory_id;
@@ -839,7 +843,7 @@ void ReferenceTrajectoryRuntime::setActiveSampled(
 }
 
 void ReferenceTrajectoryRuntime::setActivePolynomial(
-    multirotor_reference_trajectory_msgs::ActivePolynomialReference msg,
+    reference::ActivePolynomialReference msg,
     std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator, uint32_t flags) {
     active_type_ = trajectory::TrajectoryModelType::kPolynomial;
     active_trajectory_id_ = msg.trajectory_id;
