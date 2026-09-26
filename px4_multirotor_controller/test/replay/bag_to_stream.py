@@ -7,7 +7,9 @@ Stream format (little-endian): magic b"PMCRPLY1", then records of
 u64 receive-time ns, u8 kind, u32 length, ROS-serialized message bytes.
 Kinds: 1 state estimate, 2 local position, 3 local velocity, 4 IMU,
 5 FCU state, 6 battery, 7 VRPN pose, 8 command, 9 planner setpoint
-(alg/setpoint_raw/local), 10 hover-thrust estimate. Records keep bag order.
+(alg/setpoint_raw/local), 10 hover-thrust estimate, 11/12/13 active analytic /
+polynomial / sampled reference (alg/multirotor_reference_trajectory/active/*).
+Records keep bag order.
 """
 import struct
 import sys
@@ -27,6 +29,9 @@ kinds = {
     "/command": 8,
     ns + "/alg/setpoint_raw/local": 9,
     ns + "/hover_thrust/estimate_state": 10,
+    ns + "/alg/multirotor_reference_trajectory/active/analytic": 11,
+    ns + "/alg/multirotor_reference_trajectory/active/polynomial": 12,
+    ns + "/alg/multirotor_reference_trajectory/active/sampled": 13,
 }
 count = 0
 with rosbag.Bag(bag_path) as bag, open(out_path, "wb") as out:

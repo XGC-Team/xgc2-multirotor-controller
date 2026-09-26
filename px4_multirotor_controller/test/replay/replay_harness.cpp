@@ -10,7 +10,15 @@
 // are written bit-exact (doubles as hex bits), so two builds of the core can
 // be compared with `cmp`.
 //
-// Usage: replay_harness STREAM OUT.txt
+// Usage: replay_harness STREAM OUT.txt [px4_local|dfbc|nmpc [reference_analytic_type=N]]
+//
+// The configuration is config/uav_nmpc.yaml's, with the tracking backend
+// (default px4_local) and, optionally, nmpc/reference_analytic_type from the
+// command line. With nmpc, each REQUEST_NMPC_SOLVE is
+// solved inline, exactly as NmpcOutputConsumer's worker solves it; the result
+// arrives at the next update, as if the worker had finished at once. The
+// reference activation request (PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION) is
+// written too.
 //
 // The harness never touches the ROS network: rostime runs in simulated time
 // (ros::Time::init + setNow) and messages are deserialized from bytes.
@@ -31,6 +39,9 @@
 #include <geometry_msgs/TwistStamped.h>
 #include <hover_thrust_estimator_msgs/HoverThrustEstimate.h>
 #include <mavros_msgs/PositionTarget.h>
+#include <multirotor_reference_trajectory_msgs/ActivePolynomialReference.h>
+#include <multirotor_reference_trajectory_msgs/AnalyticReference.h>
+#include <multirotor_reference_trajectory_msgs/SampledReference.h>
 #include <mavros_msgs/State.h>
 #include <rigid_state_estimator_msgs/RigidStateEstimate.h>
 #include <ros/serialization.h>
@@ -43,6 +54,10 @@
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/drone_controller.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
+#include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
+#include "px4_multirotor_controller/ros_reference_conversion.h"
+#include "px4_multirotor_controller/uav/nmpc_tracking_backend.h"
+#include "px4_multirotor_controller/uav/reference_activation.h"
 
 namespace pmc = px4_multirotor_controller;
 namespace sm = state_machine;
@@ -116,8 +131,8 @@ void writeDoubles(FILE* out, const char* tag, std::initializer_list<double> valu
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 3) {
-        std::fprintf(stderr, "usage: replay_harness STREAM OUT.txt\n");
+    if (argc < 3 || argc > 5) {
+        std::fprintf(stderr, "usage: replay_harness STREAM OUT.txt [px4_local|dfbc|nmpc [reference_analytic_type=N]]\n");
         return 2;
     }
     const auto records = readStream(argv[1]);
@@ -128,11 +143,34 @@ int main(int argc, char** argv) {
     ros::Time::init();  // simulated time: this harness sets now explicitly
     pmc::SensorData sensor;
     pmc::DroneController controller(sensor);
-    pmc::ControllerConfig config;  // values of config/uav_nmpc.yaml that drive the px4_local path
+    // config/uav_nmpc.yaml: the values that differ from ControllerConfig's
+    // defaults (world_boundary_json null), and the backend.
+    pmc::ControllerConfig config;
     config.takeoff_altitude = 2.3;
-    config.tracking_backend = pmc::TrackingBackend::PX4_LOCAL;
     config.local_type_mask = 3072;
+    config.dfbc.acceleration_correction_enabled = true;
+    config.nmpc.hover_thrust_enabled = true;
+    config.safety.position_jump_threshold = 100.0;
+    config.safety.max_velocity_xy = 1000.0;
+    config.safety.max_velocity_z = 1000.0;
+    config.safety.acc_saturation_xy = 1000.0;
+    config.safety.acc_saturation_z = 1000.0;
+    const std::string backend = argc >= 4 ? argv[3] : "px4_local";
+    if (argc == 5) {
+        const std::string arg = argv[4];
+        const std::string key = "reference_analytic_type=";
+        if (arg.rfind(key, 0) != 0) throw std::runtime_error("unknown option " + arg);
+        config.nmpc.reference_analytic_type = std::stoi(arg.substr(key.size()));
+    }
+    if (backend == "px4_local") config.tracking_backend = pmc::TrackingBackend::PX4_LOCAL;
+    else if (backend == "dfbc") config.tracking_backend = pmc::TrackingBackend::DFBC;
+    else if (backend == "nmpc") config.tracking_backend = pmc::TrackingBackend::NMPC;
+    else throw std::runtime_error("unknown tracking backend");
     controller.setConfig(config);
+    pmc::ReferenceActivation activation;       // ReferenceActivationOutputConsumer
+    pmc::UavNmpcTrackingBackend nmpc_backend;  // NmpcOutputConsumer
+    nmpc_backend.configure(controller.getConfig());
+    bool nmpc_entered = false;
 
     std::map<uint8_t, Track> tracks = {
         {1, {&sensor.uav_state_estimate_stats, {}}}, {2, {&sensor.local_pos_stats, {}}},
@@ -272,6 +310,33 @@ int main(int argc, char** argv) {
                     post(pmc::event_type::INPUT_HOVER_THRUST_UPDATED, now, "hover_thrust/estimate_state");
                     break;
                 }
+                case 11:
+                case 12:
+                case 13: {  // TrajectoryInputProducer::active{Analytic,Polynomial,Sampled}Callback
+                    auto& cache = controller.activeTrajectoryCache();
+                    const pmc::Time received = pmc::toCoreTime(ros::Time::now());
+                    bool accepted = false;
+                    const char* source = "";
+                    if (r.kind == 11) {
+                        accepted = cache.updateAnalytic(
+                            pmc::toCoreReference(decode<multirotor_reference_trajectory_msgs::AnalyticReference>(r.data)),
+                            received);
+                        source = "alg/multirotor_reference_trajectory/active/analytic";
+                    } else if (r.kind == 12) {
+                        accepted = cache.updatePolynomial(
+                            pmc::toCoreReference(
+                                decode<multirotor_reference_trajectory_msgs::ActivePolynomialReference>(r.data)),
+                            received);
+                        source = "alg/multirotor_reference_trajectory/active/polynomial";
+                    } else {
+                        accepted = cache.updateSampled(
+                            pmc::toCoreReference(decode<multirotor_reference_trajectory_msgs::SampledReference>(r.data)),
+                            received);
+                        source = "alg/multirotor_reference_trajectory/active/sampled";
+                    }
+                    if (accepted) post(pmc::event_type::INPUT_REFERENCE_TRAJECTORY_UPDATED, now, source);
+                    break;
+                }
                 default:
                     throw std::runtime_error("unknown record kind");
             }
@@ -302,6 +367,61 @@ int main(int argc, char** argv) {
             if (e.id == pmc::output_event_type::PUBLISH_ATTITUDE_RATE_TARGET) {
                 const auto& a = controller.getAttitudeRateTarget();
                 writeDoubles(out, "art", {a.body_rate_x, a.body_rate_y, a.body_rate_z, a.thrust});
+            }
+            if (e.id == pmc::output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION) {
+                const double stamp = e.timestamp > 0.0 ? e.timestamp : ros::Time::now().toSec();
+                const auto m = activation.make(stamp, controller.getSensorData(), controller.getConfig());
+                std::fprintf(out, " activation %u.%09u req %u id %u rev %u type %u", m.header.stamp.sec,
+                             m.header.stamp.nsec, m.request_id, m.trajectory_id, m.revision, m.analytic_type);
+                std::fprintf(out, " start %u.%09u", m.start_time.sec, m.start_time.nsec);
+                writeDoubles(out, "o", {m.duration, m.origin.position.x, m.origin.position.y, m.origin.position.z,
+                                        m.origin.orientation.x, m.origin.orientation.y, m.origin.orientation.z,
+                                        m.origin.orientation.w});
+                std::fprintf(out, " params");
+                for (double v : m.params) writeDoubles(out, "", {v});
+            }
+            if (e.id == pmc::output_event_type::REQUEST_NMPC_SOLVE) {
+                // NmpcOutputConsumer::handle + workerLoop, inline.
+                const uint64_t sequence = e.correlation_id;
+                const pmc::ControllerConfig cfg = controller.getConfig();
+                const pmc::Time now(e.timestamp > 0.0 ? e.timestamp : ros::Time::now().toSec());
+                const double stage_dt =
+                    cfg.nmpc.prediction_horizon / static_cast<double>(pmc::UavNmpcSolver::horizonSteps());
+                std::vector<pmc::Se3Reference> references;
+                pmc::NmpcSolveResult result;
+                result.sequence = sequence;
+                if (!controller.activeTrajectoryCache().sampleHorizon(now, stage_dt, pmc::UavNmpcSolver::horizonSteps(),
+                                                                       cfg.nmpc.gravity, references)) {
+                    result.success = false;
+                    result.solver_status = pmc::nmpc_solver_status::kReferenceSamplingFailed;
+                    result.stamp = pmc::toCoreTime(ros::Time::now());
+                } else {
+                    const pmc::SensorData sensor = controller.getSensorData();
+                    result.stamp = now;
+                    nmpc_backend.configure(cfg);
+                    if (sequence == 1) {
+                        nmpc_backend.exit();
+                        nmpc_entered = false;
+                    }
+                    if (!nmpc_entered) nmpc_entered = nmpc_backend.enter(sensor);
+                    if (nmpc_entered) {
+                        result.success = nmpc_backend.compute(sensor, references, now, result.target);
+                        result.solver_status = nmpc_backend.status();
+                    } else {
+                        result.success = false;
+                        result.solver_status = pmc::nmpc_solver_status::kBackendUnavailable;
+                    }
+                }
+                controller.nmpcResultBuffer().store(result);
+                sm::Event done(result.success ? pmc::event_type::INPUT_NMPC_SOLVE_SUCCEEDED
+                                              : pmc::event_type::INPUT_NMPC_SOLVE_FAILED,
+                               sm::EventTimestamp{ros::Time::now().toSec()});
+                done.source = "nmpc_output_consumer";
+                done.correlation_id = sequence;
+                controller.getStateMachine().postEvent(std::move(done));
+                std::fprintf(out, " nmpc %d status %d", result.success ? 1 : 0, result.solver_status);
+                writeDoubles(out, "t", {result.target.body_rate_x, result.target.body_rate_y, result.target.body_rate_z,
+                                        result.target.thrust});
             }
             std::fputc('\n', out);
             ++events_written;

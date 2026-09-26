@@ -8,6 +8,7 @@
 #include <string>
 
 #include "px4_multirotor_controller/drone_controller.h"
+#include "px4_multirotor_controller/uav/reference_activation.h"
 
 namespace px4_multirotor_controller {
 
@@ -23,16 +24,10 @@ class ReferenceActivationOutputConsumer final : public ::state_machine::runtime:
     bool handle(const ::state_machine::Event& event) override;
 
    private:
-    multirotor_reference_trajectory_msgs::AnalyticReference makeActivationMessage(
-        const ::state_machine::Event& event, const SensorData& sensor,
-        const ControllerConfig& config);
-
     ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor_;
     DroneController& controller_;
     ros::Publisher activation_pub_;
-    uint32_t request_id_{0U};
-    uint32_t trajectory_id_{0U};
-    uint32_t revision_{0U};
+    ReferenceActivation activation_;
 };
 
 }  // namespace px4_multirotor_controller
