@@ -18,8 +18,8 @@ PREAMBLE = r"""
 #include <limits>
 #include <stdexcept>
 #include <vector>
-#define ROS_ERROR(...) ((void)0)
-#define ROS_WARN_THROTTLE(...) ((void)0)
+#define PMC_LOG_ERROR(...) ((void)0)
+#define PMC_LOG_WARN_THROTTLE(...) ((void)0)
 constexpr int UAV_NMPC_N=10;
 template<size_t N> struct Values {
     std::array<double,N> data{};
