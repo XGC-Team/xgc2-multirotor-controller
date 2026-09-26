@@ -402,8 +402,12 @@ TEST(SmcPositionTarget, UsesOnlyAvailableWorldPva) {
     const auto unset_frame = finiteWorldTarget(kDefaultPvaLocalTypeMask, 0);
     const auto unset_ingested =
         ingestPositionTarget(unset_frame, TrackingBackend::SMC, Px4LocalLiftMode::Legacy);
-    EXPECT_TRUE(unset_ingested.is_valid);
-    EXPECT_EQ(unset_ingested.coordinate_frame, 1);
+    EXPECT_FALSE(unset_ingested.is_valid);
+    EXPECT_EQ(unset_ingested.coordinate_frame, 0);
+    const auto legacy_unset =
+        ingestPositionTarget(unset_frame, TrackingBackend::PX4_LOCAL, Px4LocalLiftMode::Legacy);
+    EXPECT_TRUE(legacy_unset.is_valid);
+    EXPECT_EQ(legacy_unset.coordinate_frame, 1);
 
     const auto body = finiteWorldTarget(kDefaultPvaLocalTypeMask, 8);
     const auto legacy_body =
@@ -428,9 +432,11 @@ TEST(SmcPositionTarget, UsesOnlyAvailableWorldPva) {
                                 Px4LocalLiftMode::Legacy)
                      .success);
     partial.type_mask = 0;
-    EXPECT_FALSE(liftForBackend(partial, Time(2.05), 0.1, 3523, false, TrackingBackend::SMC,
-                                Px4LocalLiftMode::Legacy)
-                     .success);
+    const auto raw_mask = liftForBackend(partial, Time(2.05), 0.1, 3523, false, TrackingBackend::SMC,
+                                         Px4LocalLiftMode::Legacy);
+    ASSERT_TRUE(raw_mask.success);
+    EXPECT_NEAR(raw_mask.setpoint.x, 9.0 + 0.2 * 0.05 + 0.5 * 3.0 * 0.05 * 0.05, 1e-9);
+    EXPECT_NEAR(raw_mask.setpoint.ax, 3.0, 1e-12);
 
     MpcTrajectoryState forced = partial;
     forced.type_mask = static_cast<uint16_t>(kDefaultPvaLocalTypeMask | kForceBit);
@@ -455,10 +461,19 @@ TEST_F(SmcCustom1RuntimeTest, IgnoredAxesDoNotBecomeAZeroReference) {
     enterCustom1();
     sensor_.local_x = 0.2;
     const double t0 = controller_->getCurrentTime();
-    cache(Time(t0), Time(t0 - 0.05), Eigen::Vector3d(0.0, 0.0, 1.0), Eigen::Vector3d(0.2, -0.1, 0.0),
-          Eigen::Vector3d(3.0, 3.0, 3.0));
-    at(t0 + 0.02);
-    EXPECT_FALSE(publishedCommand(*controller_).attitude);
+    const Eigen::Vector3d position(0.0, 0.0, 1.0);
+    const Eigen::Vector3d velocity(0.2, -0.1, 0.0);
+    const Eigen::Vector3d acceleration(3.0, 3.0, 3.0);
+    cache(Time(t0), Time(t0 - 0.05), position, velocity, acceleration, 0);
+    const double tau = 0.02;
+    at(t0 + tau);
+    const Eigen::Vector3d reference_position =
+        position + velocity * tau + 0.5 * acceleration * tau * tau;
+    const Eigen::Vector3d reference_velocity = velocity + acceleration * tau;
+    expectAccelerationSetpoint(
+        publishedCommand(*controller_),
+        expectedSmcAcceleration(config_, sensor_, reference_position, reference_velocity,
+                                acceleration));
 }
 
 TEST_F(SmcCustom1RuntimeTest, Stage4TenHertzPvaClosesThroughOnboardLiftAndSmc) {

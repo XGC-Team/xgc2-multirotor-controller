@@ -66,8 +66,7 @@ void TrajectoryInputProducer::algSetpointCallback(
         ingestPositionTarget(ingress, config.tracking_backend, config.px4_local_lift);
     if (usesStageEffectiveTime(config.tracking_backend, config.px4_local_lift) && !traj.is_valid) {
         if (config.tracking_backend == TrackingBackend::SMC &&
-            (!smcCoordinateFrameIsWorld(ingress.coordinate_frame) ||
-             (ingress.type_mask != 0U && !smcMaskSuppliesWorldPva(ingress.type_mask)))) {
+            !smcWorldPvaAvailable(ingress.type_mask, ingress.coordinate_frame)) {
             ROS_WARN_THROTTLE(1.0,
                               "[TrajectoryInputProducer] SMC rejected PositionTarget: need world "
                               "frame 1 and every P/V/A axis, with FORCE clear");

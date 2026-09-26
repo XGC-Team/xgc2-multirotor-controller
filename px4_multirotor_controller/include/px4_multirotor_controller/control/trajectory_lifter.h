@@ -148,11 +148,10 @@ inline bool passThroughMayTakeSetpoint(const MpcTrajectoryState& sample, double 
     return passThroughPlanMatchesHover(sample, hover_x, hover_y, hover_z, xy_tol, z_tol);
 }
 
-// Absolute world frame used by this stack (MAVROS FRAME_LOCAL_NED = 1, ENU after
-// the MAVROS conversion). Frame 0 is the historical "unset, treat as local" input.
+// SMC accepts only MAVROS frame 1 (local ENU after the MAVROS conversion).
+// Frame 0 is not rewritten to 1 on this path.
 inline bool smcCoordinateFrameIsWorld(uint8_t coordinate_frame) {
-    const uint8_t frame = coordinate_frame == 0U ? 1U : coordinate_frame;
-    return frame == 1U;
+    return coordinate_frame == 1U;
 }
 
 // SMC needs every world position, velocity and acceleration component.
@@ -165,16 +164,10 @@ inline bool smcMaskSuppliesWorldPva(uint16_t type_mask) {
     return (type_mask & kForceBit) == 0U && (type_mask & kPvaIgnoreBits) == 0U;
 }
 
-// Nonzero wire masks are the message itself. A zero mask selects local_type_mask,
-// the same substitution liftWorldLocal already makes.
-inline uint16_t effectivePositionTargetMask(uint16_t type_mask, uint16_t default_mask) {
-    return type_mask != 0U ? type_mask : default_mask;
-}
-
-inline bool smcWorldPvaAvailable(uint16_t type_mask, uint8_t coordinate_frame,
-                                 uint16_t default_mask) {
-    return smcCoordinateFrameIsWorld(coordinate_frame) &&
-           smcMaskSuppliesWorldPva(effectivePositionTargetMask(type_mask, default_mask));
+// Wire mask 0 has no ignore bits, so every position, velocity and acceleration
+// axis is present. SMC does not replace it with local_type_mask.
+inline bool smcWorldPvaAvailable(uint16_t type_mask, uint8_t coordinate_frame) {
+    return smcCoordinateFrameIsWorld(coordinate_frame) && smcMaskSuppliesWorldPva(type_mask);
 }
 
 // Header effective time for SMC and for PX4_LOCAL zero-order hold.
@@ -212,7 +205,9 @@ inline MpcTrajectoryState ingestPositionTarget(const PositionTargetIngress& in,
     traj.qw = yaw_quat.w();
     traj.yaw_rate = in.yaw_rate;
     traj.type_mask = in.type_mask;
-    traj.coordinate_frame = in.coordinate_frame == 0U ? 1U : in.coordinate_frame;
+    // PX4_LOCAL still treats frame 0 as local frame 1. SMC keeps the wire frame.
+    traj.coordinate_frame =
+        backend == TrackingBackend::SMC || in.coordinate_frame != 0U ? in.coordinate_frame : 1U;
     traj.new_data_received = false;
     if (usesStageEffectiveTime(backend, lift_mode)) {
         const bool finite = in.position.allFinite() && in.velocity.allFinite() &&
@@ -221,12 +216,8 @@ inline MpcTrajectoryState ingestPositionTarget(const PositionTargetIngress& in,
         traj.planning_time = in.header_stamp;
         traj.is_valid = finite && !in.header_stamp.isZero();
         if (backend == TrackingBackend::SMC) {
-            // A zero wire mask still has to pass liftForBackend against local_type_mask.
-            // Any explicit mask or frame that is not world PVA is rejected here so the
-            // producer does not replace a live segment with an unusable one.
-            const bool wire_is_world_pva = smcCoordinateFrameIsWorld(in.coordinate_frame) &&
-                                           (in.type_mask == 0U || smcMaskSuppliesWorldPva(in.type_mask));
-            traj.is_valid = traj.is_valid && wire_is_world_pva;
+            traj.is_valid = traj.is_valid &&
+                            smcWorldPvaAvailable(in.type_mask, in.coordinate_frame);
         }
         return traj;
     }
@@ -284,10 +275,12 @@ inline EffectiveSegmentLift liftForBackend(const MpcTrajectoryState& sample, con
     EffectiveSegmentLift out;
     if (backend == TrackingBackend::SMC) {
         if (!stageWindowOpen(sample, now, planning_period) ||
-            !smcWorldPvaAvailable(sample.type_mask, sample.coordinate_frame, default_mask)) {
+            !smcWorldPvaAvailable(sample.type_mask, sample.coordinate_frame)) {
             return out;
         }
-        out.setpoint = liftWorldLocal(sample, now, default_mask, false);
+        // A wire mask of 0 must stay 0 here. liftWorldLocal would otherwise
+        // fill it from local_type_mask, which SMC does not use.
+        out.setpoint = liftWorldLocal(sample, now, 0, false);
         out.success = true;
         return out;
     }
