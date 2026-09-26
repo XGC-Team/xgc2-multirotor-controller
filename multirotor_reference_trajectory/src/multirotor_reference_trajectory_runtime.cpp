@@ -340,7 +340,15 @@ bool ReferenceTrajectoryRuntime::requestPendingWaypointPlan() {
         has_completed_plan_ = false;
         completed_plan_ = PlanningResult{};
         clearPlanningQueuesLocked();
-        planning_requests_.push(std::move(request));
+        if (!config_.inline_planning) {
+            planning_requests_.push(std::move(request));
+        }
+    }
+    if (config_.inline_planning) {
+        PlanningResult result = solveWaypointPlan(request);
+        std::lock_guard<std::mutex> lock(planning_mutex_);
+        planning_results_.push(std::move(result));
+        return true;
     }
     planning_condition_.notify_one();
     return true;

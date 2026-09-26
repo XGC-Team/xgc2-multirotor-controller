@@ -28,6 +28,10 @@ struct ReferenceTrajectoryConfig {
     double trajectory_timeout{0.5};
     double min_lead_time{0.2};
     trajectory::TrajectoryLimits3 limits{};
+    // Solve waypoint plans inside update() instead of on the planning
+    // worker thread. The result then arrives at the next update, as if the
+    // worker had finished at once, so runs are deterministic (replay).
+    bool inline_planning{false};
 };
 
 class ReferenceTrajectoryRuntime {

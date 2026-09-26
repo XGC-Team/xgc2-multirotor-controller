@@ -95,3 +95,24 @@ if(CATKIN_ENABLE_TESTING)
     pthread
   )
 endif()
+
+# Deterministic replay harness for refactoring the runtime (test/replay).
+option(REFERENCE_TRAJECTORY_REPLAY_HARNESS "Build the reference trajectory replay harness" OFF)
+if(REFERENCE_TRAJECTORY_REPLAY_HARNESS)
+  add_executable(${PROJECT_NAME}_replay_harness
+    test/replay/reference_replay_harness.cpp
+    src/multirotor_reference_trajectory_runtime.cpp
+    src/state_machine/self_check_state.cpp
+    src/state_machine/ready_state.cpp
+    src/state_machine/planning_state.cpp
+    src/state_machine/active_state.cpp
+  )
+  add_dependencies(${PROJECT_NAME}_replay_harness ${${PROJECT_NAME}_EXPORTED_TARGETS}
+                                                  ${catkin_EXPORTED_TARGETS})
+  target_link_libraries(${PROJECT_NAME}_replay_harness
+    xgc2_math::trajectory
+    xgc2_state_machine::state_machine
+    ${catkin_LIBRARIES}
+    pthread
+  )
+endif()
