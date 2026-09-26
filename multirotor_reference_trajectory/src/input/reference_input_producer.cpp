@@ -1,4 +1,5 @@
 #include "multirotor_reference_trajectory/input/reference_input_producer.h"
+#include "multirotor_reference_trajectory/ros_reference_conversion.h"
 
 #include <utility>
 
@@ -27,7 +28,7 @@ void ReferenceInputProducer::analyticCallback(
         ROS_ERROR("[ReferenceInputProducer] Null analytic reference");
         return;
     }
-    if (!runtime_.acceptAnalytic(*msg)) {
+    if (!runtime_.acceptAnalytic(toCore(*msg))) {
         ROS_WARN_THROTTLE(1.0, "[ReferenceInputProducer] Rejected analytic reference");
         return;
     }
@@ -40,7 +41,7 @@ void ReferenceInputProducer::waypointCallback(
         ROS_ERROR("[ReferenceInputProducer] Null waypoint reference");
         return;
     }
-    if (!runtime_.acceptWaypoint(*msg)) {
+    if (!runtime_.acceptWaypoint(toCore(*msg))) {
         ROS_WARN_THROTTLE(1.0, "[ReferenceInputProducer] Rejected waypoint request");
         return;
     }
@@ -53,7 +54,7 @@ void ReferenceInputProducer::sampledCallback(
         ROS_ERROR("[ReferenceInputProducer] Null sampled reference");
         return;
     }
-    if (!runtime_.acceptSampled(*msg)) {
+    if (!runtime_.acceptSampled(toCore(*msg))) {
         ROS_WARN_THROTTLE(1.0, "[ReferenceInputProducer] Rejected sampled reference");
         return;
     }

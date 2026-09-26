@@ -1,4 +1,5 @@
 #include "multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h"
+#include "multirotor_reference_trajectory/ros_reference_conversion.h"
 
 #include <gtest/gtest.h>
 
@@ -95,7 +96,8 @@ TEST(ReferenceTrajectoryRuntime, AnalyticCurveReferencesActivate) {
         runtime.update(0.0);
 
         const auto msg = makeAnalyticCurveReference(analytic_type);
-        ASSERT_TRUE(runtime.acceptAnalytic(msg)) << "analytic_type=" << analytic_type;
+        ASSERT_TRUE(runtime.acceptAnalytic(multirotor_reference_trajectory::toCore(msg)))
+            << "analytic_type=" << analytic_type;
         ASSERT_TRUE(runtime.activatePending()) << "analytic_type=" << analytic_type;
         ASSERT_NE(runtime.evaluator(), nullptr) << "analytic_type=" << analytic_type;
         EXPECT_EQ(runtime.activeType(),
@@ -125,7 +127,7 @@ TEST(ReferenceTrajectoryRuntime, ActiveAnalyticCanSwitchToAnotherAnalytic) {
 
     const auto line = makeAnalyticCurveReference(
         multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE);
-    ASSERT_TRUE(runtime.acceptAnalytic(line));
+    ASSERT_TRUE(runtime.acceptAnalytic(multirotor_reference_trajectory::toCore(line)));
     post(runtime, multirotor_reference_trajectory::event_type::ANALYTIC_RECEIVED, 0.02);
     runtime.update(0.02);
 
@@ -137,7 +139,7 @@ TEST(ReferenceTrajectoryRuntime, ActiveAnalyticCanSwitchToAnotherAnalytic) {
         multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE);
     lemniscate.trajectory_id = line.trajectory_id + 100U;
     lemniscate.revision = line.revision + 1U;
-    ASSERT_TRUE(runtime.acceptAnalytic(lemniscate));
+    ASSERT_TRUE(runtime.acceptAnalytic(multirotor_reference_trajectory::toCore(lemniscate)));
     post(runtime, multirotor_reference_trajectory::event_type::ANALYTIC_RECEIVED, 0.03);
     runtime.update(0.03);
 
@@ -160,7 +162,7 @@ TEST(ReferenceTrajectoryRuntime, WaypointPlanningUsesAsyncWorkerEvent) {
               multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_READY);
 
     const auto request = makeWaypointRequest();
-    ASSERT_TRUE(runtime.acceptWaypoint(request));
+    ASSERT_TRUE(runtime.acceptWaypoint(multirotor_reference_trajectory::toCore(request)));
     post(runtime, multirotor_reference_trajectory::event_type::WAYPOINT_RECEIVED, 0.02);
 
     runtime.update(0.02);
