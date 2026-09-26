@@ -1,7 +1,5 @@
 #pragma once
 
-#include <ros/ros.h>
-#include <ros1_utils/topic_stats.h>
 
 #include <Eigen/Dense>  // 用于 MpcTrajectoryState
 #include <cstdint>
@@ -337,7 +335,17 @@ struct SensorData {
     uint8_t fcu_system_status{0};  // 系统状态码（MAV_STATE 原始值）
 
     // 话题统计数据
-    using TopicStats = ros1_utils::TopicStats;
+    // Per-topic receive statistics. The core reads is_active/is_new; the ROS
+    // edge fills the whole struct (sensor_input_producer.cpp, syncStats).
+    struct TopicStats {
+        double frequency_hz{-1.0};
+        double dt_max{0.0};
+        double time_since_last_msg{0.0};
+        double jitter{0.0};
+        Time last_message_time;
+        bool is_active{false};
+        bool is_new{false};
+    };
     TopicStats uav_state_estimate_stats, local_pos_stats, local_velocity_stats, imu_stats,
         state_stats, battery_stats;
 

@@ -37,6 +37,7 @@
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/String.h>
 
+#include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/drone_controller.h"
 
@@ -168,7 +169,7 @@ int main(int argc, char** argv) {
                 Track& tr = it->second;
                 tr.times.push_back(now);
                 if (tr.times.size() > 10) tr.times.pop_front();
-                tr.stats->last_message_time = ros::Time().fromNSec(r.t_ns);
+                tr.stats->last_message_time = pmc::Time().fromNSec(r.t_ns);
                 tr.stats->is_active = true;
                 tr.stats->is_new = true;
             }

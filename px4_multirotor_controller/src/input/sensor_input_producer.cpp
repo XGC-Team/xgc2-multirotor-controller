@@ -2,6 +2,9 @@
 
 #include <ros/ros.h>
 
+#include "px4_multirotor_controller/common/state_estimate_status.h"
+#include "px4_multirotor_controller/ros_time_conversion.h"
+
 #include <utility>
 
 namespace px4_multirotor_controller {
@@ -51,31 +54,82 @@ void SensorInputProducer::start() {
 
     stats_manager_.register_topic<rigid_state_estimator_msgs::RigidStateEstimate>(
         nh_, state_estimate_topic_, queue_size_, &SensorInputProducer::stateEstimateCallback, this,
-        &sensor_data_.uav_state_estimate_stats);
+        &ros_stats_.state_estimate);
     stats_manager_.register_topic<geometry_msgs::PoseStamped>(
         nh_, "mavros/local_position/pose", queue_size_, &SensorInputProducer::localPosCallback,
-        this, &sensor_data_.local_pos_stats);
+        this, &ros_stats_.local_pos);
     stats_manager_.register_topic<geometry_msgs::TwistStamped>(
         nh_, "mavros/local_position/velocity_local", queue_size_,
-        &SensorInputProducer::velocityCallback, this, &sensor_data_.local_velocity_stats);
+        &SensorInputProducer::velocityCallback, this, &ros_stats_.local_velocity);
     stats_manager_.register_topic<sensor_msgs::Imu>(nh_, "mavros/imu/data", queue_size_,
                                                     &SensorInputProducer::imuCallback, this,
-                                                    &sensor_data_.imu_stats);
+                                                    &ros_stats_.imu);
     stats_manager_.register_topic<mavros_msgs::State>(nh_, "mavros/state", queue_size_,
                                                       &SensorInputProducer::stateCallback, this,
-                                                      &sensor_data_.state_stats);
+                                                      &ros_stats_.state);
     stats_manager_.register_topic<sensor_msgs::BatteryState>(nh_, "mavros/battery", queue_size_,
                                                              &SensorInputProducer::batteryCallback,
-                                                             this, &sensor_data_.battery_stats);
+                                                             this, &ros_stats_.battery);
     stats_manager_.register_topic<geometry_msgs::PoseStamped>(
         nh_, vrpn_pose_topic_, queue_size_, &SensorInputProducer::vrpnPoseCallback, this,
-        &sensor_data_.vrpn_pose_stats, &vrpn_quality_stats_);
+        &ros_stats_.vrpn_pose, &vrpn_quality_stats_);
     stats_manager_.start();
     started_ = true;
 }
 
 void SensorInputProducer::resetNewFlags() {
     stats_manager_.resetNewFlags();
+}
+
+namespace {
+
+void copyStats(const ros1_utils::TopicStats& from, SensorData::TopicStats& to) {
+    to.frequency_hz = from.frequency_hz;
+    to.dt_max = from.dt_max;
+    to.time_since_last_msg = from.time_since_last_msg;
+    to.jitter = from.jitter;
+    to.last_message_time = toCoreTime(from.last_message_time);
+    to.is_active = from.is_active;
+    to.is_new = from.is_new;
+}
+
+using Rse = rigid_state_estimator_msgs::RigidStateEstimate;
+static_assert(state_estimate::STATE_SELF_CHECK == Rse::STATE_SELF_CHECK, "estimator state");
+static_assert(state_estimate::STATE_INITIALIZING == Rse::STATE_INITIALIZING, "estimator state");
+static_assert(state_estimate::STATE_RUNNING == Rse::STATE_RUNNING, "estimator state");
+static_assert(state_estimate::STATE_COASTING == Rse::STATE_COASTING, "estimator state");
+static_assert(state_estimate::STATE_FAULT == Rse::STATE_FAULT, "estimator state");
+static_assert(state_estimate::FLAG_IMU_MISSING == Rse::FLAG_IMU_MISSING, "estimator flag");
+static_assert(state_estimate::FLAG_VRPN_MISSING == Rse::FLAG_VRPN_MISSING, "estimator flag");
+static_assert(state_estimate::FLAG_IMU_STALE == Rse::FLAG_IMU_STALE, "estimator flag");
+static_assert(state_estimate::FLAG_VRPN_STALE == Rse::FLAG_VRPN_STALE, "estimator flag");
+static_assert(state_estimate::FLAG_IMU_RATE_LOW == Rse::FLAG_IMU_RATE_LOW, "estimator flag");
+static_assert(state_estimate::FLAG_VRPN_RATE_LOW == Rse::FLAG_VRPN_RATE_LOW, "estimator flag");
+static_assert(state_estimate::FLAG_TIME_JUMP == Rse::FLAG_TIME_JUMP, "estimator flag");
+static_assert(state_estimate::FLAG_COASTING == Rse::FLAG_COASTING, "estimator flag");
+static_assert(state_estimate::FLAG_FAULT == Rse::FLAG_FAULT, "estimator flag");
+static_assert(state_estimate::FLAG_INNOVATION_REJECTED == Rse::FLAG_INNOVATION_REJECTED, "estimator flag");
+static_assert(state_estimate::FLAG_EXTRINSIC_UNVERIFIED == Rse::FLAG_EXTRINSIC_UNVERIFIED, "estimator flag");
+static_assert(state_estimate::FLAG_COVARIANCE_HIGH == Rse::FLAG_COVARIANCE_HIGH, "estimator flag");
+static_assert(state_estimate::FLAG_INVALID_IMU == Rse::FLAG_INVALID_IMU, "estimator flag");
+static_assert(state_estimate::FLAG_INVALID_VRPN == Rse::FLAG_INVALID_VRPN, "estimator flag");
+static_assert(state_estimate::FLAG_POSE_TIME_ALIGNMENT_REJECTED == Rse::FLAG_POSE_TIME_ALIGNMENT_REJECTED, "estimator flag");
+static_assert(state_estimate::FLAG_VRPN_SUSPECTED == Rse::FLAG_VRPN_SUSPECTED, "estimator flag");
+static_assert(state_estimate::FLAG_VRPN_FAULT == Rse::FLAG_VRPN_FAULT, "estimator flag");
+static_assert(state_estimate::FLAG_VRPN_RECOVERY == Rse::FLAG_VRPN_RECOVERY, "estimator flag");
+static_assert(state_estimate::FLAG_FILTER_DEGRADED == Rse::FLAG_FILTER_DEGRADED, "estimator flag");
+static_assert(state_estimate::FLAG_FILTER_IMU_ONLY == Rse::FLAG_FILTER_IMU_ONLY, "estimator flag");
+
+}  // namespace
+
+void SensorInputProducer::syncStats() {
+    copyStats(ros_stats_.state_estimate, sensor_data_.uav_state_estimate_stats);
+    copyStats(ros_stats_.local_pos, sensor_data_.local_pos_stats);
+    copyStats(ros_stats_.local_velocity, sensor_data_.local_velocity_stats);
+    copyStats(ros_stats_.imu, sensor_data_.imu_stats);
+    copyStats(ros_stats_.state, sensor_data_.state_stats);
+    copyStats(ros_stats_.battery, sensor_data_.battery_stats);
+    copyStats(ros_stats_.vrpn_pose, sensor_data_.vrpn_pose_stats);
 }
 
 void SensorInputProducer::localPosCallback(const geometry_msgs::PoseStamped::ConstPtr& msg) {

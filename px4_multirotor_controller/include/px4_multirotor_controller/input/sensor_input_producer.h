@@ -31,6 +31,9 @@ class SensorInputProducer {
     void setVrpnPoseTopic(std::string pose_topic);
     void start();
     void resetNewFlags();
+    // Copy the ROS-side topic stats into SensorData. The node calls this right
+    // before DroneController::update(), the only place the core reads them.
+    void syncStats();
 
    private:
     void stateEstimateCallback(const rigid_state_estimator_msgs::RigidStateEstimate::ConstPtr& msg);
@@ -49,6 +52,11 @@ class SensorInputProducer {
     EventSink event_sink_;
     std::function<void()> on_state_message_;
     ros1_utils::TopicStatsManager stats_manager_;
+    // Written by stats_manager_ (callbacks and its timer); copied into
+    // SensorData by syncStats().
+    struct RosStats {
+        ros1_utils::TopicStats state_estimate, local_pos, local_velocity, imu, state, battery, vrpn_pose;
+    } ros_stats_;
     ros1_utils::PositionQualityDetector vrpn_quality_detector_;
     std::string state_estimate_topic_{"alg/state_estimator/state"};
     std::string vrpn_pose_topic_{"pose"};
