@@ -1,4 +1,5 @@
 #include "px4_multirotor_controller/tracking/dfbc_attitude_rate_strategy.h"
+#include "px4_multirotor_controller/common/core_log.h"
 
 #include <algorithm>
 #include <cmath>
@@ -37,13 +38,13 @@ void DfbcAttitudeRateStrategy::configure(const ControllerConfig& config) {
 
 bool DfbcAttitudeRateStrategy::enter(const SensorData& sensor, const ros::Time& now) {
     if (!hoverThrustReady(sensor, now)) {
-        ROS_WARN_THROTTLE(1.0, "[DfbcAttitudeRateStrategy] Waiting for hover thrust estimate");
+        PMC_LOG_WARN_THROTTLE(1.0, "[DfbcAttitudeRateStrategy] Waiting for hover thrust estimate");
         return false;
     }
     entered_ = true;
     last_log_time_ = ros::Time();
     controller_.reset();
-    ROS_INFO("[DfbcAttitudeRateStrategy] DFBC attitude-rate tracking started");
+    PMC_LOG_INFO("[DfbcAttitudeRateStrategy] DFBC attitude-rate tracking started");
     return true;
 }
 
@@ -99,7 +100,7 @@ bool DfbcAttitudeRateStrategy::update(const TrackingStrategyInput& input,
     if (config_.nmpc.enable_timing_log &&
         (last_log_time_.isZero() ||
          (input.now - last_log_time_).toSec() >= config_.dfbc.log_period)) {
-        ROS_INFO(
+        PMC_LOG_INFO(
             "[DfbcAttitudeRateStrategy] thrust=%.3f thrust_norm=%.3f "
             "omega_cmd=[%.3f %.3f %.3f] e_p=[%.3f %.3f %.3f] "
             "e_v=[%.3f %.3f %.3f] e_tilt=[%.3f %.3f %.3f] e_yaw=%.3f",
@@ -110,7 +111,7 @@ bool DfbcAttitudeRateStrategy::update(const TrackingStrategyInput& input,
             dfbc_output.thrust_direction_error.x(), dfbc_output.thrust_direction_error.y(),
             dfbc_output.thrust_direction_error.z(), dfbc_output.yaw_error);
         if (dfbc_output.acceleration_correction_active) {
-            ROS_INFO(
+            PMC_LOG_INFO(
                 "[DfbcAttitudeRateStrategy] accel_fix a_nom=[%.3f %.3f %.3f] "
                 "a_meas=[%.3f %.3f %.3f] e_a_lpf=[%.3f %.3f %.3f] "
                 "a_corr=[%.3f %.3f %.3f] a_cmd=[%.3f %.3f %.3f]",

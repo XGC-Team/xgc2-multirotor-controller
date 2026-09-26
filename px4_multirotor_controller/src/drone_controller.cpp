@@ -1,8 +1,8 @@
 #include "px4_multirotor_controller/drone_controller.h"
+#include "px4_multirotor_controller/common/core_log.h"
 
 #include "px4_multirotor_controller/common/controller_clock.h"
 
-#include <ros/ros.h>
 
 #include <stdexcept>
 
@@ -391,15 +391,15 @@ bool DroneController::custom1ReferenceReady() const {
 }
 
 void DroneController::emitLogInfo(const char* message) const {
-    ROS_INFO("%s", message);
+    PMC_LOG_INFO("%s", message);
 }
 
 void DroneController::emitLogWarn(const char* message) const {
-    ROS_WARN("%s", message);
+    PMC_LOG_WARN("%s", message);
 }
 
 void DroneController::emitLogError(const char* message) const {
-    ROS_ERROR("%s", message);
+    PMC_LOG_ERROR("%s", message);
 }
 
 }  // namespace px4_multirotor_controller

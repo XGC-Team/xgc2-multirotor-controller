@@ -1,6 +1,6 @@
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
+#include "px4_multirotor_controller/common/core_log.h"
 
-#include <ros/console.h>
 
 #include <algorithm>
 #include <chrono>
@@ -34,19 +34,19 @@ bool UavNmpcSolver::initialize() {
         UAV_NMPC_NH != 4 || UAV_NMPC_NHN != 1 || UAV_NMPC_NSBU != 4 || UAV_NMPC_NSBX != 9 ||
         UAV_NMPC_NSH != 1 || UAV_NMPC_NS != 14 || UAV_NMPC_NS0 != 4 || UAV_NMPC_NSBXN != 9 ||
         UAV_NMPC_NSHN != 1 || UAV_NMPC_NSN != 10) {
-        ROS_ERROR("[UavNmpcSolver] Unexpected generated solver dimensions");
+        PMC_LOG_ERROR("[UavNmpcSolver] Unexpected generated solver dimensions");
         return false;
     }
 
     capsule_ = uav_nmpc_acados_create_capsule();
     if (!capsule_) {
-        ROS_ERROR("[UavNmpcSolver] Failed to create acados capsule");
+        PMC_LOG_ERROR("[UavNmpcSolver] Failed to create acados capsule");
         return false;
     }
 
     const int status = uav_nmpc_acados_create(capsule_);
     if (status != 0) {
-        ROS_ERROR("[UavNmpcSolver] uav_nmpc_acados_create failed: %d", status);
+        PMC_LOG_ERROR("[UavNmpcSolver] uav_nmpc_acados_create failed: %d", status);
         cleanup();
         return false;
     }
@@ -57,7 +57,7 @@ bool UavNmpcSolver::initialize() {
     }
 
     resetWarmStart();
-    ROS_INFO("[UavNmpcSolver] Initialized generated acados solver (N=%d, nx=%d, nu=%d)", UAV_NMPC_N,
+    PMC_LOG_INFO("[UavNmpcSolver] Initialized generated acados solver (N=%d, nx=%d, nu=%d)", UAV_NMPC_N,
              UAV_NMPC_NX, UAV_NMPC_NU);
     return true;
 }
@@ -68,20 +68,20 @@ bool UavNmpcSolver::configureInputBounds(double specific_thrust_min, double spec
                                          double max_yaw_angular_acceleration) {
     if (!std::isfinite(specific_thrust_min) || !std::isfinite(specific_thrust_max) ||
         specific_thrust_min < 0.0 || specific_thrust_max <= specific_thrust_min) {
-        ROS_ERROR("[UavNmpcSolver] Invalid input thrust bounds [%.3f, %.3f]", specific_thrust_min,
+        PMC_LOG_ERROR("[UavNmpcSolver] Invalid input thrust bounds [%.3f, %.3f]", specific_thrust_min,
                   specific_thrust_max);
         return false;
     }
     if (!std::isfinite(max_roll_pitch_body_rate) || max_roll_pitch_body_rate <= 0.0 ||
         !std::isfinite(max_yaw_body_rate) || max_yaw_body_rate <= 0.0) {
-        ROS_ERROR("[UavNmpcSolver] Invalid body-rate bounds roll_pitch=%.3f yaw=%.3f",
+        PMC_LOG_ERROR("[UavNmpcSolver] Invalid body-rate bounds roll_pitch=%.3f yaw=%.3f",
                   max_roll_pitch_body_rate, max_yaw_body_rate);
         return false;
     }
     if (!std::isfinite(max_roll_pitch_angular_acceleration) ||
         max_roll_pitch_angular_acceleration <= 0.0 ||
         !std::isfinite(max_yaw_angular_acceleration) || max_yaw_angular_acceleration <= 0.0) {
-        ROS_ERROR("[UavNmpcSolver] Invalid angular-acceleration bounds roll_pitch=%.3f yaw=%.3f",
+        PMC_LOG_ERROR("[UavNmpcSolver] Invalid angular-acceleration bounds roll_pitch=%.3f yaw=%.3f",
                   max_roll_pitch_angular_acceleration, max_yaw_angular_acceleration);
         return false;
     }
@@ -108,7 +108,7 @@ bool UavNmpcSolver::configureInputBounds(double specific_thrust_min, double spec
 
 bool UavNmpcSolver::configureAngularAccelerationWeights(const Eigen::Vector3d& weights) {
     if (!weights.array().isFinite().all() || (weights.array() <= 0.0).any()) {
-        ROS_ERROR("[UavNmpcSolver] Invalid angular-acceleration weights [%.6f %.6f %.6f]",
+        PMC_LOG_ERROR("[UavNmpcSolver] Invalid angular-acceleration weights [%.6f %.6f %.6f]",
                   weights.x(), weights.y(), weights.z());
         return false;
     }
@@ -140,14 +140,14 @@ bool UavNmpcSolver::solve(const Se3StateVector& x0, double thrust_actual,
         return false;
     }
     if (references.size() != static_cast<size_t>(UAV_NMPC_N + 2)) {
-        ROS_ERROR("[UavNmpcSolver] Expected %d references, got %zu", UAV_NMPC_N + 2,
+        PMC_LOG_ERROR("[UavNmpcSolver] Expected %d references, got %zu", UAV_NMPC_N + 2,
                   references.size());
         return false;
     }
     if (!control::isFinite(x0) || !std::isfinite(thrust_actual) ||
         !std::isfinite(last_commanded_specific_thrust) ||
         !last_commanded_body_rate.array().isFinite().all()) {
-        ROS_WARN_THROTTLE(1.0, "[UavNmpcSolver] Non-finite initial state");
+        PMC_LOG_WARN_THROTTLE(1.0, "[UavNmpcSolver] Non-finite initial state");
         return false;
     }
 
@@ -170,7 +170,7 @@ bool UavNmpcSolver::solve(const Se3StateVector& x0, double thrust_actual,
     solve_time_ms_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
     if (solver_status_ != 0) {
-        ROS_WARN_THROTTLE(1.0, "[UavNmpcSolver] Solve failed with status %d", solver_status_);
+        PMC_LOG_WARN_THROTTLE(1.0, "[UavNmpcSolver] Solve failed with status %d", solver_status_);
         return false;
     }
 
@@ -186,7 +186,7 @@ bool UavNmpcSolver::solve(const Se3StateVector& x0, double thrust_actual,
         constexpr int kNonFiniteSolution = -1001;
         solver_status_ = kNonFiniteSolution;
         resetWarmStart();
-        ROS_WARN_THROTTLE(1.0, "[UavNmpcSolver] Rejected non-finite solution");
+        PMC_LOG_WARN_THROTTLE(1.0, "[UavNmpcSolver] Rejected non-finite solution");
         return false;
     }
     shiftWarmStart(references);
@@ -215,7 +215,7 @@ bool UavNmpcSolver::applyRuntimeBounds() {
                                                 path_upper_bounds_.data());
     }
     if (status != 0) {
-        ROS_ERROR("[UavNmpcSolver] Failed to apply input/path bounds");
+        PMC_LOG_ERROR("[UavNmpcSolver] Failed to apply input/path bounds");
         return false;
     }
     return true;
@@ -231,7 +231,7 @@ bool UavNmpcSolver::setInitialState(const UavNmpcStateVector& x0) {
     status |= ocp_nlp_constraints_model_set(config, dims, in, out, 0, "ubx",
                                             const_cast<double*>(x0.data()));
     if (status != 0) {
-        ROS_ERROR("[UavNmpcSolver] Failed to set x0 constraint");
+        PMC_LOG_ERROR("[UavNmpcSolver] Failed to set x0 constraint");
         return false;
     }
     return true;
@@ -249,7 +249,7 @@ bool UavNmpcSolver::setReference(int stage, const Se3Reference& reference,
     p.segment<3>(UAV_NMPC_NX + 8) = angular_acceleration_sqrt_weights_;
     const int status = uav_nmpc_acados_update_params(capsule_, stage, p.data(), UAV_NMPC_NP);
     if (status != 0) {
-        ROS_ERROR("[UavNmpcSolver] Failed to update params at stage %d", stage);
+        PMC_LOG_ERROR("[UavNmpcSolver] Failed to update params at stage %d", stage);
         return false;
     }
     return true;

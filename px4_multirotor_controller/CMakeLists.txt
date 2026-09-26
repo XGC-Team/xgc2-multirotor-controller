@@ -283,6 +283,7 @@ target_link_libraries(px4_multirotor_controller_uav_nmpc_generated
 set_target_properties(px4_multirotor_controller_uav_nmpc_generated PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(px4_multirotor_controller_uav_nmpc_runtime
+  src/core_log.cpp
   src/nmpc/uav_nmpc_solver.cpp
   src/uav/nmpc_tracking_backend.cpp
 )
@@ -307,6 +308,7 @@ target_link_libraries(px4_multirotor_controller_uav_nmpc_runtime
 add_executable(${PROJECT_NAME}_node
   src/main.cpp
   src/drone_ros_node.cpp
+  src/ros_log_sink.cpp
   src/drone_controller.cpp
   src/world_boundary.cpp
   src/input/command_input_producer.cpp
