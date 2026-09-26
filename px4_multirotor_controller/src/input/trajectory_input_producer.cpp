@@ -1,4 +1,5 @@
 #include "px4_multirotor_controller/input/trajectory_input_producer.h"
+#include "px4_multirotor_controller/ros_reference_conversion.h"
 #include "px4_multirotor_controller/ros_time_conversion.h"
 
 #include <ros/ros.h>
@@ -82,7 +83,7 @@ void TrajectoryInputProducer::activeAnalyticCallback(
         ROS_ERROR("[TrajectoryInputProducer] Received null active analytic trajectory");
         return;
     }
-    if (!active_trajectory_cache_.updateAnalytic(*msg, toCoreTime(ros::Time::now()))) {
+    if (!active_trajectory_cache_.updateAnalytic(toCoreReference(*msg), toCoreTime(ros::Time::now()))) {
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active analytic trajectory");
         return;
     }
@@ -96,7 +97,7 @@ void TrajectoryInputProducer::activePolynomialCallback(
         ROS_ERROR("[TrajectoryInputProducer] Received null active polynomial trajectory");
         return;
     }
-    if (!active_trajectory_cache_.updatePolynomial(*msg, toCoreTime(ros::Time::now()))) {
+    if (!active_trajectory_cache_.updatePolynomial(toCoreReference(*msg), toCoreTime(ros::Time::now()))) {
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active polynomial trajectory");
         return;
     }
@@ -110,7 +111,7 @@ void TrajectoryInputProducer::activeSampledCallback(
         ROS_ERROR("[TrajectoryInputProducer] Received null active sampled trajectory");
         return;
     }
-    if (!active_trajectory_cache_.updateSampled(*msg, toCoreTime(ros::Time::now()))) {
+    if (!active_trajectory_cache_.updateSampled(toCoreReference(*msg), toCoreTime(ros::Time::now()))) {
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active sampled trajectory");
         return;
     }
