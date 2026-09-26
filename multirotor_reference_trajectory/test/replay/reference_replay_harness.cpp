@@ -34,6 +34,7 @@
 #include <std_msgs/Empty.h>
 
 #include "multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h"
+#include "multirotor_reference_trajectory/ros_reference_conversion.h"
 
 namespace mrt = multirotor_reference_trajectory;
 namespace msgs = multirotor_reference_trajectory_msgs;
@@ -226,21 +227,21 @@ int main(int argc, char** argv) {
             std::fprintf(out, "%" PRIu64 " in %u\n", k, r.kind);
             switch (r.kind) {
                 case 1:
-                    if (runtime.acceptAnalytic(decode<msgs::AnalyticReference>(r.data))) {
+                    if (runtime.acceptAnalytic(mrt::toCore(decode<msgs::AnalyticReference>(r.data)))) {
                         post(mrt::event_type::ANALYTIC_RECEIVED, "analytic_reference");
                     } else {
                         std::fprintf(out, "  rejected\n");
                     }
                     break;
                 case 2:
-                    if (runtime.acceptWaypoint(decode<msgs::WaypointReferenceRequest>(r.data))) {
+                    if (runtime.acceptWaypoint(mrt::toCore(decode<msgs::WaypointReferenceRequest>(r.data)))) {
                         post(mrt::event_type::WAYPOINT_RECEIVED, "waypoint_reference");
                     } else {
                         std::fprintf(out, "  rejected\n");
                     }
                     break;
                 case 3:
-                    if (runtime.acceptSampled(decode<msgs::SampledReference>(r.data))) {
+                    if (runtime.acceptSampled(mrt::toCore(decode<msgs::SampledReference>(r.data)))) {
                         post(mrt::event_type::SAMPLED_RECEIVED, "sampled_reference");
                     } else {
                         std::fprintf(out, "  rejected\n");
@@ -262,13 +263,13 @@ int main(int argc, char** argv) {
                          static_cast<int>(e.category), e.source.c_str());
             // ReferenceOutputConsumer::handle
             if (e.id == mrt::output_event_type::PUBLISH_STATUS) {
-                writeStatus(runtime.makeStatus(e.timestamp > 0.0 ? e.timestamp : ros::Time::now().toSec()));
+                writeStatus(mrt::toRos(runtime.makeStatus(e.timestamp > 0.0 ? e.timestamp : ros::Time::now().toSec())));
             } else if (e.id == mrt::output_event_type::PUBLISH_ACTIVE_ANALYTIC) {
-                writeAnalytic(runtime.activeAnalyticMessage());
+                writeAnalytic(mrt::toRos(runtime.activeAnalyticMessage()));
             } else if (e.id == mrt::output_event_type::PUBLISH_ACTIVE_POLYNOMIAL) {
-                writePolynomial(runtime.activePolynomialMessage());
+                writePolynomial(mrt::toRos(runtime.activePolynomialMessage()));
             } else if (e.id == mrt::output_event_type::PUBLISH_ACTIVE_SAMPLED) {
-                writeSampled(runtime.activeSampledMessage());
+                writeSampled(mrt::toRos(runtime.activeSampledMessage()));
             }
             std::fputc('\n', out);
             ++events_written;
@@ -282,7 +283,7 @@ int main(int argc, char** argv) {
             std::fprintf(out, "%" PRIu64 " flags %u\n", k, runtime.flags());
             last_flags = runtime.flags();
         }
-        ros::Time start;
+        mrt::Time start;
         if (runtime.activeType() == trajectory::TrajectoryModelType::kAnalytic) {
             start = runtime.activeAnalyticMessage().start_time;
         } else if (runtime.activeType() == trajectory::TrajectoryModelType::kSampled) {

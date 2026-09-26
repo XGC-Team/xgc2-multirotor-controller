@@ -1,11 +1,5 @@
 #pragma once
 
-#include <multirotor_reference_trajectory_msgs/ActivePolynomialReference.h>
-#include <multirotor_reference_trajectory_msgs/AnalyticReference.h>
-#include <multirotor_reference_trajectory_msgs/ReferenceStatus.h>
-#include <multirotor_reference_trajectory_msgs/SampledReference.h>
-#include <multirotor_reference_trajectory_msgs/WaypointReferenceRequest.h>
-
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -15,6 +9,7 @@
 #include <thread>
 #include <xgc2_math/trajectory.hpp>
 
+#include "multirotor_reference_trajectory/reference_types.h"
 #include "multirotor_reference_trajectory/state_machine/event_types.h"
 
 namespace multirotor_reference_trajectory {
@@ -46,9 +41,9 @@ class ReferenceTrajectoryRuntime {
     ::state_machine::Status postEvent(::state_machine::Event event);
     void update(double now_sec);
 
-    bool acceptAnalytic(const multirotor_reference_trajectory_msgs::AnalyticReference& msg);
-    bool acceptSampled(const multirotor_reference_trajectory_msgs::SampledReference& msg);
-    bool acceptWaypoint(const multirotor_reference_trajectory_msgs::WaypointReferenceRequest& msg);
+    bool acceptAnalytic(const reference::AnalyticReference& msg);
+    bool acceptSampled(const reference::SampledReference& msg);
+    bool acceptWaypoint(const reference::WaypointReferenceRequest& msg);
 
     bool activatePending();
     bool requestPendingWaypointPlan();
@@ -78,17 +73,17 @@ class ReferenceTrajectoryRuntime {
         return flags_;
     }
 
-    const multirotor_reference_trajectory_msgs::AnalyticReference& activeAnalyticMessage() const {
+    const reference::AnalyticReference& activeAnalyticMessage() const {
         return active_analytic_;
     }
-    const multirotor_reference_trajectory_msgs::SampledReference& activeSampledMessage() const {
+    const reference::SampledReference& activeSampledMessage() const {
         return active_sampled_;
     }
-    const multirotor_reference_trajectory_msgs::ActivePolynomialReference& activePolynomialMessage()
+    const reference::ActivePolynomialReference& activePolynomialMessage()
         const {
         return active_polynomial_;
     }
-    multirotor_reference_trajectory_msgs::ReferenceStatus makeStatus(double stamp_sec) const;
+    reference::ReferenceStatus makeStatus(double stamp_sec) const;
     const trajectory::TrajectoryEvaluator3* evaluator() const {
         return active_evaluator_.get();
     }
@@ -105,7 +100,7 @@ class ReferenceTrajectoryRuntime {
         double now_sec{0.0};
         uint32_t active_revision{0U};
         ReferenceTrajectoryConfig config{};
-        multirotor_reference_trajectory_msgs::WaypointReferenceRequest msg{};
+        reference::WaypointReferenceRequest msg{};
     };
 
     struct PlanningResult {
@@ -113,7 +108,7 @@ class ReferenceTrajectoryRuntime {
         uint64_t generation{0U};
         bool success{false};
         uint32_t flags{0U};
-        multirotor_reference_trajectory_msgs::ActivePolynomialReference msg{};
+        reference::ActivePolynomialReference msg{};
         std::unique_ptr<trajectory::PiecewisePolynomialEvaluator3> evaluator;
     };
 
@@ -123,32 +118,32 @@ class ReferenceTrajectoryRuntime {
     void drainPlanningResults(double now_sec);
     void clearPlanningQueuesLocked();
     std::unique_ptr<trajectory::TrajectoryEvaluator3> buildAnalyticEvaluator(
-        const multirotor_reference_trajectory_msgs::AnalyticReference& msg, uint32_t& flags) const;
-    bool buildSampledEvaluator(const multirotor_reference_trajectory_msgs::SampledReference& msg,
+        const reference::AnalyticReference& msg, uint32_t& flags) const;
+    bool buildSampledEvaluator(const reference::SampledReference& msg,
                                trajectory::SampledEvaluator3& evaluator, uint32_t& flags) const;
     bool buildWaypointProblem(
-        const multirotor_reference_trajectory_msgs::WaypointReferenceRequest& msg,
+        const reference::WaypointReferenceRequest& msg,
         trajectory::WaypointProblem3& problem, uint32_t& flags) const;
-    void setActiveAnalytic(const multirotor_reference_trajectory_msgs::AnalyticReference& msg,
+    void setActiveAnalytic(const reference::AnalyticReference& msg,
                            std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator,
                            uint32_t flags);
-    void setActiveSampled(const multirotor_reference_trajectory_msgs::SampledReference& msg,
+    void setActiveSampled(const reference::SampledReference& msg,
                           std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator,
                           uint32_t flags);
-    void setActivePolynomial(multirotor_reference_trajectory_msgs::ActivePolynomialReference msg,
+    void setActivePolynomial(reference::ActivePolynomialReference msg,
                              std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator,
                              uint32_t flags);
 
     ReferenceTrajectoryConfig config_{};
     std::unique_ptr<::state_machine::StateMachine> machine_;
-    uint8_t state_{multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_SELF_CHECK};
+    uint8_t state_{reference::ReferenceStatus::STATE_SELF_CHECK};
     double current_time_sec_{0.0};
     uint32_t flags_{0U};
 
     PendingKind pending_kind_{PendingKind::kNone};
-    multirotor_reference_trajectory_msgs::AnalyticReference pending_analytic_;
-    multirotor_reference_trajectory_msgs::SampledReference pending_sampled_;
-    multirotor_reference_trajectory_msgs::WaypointReferenceRequest pending_waypoint_;
+    reference::AnalyticReference pending_analytic_;
+    reference::SampledReference pending_sampled_;
+    reference::WaypointReferenceRequest pending_waypoint_;
 
     mutable std::mutex planning_mutex_;
     std::condition_variable planning_condition_;
@@ -168,9 +163,9 @@ class ReferenceTrajectoryRuntime {
     double active_start_sec_{0.0};
     double active_duration_{0.0};
     std::unique_ptr<trajectory::TrajectoryEvaluator3> active_evaluator_;
-    multirotor_reference_trajectory_msgs::AnalyticReference active_analytic_;
-    multirotor_reference_trajectory_msgs::SampledReference active_sampled_;
-    multirotor_reference_trajectory_msgs::ActivePolynomialReference active_polynomial_;
+    reference::AnalyticReference active_analytic_;
+    reference::SampledReference active_sampled_;
+    reference::ActivePolynomialReference active_polynomial_;
 };
 
 }  // namespace multirotor_reference_trajectory
