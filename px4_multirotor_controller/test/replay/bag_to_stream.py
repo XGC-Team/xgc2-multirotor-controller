@@ -6,7 +6,8 @@ Usage: bag_to_stream.py FLIGHT.bag OUT.stream [NAMESPACE]   (NAMESPACE default /
 Stream format (little-endian): magic b"PMCRPLY1", then records of
 u64 receive-time ns, u8 kind, u32 length, ROS-serialized message bytes.
 Kinds: 1 state estimate, 2 local position, 3 local velocity, 4 IMU,
-5 FCU state, 6 battery, 7 VRPN pose, 8 command. Records keep bag order.
+5 FCU state, 6 battery, 7 VRPN pose, 8 command, 9 planner setpoint
+(alg/setpoint_raw/local), 10 hover-thrust estimate. Records keep bag order.
 """
 import struct
 import sys
@@ -24,6 +25,8 @@ kinds = {
     ns + "/mavros/battery": 6,
     ns + "/pose": 7,
     "/command": 8,
+    ns + "/alg/setpoint_raw/local": 9,
+    ns + "/hover_thrust/estimate_state": 10,
 }
 count = 0
 with rosbag.Bag(bag_path) as bag, open(out_path, "wb") as out:

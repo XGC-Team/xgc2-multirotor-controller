@@ -29,6 +29,8 @@
 
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TwistStamped.h>
+#include <hover_thrust_estimator_msgs/HoverThrustEstimate.h>
+#include <mavros_msgs/PositionTarget.h>
 #include <mavros_msgs/State.h>
 #include <rigid_state_estimator_msgs/RigidStateEstimate.h>
 #include <ros/serialization.h>
@@ -40,6 +42,7 @@
 #include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/drone_controller.h"
+#include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 
 namespace pmc = px4_multirotor_controller;
 namespace sm = state_machine;
@@ -233,6 +236,40 @@ int main(int argc, char** argv) {
                 case 8: {
                     const auto m = decode<std_msgs::String>(r.data);
                     if (auto it = kCommands.find(m.data); it != kCommands.end()) post(it->second, now, "command");
+                    break;
+                }
+                case 9: {  // TrajectoryInputProducer::algSetpointCallback
+                    if (controller.getConfig().tracking_backend != pmc::TrackingBackend::PX4_LOCAL) break;
+                    const auto m = decode<mavros_msgs::PositionTarget>(r.data);
+                    pmc::MpcTrajectoryState traj;
+                    traj.position_k = Eigen::Vector3d(m.position.x, m.position.y, m.position.z);
+                    traj.velocity_k = Eigen::Vector3d(m.velocity.x, m.velocity.y, m.velocity.z);
+                    traj.acceleration_k =
+                        Eigen::Vector3d(m.acceleration_or_force.x, m.acceleration_or_force.y, m.acceleration_or_force.z);
+                    traj.planning_time = pmc::Time().fromNSec(r.t_ns);
+                    const Eigen::Quaterniond q = pmc::yawToQuaternion(m.yaw);
+                    traj.qx = q.x(); traj.qy = q.y(); traj.qz = q.z(); traj.qw = q.w();
+                    traj.yaw_rate = m.yaw_rate;
+                    traj.type_mask = m.type_mask;
+                    traj.coordinate_frame = m.coordinate_frame;
+                    traj.is_valid = true;
+                    traj.new_data_received = false;
+                    controller.mpcTrajectoryBuffer().cachePending(traj);
+                    post(pmc::event_type::INPUT_MPC_TRAJECTORY_UPDATED, now, "alg/setpoint_raw/local");
+                    break;
+                }
+                case 10: {  // TrajectoryInputProducer::hoverThrustCallback
+                    const auto m = decode<hover_thrust_estimator_msgs::HoverThrustEstimate>(r.data);
+                    if (!std::isfinite(m.hover_thrust) || m.hover_thrust <= 0.0 || m.hover_thrust >= 1.0) {
+                        sensor.hover_thrust_estimate_available = false;
+                        sensor.hover_thrust_estimate_flags = m.flags;
+                        break;
+                    }
+                    sensor.hover_thrust_estimate = m.hover_thrust;
+                    sensor.hover_thrust_estimate_stamp = (m.header.stamp.isZero() ? ros::Time::now() : m.header.stamp).toSec();
+                    sensor.hover_thrust_estimate_available = true;
+                    sensor.hover_thrust_estimate_flags = m.flags;
+                    post(pmc::event_type::INPUT_HOVER_THRUST_UPDATED, now, "hover_thrust/estimate_state");
                     break;
                 }
                 default:
