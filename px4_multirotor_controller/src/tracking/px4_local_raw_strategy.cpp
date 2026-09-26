@@ -43,8 +43,14 @@ bool Px4LocalRawStrategy::update(const TrackingStrategyInput& input,
     sample.coordinate_frame = 1;
     sample.is_valid = true;
 
-    result.local_setpoint =
-        liftWorldLocal(sample, input.now, config_.local_type_mask, config_.enable_yaw_control);
+    const auto lifted = liftForBackend(sample, input.now, config_.planning_period,
+                                       config_.local_type_mask, config_.enable_yaw_control,
+                                       TrackingBackend::PX4_LOCAL, config_.px4_local_lift);
+    if (!lifted.success) {
+        result.message = "PX4 local lift failed";
+        return false;
+    }
+    result.local_setpoint = lifted.setpoint;
     result.output_kind = TrackingStrategyResult::OutputKind::LocalSetpoint;
     result.success = true;
     return true;

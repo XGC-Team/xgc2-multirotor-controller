@@ -273,6 +273,8 @@ void DroneRosNode::loadControllerConfig() {
         config.tracking_backend = TrackingBackend::NMPC;
     } else if (tracking_backend == "dfbc") {
         config.tracking_backend = TrackingBackend::DFBC;
+    } else if (tracking_backend == "smc") {
+        config.tracking_backend = TrackingBackend::SMC;
     } else {
         ROS_WARN("[DroneRosNode] Unknown tracking_backend=%s, using px4_local",
                  tracking_backend.c_str());
@@ -280,6 +282,21 @@ void DroneRosNode::loadControllerConfig() {
         tracking_backend = "px4_local";
     }
     ROS_INFO("[DroneRosNode] Tracking backend: %s", tracking_backend.c_str());
+
+    std::string px4_local_lift = "legacy";
+    nh_private_.param("px4_local_lift", px4_local_lift, px4_local_lift);
+    if (px4_local_lift == "legacy") {
+        config.px4_local_lift = Px4LocalLiftMode::Legacy;
+    } else if (px4_local_lift == "zero_order_hold") {
+        config.px4_local_lift = Px4LocalLiftMode::ZeroOrderHold;
+    } else {
+        ROS_WARN("[DroneRosNode] Unknown px4_local_lift=%s, using legacy", px4_local_lift.c_str());
+        config.px4_local_lift = Px4LocalLiftMode::Legacy;
+        px4_local_lift = "legacy";
+    }
+    nh_private_.param("smc/k1", config.smc.k1, config.smc.k1);
+    nh_private_.param("smc/k2", config.smc.k2, config.smc.k2);
+    nh_private_.param("smc/boundary_layer", config.smc.boundary_layer, config.smc.boundary_layer);
 
     int local_type_mask = static_cast<int>(config.local_type_mask);
     nh_private_.param("local_type_mask", local_type_mask, local_type_mask);
@@ -612,10 +629,16 @@ void DroneRosNode::loadControllerConfig() {
             config.dfbc.acceleration_correction_limit.y(),
             config.dfbc.acceleration_correction_limit.z(),
             config.dfbc.acceleration_correction_filter_tau);
+    } else if (config.tracking_backend == TrackingBackend::SMC) {
+        ROS_INFO(
+            "[DroneRosNode] UAV SMC acceleration: dt=%.3f k1=%.3f k2=%.3f rho=%.4f "
+            "feedback=mavros_local mask=%u frame=1",
+            config.nmpc.control_period, config.smc.k1, config.smc.k2, config.smc.boundary_layer,
+            static_cast<unsigned>(kSmcAccelerationTypeMask));
     } else if (config.tracking_backend == TrackingBackend::PX4_LOCAL) {
-        ROS_INFO("[DroneRosNode] UAV PX4 local pass-through: default_mask=%u yaw=%s",
+        ROS_INFO("[DroneRosNode] UAV PX4 local pass-through: default_mask=%u yaw=%s lift=%s",
                  static_cast<unsigned>(config.local_type_mask),
-                 config.enable_yaw_control ? "true" : "false");
+                 config.enable_yaw_control ? "true" : "false", px4_local_lift.c_str());
     }
 
     // ========== 安全限制参数 ==========

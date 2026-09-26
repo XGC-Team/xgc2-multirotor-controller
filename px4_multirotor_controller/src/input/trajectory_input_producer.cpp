@@ -1,4 +1,5 @@
 #include "px4_multirotor_controller/input/trajectory_input_producer.h"
+#include "px4_multirotor_controller/control/trajectory_lifter.h"
 #include "px4_multirotor_controller/ros_reference_conversion.h"
 #include "px4_multirotor_controller/ros_time_conversion.h"
 
@@ -44,33 +45,39 @@ void TrajectoryInputProducer::algSetpointCallback(
         return;
     }
     const ControllerConfig config = config_provider_ ? config_provider_() : ControllerConfig{};
-    if (config.tracking_backend != TrackingBackend::PX4_LOCAL) {
+    if (config.tracking_backend != TrackingBackend::PX4_LOCAL &&
+        config.tracking_backend != TrackingBackend::SMC) {
         return;
     }
 
-    MpcTrajectoryState traj;
-    traj.position_k.x() = msg->position.x;
-    traj.position_k.y() = msg->position.y;
-    traj.position_k.z() = msg->position.z;
-    traj.velocity_k.x() = msg->velocity.x;
-    traj.velocity_k.y() = msg->velocity.y;
-    traj.velocity_k.z() = msg->velocity.z;
-    traj.acceleration_k.x() = msg->acceleration_or_force.x;
-    traj.acceleration_k.y() = msg->acceleration_or_force.y;
-    traj.acceleration_k.z() = msg->acceleration_or_force.z;
-    // The local receipt stamp is only the origin for between-sample lifting.
-    // Algorithm timestamps never gate reference validity or require clock alignment.
-    traj.planning_time = toCoreTime(ros::Time::now());
-    const Eigen::Quaterniond yaw_quat = yawToQuaternion(msg->yaw);
-    traj.qx = yaw_quat.x();
-    traj.qy = yaw_quat.y();
-    traj.qz = yaw_quat.z();
-    traj.qw = yaw_quat.w();
-    traj.yaw_rate = msg->yaw_rate;
-    traj.type_mask = msg->type_mask;
-    traj.coordinate_frame = msg->coordinate_frame;
-    traj.is_valid = true;
-    traj.new_data_received = false;
+    PositionTargetIngress ingress;
+    ingress.position << msg->position.x, msg->position.y, msg->position.z;
+    ingress.velocity << msg->velocity.x, msg->velocity.y, msg->velocity.z;
+    ingress.acceleration << msg->acceleration_or_force.x, msg->acceleration_or_force.y,
+        msg->acceleration_or_force.z;
+    ingress.yaw = msg->yaw;
+    ingress.yaw_rate = msg->yaw_rate;
+    ingress.type_mask = msg->type_mask;
+    ingress.coordinate_frame = msg->coordinate_frame;
+    ingress.header_stamp =
+        msg->header.stamp.isZero() ? Time() : toCoreTime(msg->header.stamp);
+    ingress.receipt_time = toCoreTime(ros::Time::now());
+    const MpcTrajectoryState traj =
+        ingestPositionTarget(ingress, config.tracking_backend, config.px4_local_lift);
+    if (usesStageEffectiveTime(config.tracking_backend, config.px4_local_lift) && !traj.is_valid) {
+        if (config.tracking_backend == TrackingBackend::SMC &&
+            (!smcCoordinateFrameIsWorld(ingress.coordinate_frame) ||
+             (ingress.type_mask != 0U && !smcMaskSuppliesWorldPva(ingress.type_mask)))) {
+            ROS_WARN_THROTTLE(1.0,
+                              "[TrajectoryInputProducer] SMC rejected PositionTarget: need world "
+                              "frame 1 and every P/V/A axis, with FORCE clear");
+        } else {
+            ROS_WARN_THROTTLE(1.0,
+                              "[TrajectoryInputProducer] effective-time setpoint needs a finite "
+                              "PVA and a non-zero header stamp");
+        }
+        return;
+    }
     if (trajectory_sink_) {
         trajectory_sink_(traj);
     }

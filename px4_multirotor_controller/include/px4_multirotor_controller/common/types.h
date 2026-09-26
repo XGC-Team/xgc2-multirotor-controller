@@ -17,6 +17,14 @@ enum class TrackingBackend {
     PX4_LOCAL = 0,  // 世界系 PV/PVA 直通 mavros/setpoint_raw/local
     NMPC = 1,       // body-rate NMPC
     DFBC = 2,       // 几何 DFBC attitude-rate
+    SMC = 3,        // PVA 有效时刻提升 + 滑模世界加速度，经 PositionTarget 交给 PX4
+};
+
+// PX4_LOCAL only. Legacy is the historical receipt-time polynomial lift.
+// ZeroOrderHold keeps the selected sample's p/v/a and does not integrate tau.
+enum class Px4LocalLiftMode {
+    Legacy = 0,
+    ZeroOrderHold = 1,
 };
 
 inline bool trackingUsesFusedEstimate(TrackingBackend backend) {
@@ -32,9 +40,19 @@ constexpr uint16_t kIgnoreVzBit = 1u << 5;
 constexpr uint16_t kIgnoreAfxBit = 1u << 6;
 constexpr uint16_t kIgnoreAfyBit = 1u << 7;
 constexpr uint16_t kIgnoreAfzBit = 1u << 8;
+// MAVLink POSITION_TARGET_TYPEMASK_FORCE_SET: acceleration_or_force is a force.
+constexpr uint16_t kForceBit = 1u << 9;
 constexpr uint16_t kIgnoreYawBit = 1u << 10;
 constexpr uint16_t kIgnoreYawRateBit = 1u << 11;
 constexpr uint16_t kDefaultPvaLocalTypeMask = kIgnoreYawBit | kIgnoreYawRateBit;  // 3072
+// SMC -> PX4/MAVROS: world acceleration only. Ignored position and velocity
+// stop the FCU from adding a position/velocity PD loop. Yaw stays ignored.
+// FORCE is clear, so acceleration_or_force is acceleration. Frame is local ENU.
+constexpr uint16_t kSmcAccelerationTypeMask =
+    kIgnorePxBit | kIgnorePyBit | kIgnorePzBit | kIgnoreVxBit | kIgnoreVyBit | kIgnoreVzBit |
+    kIgnoreYawBit | kIgnoreYawRateBit;
+static_assert(kSmcAccelerationTypeMask == 3135, "SMC acceleration type_mask");
+static_assert((kSmcAccelerationTypeMask & kForceBit) == 0, "SMC acceleration is not a force");
 constexpr uint16_t kHoverPositionVelocityTypeMask = 0b110111000000;
 // Product controller PositionTarget (Custom1 / Hover / takeoff / land).
 // Planner stays planning_period (~10 Hz). T27 a-hold lift fills Custom1.
@@ -49,7 +67,15 @@ struct ControllerConfig {
     double planning_period{0.1};  // MPC 离散规划周期（秒），默认 10Hz
 
     TrackingBackend tracking_backend{TrackingBackend::PX4_LOCAL};
+    Px4LocalLiftMode px4_local_lift{Px4LocalLiftMode::Legacy};
     uint16_t local_type_mask{kDefaultPvaLocalTypeMask};
+
+    // Manuscript illustration values from computeSmcTracking. Not a vehicle bound.
+    struct SmcParams {
+        double k1{0.5};
+        double k2{0.5};
+        double boundary_layer{0.01};
+    } smc;
 
     // ========== 偏航角控制开关 ==========
     bool enable_yaw_control{false};  // 是否启用偏航角控制（false=忽略偏航角）
@@ -291,10 +317,11 @@ constexpr int DEFAULT = 0;     // 默认优先级
 // 传感器数据（聚合）
 // 包含所有传感器测量值，字段名与 ROS 消息保持一致
 struct SensorData {
-    // 控制状态 (m, m/s, quaternion, rad/s) - 来自 rigid_state_estimator_msgs/RigidStateEstimate
+    // DFBC/NMPC feedback from rigid_state_estimator_msgs/RigidStateEstimate.
+    // PX4_LOCAL and SMC do not track these fields.
     double x{0.0}, y{0.0}, z{0.0};
 
-    // 线速度 (m/s)
+    // Estimator velocity (m/s). DFBC/NMPC only.
     double vx{0.0}, vy{0.0}, vz{0.0};
 
     // 姿态四元数 - 来自 geometry_msgs/PoseStamped 或 sensor_msgs/Imu
@@ -349,17 +376,15 @@ struct SensorData {
     TopicStats uav_state_estimate_stats, local_pos_stats, local_velocity_stats, imu_stats,
         state_stats, battery_stats;
 
-    // MAVROS 本地位置，仅用于一致性检查/诊断，不作为控制状态源
+    // MAVROS local_position pose and velocity_local. PX4_LOCAL and SMC track
+    // these. Health also compares them with the canonical pose below.
     double local_x{0.0}, local_y{0.0}, local_z{0.0};
     double local_qx{0.0}, local_qy{0.0}, local_qz{0.0}, local_qw{1.0};
     double local_vx{0.0}, local_vy{0.0}, local_vz{0.0};
 
-    // VRPN 原始数据（独立于 mavros）
-    // 位置 (m) - 来自 pose 话题
+    // Canonical pose used by the position-distance check. Not SMC feedback.
     double vrpn_x{0.0}, vrpn_y{0.0}, vrpn_z{0.0};
     double vrpn_qx{0.0}, vrpn_qy{0.0}, vrpn_qz{0.0}, vrpn_qw{1.0};
-
-    // VRPN pose is diagnostic only; control always consumes the fused estimate.
     TopicStats vrpn_pose_stats;
 
     SensorData() = default;
@@ -396,7 +421,7 @@ struct Setpoint {
     //   bit 6 (64):   IGNORE_AFX      - 忽略 ax
     //   bit 7 (128):  IGNORE_AFY      - 忽略 ay
     //   bit 8 (256):  IGNORE_AFZ      - 忽略 az
-    //   bit 9 (512):  FORCE           - 强制设定点
+    //   bit 9 (512):  FORCE           - acceleration_or_force 是力，不是加速度
     //   bit 10 (1024): IGNORE_YAW     - 忽略 yaw
     //   bit 11 (2048): IGNORE_YAW_RATE - 忽略 yaw_rate
     //

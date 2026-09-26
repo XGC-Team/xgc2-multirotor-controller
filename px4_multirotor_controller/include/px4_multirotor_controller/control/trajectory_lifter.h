@@ -2,9 +2,12 @@
 
 
 #include <cmath>
+#include <cstdint>
 
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/common/time.h"
+#include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
+#include "px4_multirotor_controller/uav/mpc_trajectory_buffer.h"
 
 namespace px4_multirotor_controller {
 
@@ -143,6 +146,165 @@ inline bool passThroughMayTakeSetpoint(const MpcTrajectoryState& sample, double 
         return true;
     }
     return passThroughPlanMatchesHover(sample, hover_x, hover_y, hover_z, xy_tol, z_tol);
+}
+
+// Absolute world frame used by this stack (MAVROS FRAME_LOCAL_NED = 1, ENU after
+// the MAVROS conversion). Frame 0 is the historical "unset, treat as local" input.
+inline bool smcCoordinateFrameIsWorld(uint8_t coordinate_frame) {
+    const uint8_t frame = coordinate_frame == 0U ? 1U : coordinate_frame;
+    return frame == 1U;
+}
+
+// SMC needs every world position, velocity and acceleration component.
+// An ignored axis is unavailable; it is not the number zero. FORCE means the
+// acceleration field is a force. Yaw bits are irrelevant because SMC yaw is off.
+inline bool smcMaskSuppliesWorldPva(uint16_t type_mask) {
+    constexpr uint16_t kPvaIgnoreBits = kIgnorePxBit | kIgnorePyBit | kIgnorePzBit | kIgnoreVxBit |
+                                        kIgnoreVyBit | kIgnoreVzBit | kIgnoreAfxBit |
+                                        kIgnoreAfyBit | kIgnoreAfzBit;
+    return (type_mask & kForceBit) == 0U && (type_mask & kPvaIgnoreBits) == 0U;
+}
+
+// Nonzero wire masks are the message itself. A zero mask selects local_type_mask,
+// the same substitution liftWorldLocal already makes.
+inline uint16_t effectivePositionTargetMask(uint16_t type_mask, uint16_t default_mask) {
+    return type_mask != 0U ? type_mask : default_mask;
+}
+
+inline bool smcWorldPvaAvailable(uint16_t type_mask, uint8_t coordinate_frame,
+                                 uint16_t default_mask) {
+    return smcCoordinateFrameIsWorld(coordinate_frame) &&
+           smcMaskSuppliesWorldPva(effectivePositionTargetMask(type_mask, default_mask));
+}
+
+// Header effective time for SMC and for PX4_LOCAL zero-order hold.
+// Legacy PX4_LOCAL keeps the arrival stamp.
+inline bool usesStageEffectiveTime(TrackingBackend backend, Px4LocalLiftMode lift_mode) {
+    return backend == TrackingBackend::SMC ||
+           (backend == TrackingBackend::PX4_LOCAL &&
+            lift_mode == Px4LocalLiftMode::ZeroOrderHold);
+}
+
+// One ingress for the ROS producer and ctl-px4.
+struct PositionTargetIngress {
+    Eigen::Vector3d position{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d velocity{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d acceleration{Eigen::Vector3d::Zero()};
+    double yaw{0.0};
+    double yaw_rate{0.0};
+    uint16_t type_mask{0};
+    uint8_t coordinate_frame{1};
+    Time header_stamp{};
+    Time receipt_time{};
+};
+
+inline MpcTrajectoryState ingestPositionTarget(const PositionTargetIngress& in,
+                                               TrackingBackend backend,
+                                               Px4LocalLiftMode lift_mode) {
+    MpcTrajectoryState traj;
+    traj.position_k = in.position;
+    traj.velocity_k = in.velocity;
+    traj.acceleration_k = in.acceleration;
+    const Eigen::Quaterniond yaw_quat = yawToQuaternion(in.yaw);
+    traj.qx = yaw_quat.x();
+    traj.qy = yaw_quat.y();
+    traj.qz = yaw_quat.z();
+    traj.qw = yaw_quat.w();
+    traj.yaw_rate = in.yaw_rate;
+    traj.type_mask = in.type_mask;
+    traj.coordinate_frame = in.coordinate_frame == 0U ? 1U : in.coordinate_frame;
+    traj.new_data_received = false;
+    if (usesStageEffectiveTime(backend, lift_mode)) {
+        const bool finite = in.position.allFinite() && in.velocity.allFinite() &&
+                            in.acceleration.allFinite() && std::isfinite(in.yaw) &&
+                            std::isfinite(in.yaw_rate);
+        traj.planning_time = in.header_stamp;
+        traj.is_valid = finite && !in.header_stamp.isZero();
+        if (backend == TrackingBackend::SMC) {
+            // A zero wire mask still has to pass liftForBackend against local_type_mask.
+            // Any explicit mask or frame that is not world PVA is rejected here so the
+            // producer does not replace a live segment with an unusable one.
+            const bool wire_is_world_pva = smcCoordinateFrameIsWorld(in.coordinate_frame) &&
+                                           (in.type_mask == 0U || smcMaskSuppliesWorldPva(in.type_mask));
+            traj.is_valid = traj.is_valid && wire_is_world_pva;
+        }
+        return traj;
+    }
+    traj.planning_time = in.receipt_time;
+    traj.is_valid = true;
+    return traj;
+}
+
+// Legacy promotes on arrival. SMC and zero-order hold wait until the header.
+inline bool promoteTrajectorySample(MpcTrajectoryBuffer& buffer, const Time& now,
+                                    TrackingBackend backend, Px4LocalLiftMode lift_mode) {
+    if (!buffer.hasPending()) {
+        return false;
+    }
+    if (usesStageEffectiveTime(backend, lift_mode)) {
+        const MpcTrajectoryState& pending = buffer.pending();
+        if (!pending.is_valid || pending.planning_time.isZero() || now < pending.planning_time) {
+            return false;
+        }
+    }
+    return buffer.promotePending(buffer.pending().planning_time);
+}
+
+struct EffectiveSegmentLift {
+    bool success{false};
+    Setpoint setpoint{};
+};
+
+inline int64_t segmentPeriodNs(double planning_period) {
+    if (!std::isfinite(planning_period) || planning_period <= 0.0) {
+        return -1;
+    }
+    return std::llround(planning_period * 1e9);
+}
+
+// True on [header, header + planning_period]. Shared by SMC and zero-order hold.
+inline bool stageWindowOpen(const MpcTrajectoryState& sample, const Time& now,
+                            double planning_period) {
+    if (!passThroughReferenceReady(sample) || sample.planning_time.isZero() || now.isZero() ||
+        now < sample.planning_time) {
+        return false;
+    }
+    const int64_t period_ns = segmentPeriodNs(planning_period);
+    const int64_t tau_ns = (now - sample.planning_time).toNSec();
+    return period_ns >= 0 && tau_ns >= 0 && tau_ns <= period_ns;
+}
+
+// Legacy PX4_LOCAL is liftWorldLocal from the receipt stamp, with no window.
+// SMC integrates inside the window and fails outside it. Zero-order hold uses
+// the same window and the same segment, and outputs the stage-1 sample.
+inline EffectiveSegmentLift liftForBackend(const MpcTrajectoryState& sample, const Time& now,
+                                           double planning_period, uint16_t default_mask,
+                                           bool enable_yaw, TrackingBackend backend,
+                                           Px4LocalLiftMode px4_local_lift) {
+    EffectiveSegmentLift out;
+    if (backend == TrackingBackend::SMC) {
+        if (!stageWindowOpen(sample, now, planning_period) ||
+            !smcWorldPvaAvailable(sample.type_mask, sample.coordinate_frame, default_mask)) {
+            return out;
+        }
+        out.setpoint = liftWorldLocal(sample, now, default_mask, false);
+        out.success = true;
+        return out;
+    }
+    if (px4_local_lift == Px4LocalLiftMode::ZeroOrderHold) {
+        if (!stageWindowOpen(sample, now, planning_period)) {
+            return out;
+        }
+        out.setpoint = liftWorldLocal(sample, sample.planning_time, default_mask, enable_yaw);
+        out.success = true;
+        return out;
+    }
+    if (!sample.is_valid) {
+        return out;
+    }
+    out.setpoint = liftWorldLocal(sample, now, default_mask, enable_yaw);
+    out.success = true;
+    return out;
 }
 
 class TrajectoryLifter {

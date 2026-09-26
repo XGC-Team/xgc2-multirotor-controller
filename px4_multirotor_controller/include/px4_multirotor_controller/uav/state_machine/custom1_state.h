@@ -8,6 +8,7 @@
 #include "px4_multirotor_controller/state_machine/timing.h"
 #include "px4_multirotor_controller/tracking/dfbc_attitude_rate_strategy.h"
 #include "px4_multirotor_controller/tracking/px4_local_raw_strategy.h"
+#include "px4_multirotor_controller/tracking/smc_acceleration_strategy.h"
 
 namespace px4_multirotor_controller {
 
@@ -55,16 +56,23 @@ class Custom1State : public ::state_machine::State {
     ControllerTimer nmpc_stale_output_log_timer_;
     ControllerTimer trajectory_wait_log_timer_;
     DfbcAttitudeRateStrategy dfbc_strategy_;
+    SmcAccelerationStrategy smc_strategy_;
     Px4LocalRawStrategy px4_local_raw_strategy_;
     bool sync_strategy_entered_{false};
+    // Acceleration tracking has failed. Later hover publishes reuse smc_frozen_hover_.
+    bool smc_position_held_{false};
+    Setpoint smc_frozen_hover_{};
 
     void handleNmpcEventMode(::state_machine::StateContext& ctx, double current_time);
     void handleSynchronousAttitudeRateMode(::state_machine::StateContext& ctx, double current_time);
+    void handleSmcMode(::state_machine::StateContext& ctx, double current_time);
     void handlePx4LocalPassThrough(::state_machine::StateContext& ctx, double current_time);
     void consumeNmpcResult(::state_machine::StateContext& ctx, double current_time);
     void dispatchNmpcRequest(::state_machine::StateContext& ctx, double current_time);
     void publishBackupSetpoint(::state_machine::StateContext& ctx, double current_time);
+    Setpoint measurementHoverSetpoint() const;
     void publishCurrentHoverSetpoint(::state_machine::StateContext& ctx, double current_time);
+    void holdSmcPosition(::state_machine::StateContext& ctx, double current_time);
     void postReferenceFinished(::state_machine::StateContext& ctx, double current_time,
                                const char* reason);
     bool referenceWillFinishBeforeNextHorizon(double current_time) const;

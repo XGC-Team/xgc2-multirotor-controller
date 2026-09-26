@@ -25,7 +25,20 @@ find_package(catkin REQUIRED COMPONENTS
 )
 find_package(xgc2_acados REQUIRED CONFIG)
 find_package(xgc2_state_machine REQUIRED CONFIG)
-find_package(xgc2_math REQUIRED CONFIG)
+# Empty uses the installed xgc2_math headers (APT: >= 0.5.9). Set this to a
+# math source include when that package is not installed yet. Do not hardcode
+# a worktree path; callers pass -DXGC2_MATH_INCLUDE_OVERRIDE=...
+set(XGC2_MATH_INCLUDE_OVERRIDE "" CACHE PATH
+  "Optional xgc2_math include directory used before the found package")
+if(XGC2_MATH_INCLUDE_OVERRIDE)
+  if(NOT EXISTS "${XGC2_MATH_INCLUDE_OVERRIDE}/xgc2_math/control/smc_tracking_controller.hpp")
+    message(FATAL_ERROR
+      "XGC2_MATH_INCLUDE_OVERRIDE is missing xgc2_math/control/smc_tracking_controller.hpp")
+  endif()
+  find_package(xgc2_math REQUIRED CONFIG)
+else()
+  find_package(xgc2_math 0.5.9 REQUIRED CONFIG)
+endif()
 
 ## JsonCpp is supplied by the build image (libjsoncpp-dev); no vendored parser.
 find_package(PkgConfig REQUIRED)
@@ -290,10 +303,13 @@ add_library(px4_multirotor_controller_uav_nmpc_runtime
 # ROS-free, like the core library below: no directory-level (catkin) include
 # directories and no ROS libraries.
 set_target_properties(px4_multirotor_controller_uav_nmpc_runtime PROPERTIES INCLUDE_DIRECTORIES "")
+get_target_property(MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS
+  xgc2_state_machine::state_machine INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(px4_multirotor_controller_uav_nmpc_runtime BEFORE PRIVATE
   ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${EIGEN3_INCLUDE_DIRS}
+  ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS}
   ${MULTIROTOR_UAV_NMPC_GENERATED_DIR}
   ${MULTIROTOR_ACADOS_INCLUDE_DIRS}
   ${acados_INCLUDE_DIRS}
@@ -316,6 +332,7 @@ add_library(px4_multirotor_controller_core
   src/drone_controller.cpp
   src/world_boundary.cpp
   src/tracking/dfbc_attitude_rate_strategy.cpp
+  src/tracking/smc_acceleration_strategy.cpp
   src/tracking/px4_local_raw_strategy.cpp
   src/uav/nmpc_result_buffer.cpp
   src/uav/active_trajectory_cache.cpp
@@ -332,6 +349,10 @@ add_library(px4_multirotor_controller_core
   src/uav/state_machine/custom1_state.cpp
 )
 set_target_properties(px4_multirotor_controller_core PROPERTIES INCLUDE_DIRECTORIES "")
+if(XGC2_MATH_INCLUDE_OVERRIDE)
+  target_include_directories(px4_multirotor_controller_core BEFORE PUBLIC
+    "${XGC2_MATH_INCLUDE_OVERRIDE}")
+endif()
 target_include_directories(px4_multirotor_controller_core BEFORE PUBLIC
   ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -509,6 +530,7 @@ if(CATKIN_ENABLE_TESTING)
       ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${CATKIN_DEVEL_PREFIX}/include
+      ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS}
     )
     add_dependencies(px4_multirotor_controller_nmpc_event_runtime_test
       ${catkin_EXPORTED_TARGETS}
@@ -521,6 +543,27 @@ if(CATKIN_ENABLE_TESTING)
       xgc2_math::geometry
       xgc2_math::trajectory
     )
+  endif()
+
+  catkin_add_gtest(px4_multirotor_controller_smc_custom1_test
+    test/smc_custom1_runtime_test.cpp
+    src/output/control_output_consumer.cpp
+  )
+  if(TARGET px4_multirotor_controller_smc_custom1_test)
+    target_include_directories(px4_multirotor_controller_smc_custom1_test BEFORE PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS}
+      ${catkin_INCLUDE_DIRS}
+    )
+    target_link_libraries(px4_multirotor_controller_smc_custom1_test
+      px4_multirotor_controller_core
+      ${catkin_LIBRARIES}
+      gtest_main
+    )
+    if(XGC2_MATH_INCLUDE_OVERRIDE)
+      target_include_directories(px4_multirotor_controller_smc_custom1_test BEFORE PRIVATE
+        "${XGC2_MATH_INCLUDE_OVERRIDE}")
+    endif()
   endif()
 endif()
 

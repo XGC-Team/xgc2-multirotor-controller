@@ -10,7 +10,7 @@
 // are written bit-exact (doubles as hex bits), so two builds of the core can
 // be compared with `cmp`.
 //
-// Usage: replay_harness STREAM OUT.txt [px4_local|dfbc|nmpc [reference_analytic_type=N]]
+// Usage: replay_harness STREAM OUT.txt [px4_local|dfbc|nmpc|smc [reference_analytic_type=N]]
 //
 // The configuration is config/uav_nmpc.yaml's, with the tracking backend
 // (default px4_local) and, optionally, nmpc/reference_analytic_type from the
@@ -52,7 +52,9 @@
 
 #include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/control/trajectory_lifter.h"
 #include "px4_multirotor_controller/drone_controller.h"
+#include "px4_multirotor_controller/ros_time_conversion.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
 #include "px4_multirotor_controller/ros_reference_conversion.h"
@@ -165,6 +167,7 @@ int main(int argc, char** argv) {
     if (backend == "px4_local") config.tracking_backend = pmc::TrackingBackend::PX4_LOCAL;
     else if (backend == "dfbc") config.tracking_backend = pmc::TrackingBackend::DFBC;
     else if (backend == "nmpc") config.tracking_backend = pmc::TrackingBackend::NMPC;
+    else if (backend == "smc") config.tracking_backend = pmc::TrackingBackend::SMC;
     else throw std::runtime_error("unknown tracking backend");
     controller.setConfig(config);
     pmc::ReferenceActivation activation;       // ReferenceActivationOutputConsumer
@@ -277,21 +280,24 @@ int main(int argc, char** argv) {
                     break;
                 }
                 case 9: {  // TrajectoryInputProducer::algSetpointCallback
-                    if (controller.getConfig().tracking_backend != pmc::TrackingBackend::PX4_LOCAL) break;
+                    const pmc::ControllerConfig cfg = controller.getConfig();
+                    if (cfg.tracking_backend != pmc::TrackingBackend::PX4_LOCAL &&
+                        cfg.tracking_backend != pmc::TrackingBackend::SMC) break;
                     const auto m = decode<mavros_msgs::PositionTarget>(r.data);
-                    pmc::MpcTrajectoryState traj;
-                    traj.position_k = Eigen::Vector3d(m.position.x, m.position.y, m.position.z);
-                    traj.velocity_k = Eigen::Vector3d(m.velocity.x, m.velocity.y, m.velocity.z);
-                    traj.acceleration_k =
-                        Eigen::Vector3d(m.acceleration_or_force.x, m.acceleration_or_force.y, m.acceleration_or_force.z);
-                    traj.planning_time = pmc::Time().fromNSec(r.t_ns);
-                    const Eigen::Quaterniond q = pmc::yawToQuaternion(m.yaw);
-                    traj.qx = q.x(); traj.qy = q.y(); traj.qz = q.z(); traj.qw = q.w();
-                    traj.yaw_rate = m.yaw_rate;
-                    traj.type_mask = m.type_mask;
-                    traj.coordinate_frame = m.coordinate_frame;
-                    traj.is_valid = true;
-                    traj.new_data_received = false;
+                    pmc::PositionTargetIngress ingress;
+                    ingress.position = Eigen::Vector3d(m.position.x, m.position.y, m.position.z);
+                    ingress.velocity = Eigen::Vector3d(m.velocity.x, m.velocity.y, m.velocity.z);
+                    ingress.acceleration = Eigen::Vector3d(m.acceleration_or_force.x, m.acceleration_or_force.y,
+                                                           m.acceleration_or_force.z);
+                    ingress.yaw = m.yaw;
+                    ingress.yaw_rate = m.yaw_rate;
+                    ingress.type_mask = m.type_mask;
+                    ingress.coordinate_frame = m.coordinate_frame;
+                    ingress.header_stamp = m.header.stamp.isZero() ? pmc::Time() : pmc::toCoreTime(m.header.stamp);
+                    ingress.receipt_time = pmc::Time().fromNSec(r.t_ns);
+                    const pmc::MpcTrajectoryState traj =
+                        pmc::ingestPositionTarget(ingress, cfg.tracking_backend, cfg.px4_local_lift);
+                    if (pmc::usesStageEffectiveTime(cfg.tracking_backend, cfg.px4_local_lift) && !traj.is_valid) break;
                     controller.mpcTrajectoryBuffer().cachePending(traj);
                     post(pmc::event_type::INPUT_MPC_TRAJECTORY_UPDATED, now, "alg/setpoint_raw/local");
                     break;

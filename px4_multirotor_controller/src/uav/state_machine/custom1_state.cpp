@@ -32,6 +32,8 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
     consecutive_failures_ = 0;
     reference_finish_event_posted_ = false;
     sync_strategy_entered_ = false;
+    smc_position_held_ = false;
+    smc_frozen_hover_ = Setpoint{};
     nmpc_stale_output_log_timer_.reset();
 
     if (config.tracking_backend == TrackingBackend::NMPC) {
@@ -63,6 +65,12 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
         }
         return {};
     }
+    if (config.tracking_backend == TrackingBackend::SMC) {
+        controller_.logInfo(
+            "[Custom1State] Custom1 latched (smc); holding hover until effective PVA");
+        smc_strategy_.configure(config);
+        return {};
+    }
 
     publish_period_ = kPx4LocalSetpointPublishInterval;
     controller_.logInfo(
@@ -83,18 +91,24 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
         handleSynchronousAttitudeRateMode(ctx, current_time);
         return {};
     }
+    if (backend == TrackingBackend::SMC) {
+        handleSmcMode(ctx, current_time);
+        return {};
+    }
     handlePx4LocalPassThrough(ctx, current_time);
     return {};
 }
 
 void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
                                              double current_time) {
-    auto& buffer = controller_.mpcTrajectoryBuffer();
-    if (buffer.hasPending()) {
-        buffer.promotePending(buffer.pending().planning_time);
-    }
-    const auto& sample = buffer.active();
     const auto& config = controller_.getConfig();
+    auto& buffer = controller_.mpcTrajectoryBuffer();
+    promoteTrajectorySample(buffer, Time(current_time), TrackingBackend::PX4_LOCAL,
+                            config.px4_local_lift);
+    const auto& sample = buffer.active();
+    const auto lifted = liftForBackend(sample, Time(current_time), config.planning_period,
+                                       config.local_type_mask, config.enable_yaw_control,
+                                       TrackingBackend::PX4_LOCAL, config.px4_local_lift);
     if (!passThroughMayTakeSetpoint(sample, hover_x_, hover_y_, hover_z_,
                                     config.nmpc.plan_hover_xy_tol, config.nmpc.plan_hover_z_tol,
                                     tracking_armed_)) {
@@ -108,6 +122,10 @@ void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
         }
         return;
     }
+    if (!lifted.success) {
+        publishCurrentHoverSetpoint(ctx, current_time);
+        return;
+    }
 
     if (!tracking_armed_) {
         tracking_armed_ = true;
@@ -116,9 +134,96 @@ void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
     if (!shouldPublish(current_time)) {
         return;
     }
+    controller_.getSetpoint() = lifted.setpoint;
+    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
+                                          ::state_machine::EventTimestamp{current_time}));
+    last_publish_time_ = current_time;
+}
 
-    controller_.getSetpoint() = liftWorldLocal(sample, Time(current_time),
-                                               config.local_type_mask, config.enable_yaw_control);
+void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double current_time) {
+    const ControllerConfig config = controller_.getConfig();
+    const Time now(current_time);
+    smc_strategy_.configure(config);
+    if (!sync_strategy_entered_) {
+        sync_strategy_entered_ = smc_strategy_.enter(controller_.getSensorData(), now);
+    }
+
+    auto& buffer = controller_.mpcTrajectoryBuffer();
+    promoteTrajectorySample(buffer, now, TrackingBackend::SMC, config.px4_local_lift);
+    const MpcTrajectoryState& sample = buffer.active();
+    const auto lifted =
+        liftForBackend(sample, now, config.planning_period, config.local_type_mask, false,
+                       TrackingBackend::SMC, config.px4_local_lift);
+    if (!lifted.success ||
+        !passThroughMayTakeSetpoint(sample, hover_x_, hover_y_, hover_z_,
+                                    config.nmpc.plan_hover_xy_tol, config.nmpc.plan_hover_z_tol,
+                                    tracking_armed_)) {
+        if (tracking_armed_ && !smc_position_held_) {
+            if (shouldRunEvery(trajectory_wait_log_timer_, 1.0, true)) {
+                controller_.logWarn(
+                    "[Custom1State] SMC reference is outside its effective window; holding "
+                    "position");
+            }
+            holdSmcPosition(ctx, current_time);
+            return;
+        }
+        if (smc_position_held_) {
+            if (shouldPublish(current_time)) {
+                controller_.getSetpoint() = smc_frozen_hover_;
+                ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
+                                                      ::state_machine::EventTimestamp{current_time}));
+                last_publish_time_ = current_time;
+            }
+            return;
+        }
+        if (!tracking_armed_ && shouldRunEvery(trajectory_wait_log_timer_, 1.0, true)) {
+            controller_.logWarn(
+                "[Custom1State] Waiting for an effective world-frame PVA before SMC tracking");
+        }
+        if (shouldPublish(current_time)) {
+            publishCurrentHoverSetpoint(ctx, current_time);
+        }
+        return;
+    }
+
+    if (!tracking_armed_) {
+        tracking_armed_ = true;
+        controller_.logInfo("[Custom1State] smc takeover after aligned reference");
+    }
+    if (!sync_strategy_entered_ || !shouldRunSynchronousStrategy(current_time)) {
+        if (!sync_strategy_entered_ && shouldPublish(current_time)) {
+            publishCurrentHoverSetpoint(ctx, current_time);
+        }
+        return;
+    }
+
+    UavReferencePoint reference;
+    reference.position << lifted.setpoint.x, lifted.setpoint.y, lifted.setpoint.z;
+    reference.velocity << lifted.setpoint.vx, lifted.setpoint.vy, lifted.setpoint.vz;
+    reference.acceleration << lifted.setpoint.ax, lifted.setpoint.ay, lifted.setpoint.az;
+
+    TrackingStrategyInput input;
+    input.sensor = controller_.getSensorData();
+    input.reference = reference;
+    input.now = now;
+    input.stamp = sample.planning_time;
+    input.type_mask = lifted.setpoint.type_mask;
+    TrackingStrategyResult result;
+    if (!smc_strategy_.update(input, result) ||
+        result.output_kind != TrackingStrategyResult::OutputKind::LocalSetpoint) {
+        ++consecutive_failures_;
+        if (shouldRunEvery(trajectory_wait_log_timer_, 1.0, true)) {
+            controller_.logWarn("[Custom1State] SMC tracking update failed: %s",
+                                result.message.c_str());
+        }
+        holdSmcPosition(ctx, current_time);
+        return;
+    }
+
+    consecutive_failures_ = 0;
+    last_success_time_ = current_time;
+    smc_position_held_ = false;
+    controller_.getSetpoint() = result.local_setpoint;
     ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
                                           ::state_machine::EventTimestamp{current_time}));
     last_publish_time_ = current_time;
@@ -341,8 +446,7 @@ void Custom1State::publishBackupSetpoint(::state_machine::StateContext& ctx, dou
     last_publish_time_ = current_time;
 }
 
-void Custom1State::publishCurrentHoverSetpoint(::state_machine::StateContext& ctx,
-                                               double current_time) {
+Setpoint Custom1State::measurementHoverSetpoint() const {
     const auto& sensor = controller_.getSensorData();
     const auto backend = controller_.getConfig().tracking_backend;
     Setpoint backup;
@@ -362,7 +466,23 @@ void Custom1State::publishCurrentHoverSetpoint(::state_machine::StateContext& ct
     backup.yaw_rate = 0.0;
     backup.type_mask = kHoverPositionVelocityTypeMask;
     backup.coordinate_frame = 1;
-    controller_.getSetpoint() = backup;
+    return backup;
+}
+
+void Custom1State::holdSmcPosition(::state_machine::StateContext& ctx, double current_time) {
+    if (!smc_position_held_) {
+        smc_frozen_hover_ = measurementHoverSetpoint();
+        smc_position_held_ = true;
+    }
+    controller_.getSetpoint() = smc_frozen_hover_;
+    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
+                                          ::state_machine::EventTimestamp{current_time}));
+    last_publish_time_ = current_time;
+}
+
+void Custom1State::publishCurrentHoverSetpoint(::state_machine::StateContext& ctx,
+                                               double current_time) {
+    controller_.getSetpoint() = measurementHoverSetpoint();
     ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
                                           ::state_machine::EventTimestamp{current_time}));
     last_publish_time_ = current_time;
@@ -428,6 +548,9 @@ bool Custom1State::shouldRunSynchronousStrategy(double current_time) const {
 }
 
 double Custom1State::synchronousStrategyPeriod() const {
+    if (controller_.getConfig().tracking_backend == TrackingBackend::SMC) {
+        return smc_strategy_.period();
+    }
     return dfbc_strategy_.period();
 }
 
@@ -445,6 +568,10 @@ bool Custom1State::shouldPublish(double current_time) const {
     } else if (backend == TrackingBackend::DFBC) {
         controller_.logInfo("[Custom1State] Exiting UAV DFBC Attitude-Rate Tracking Mode");
         dfbc_strategy_.exit();
+        sync_strategy_entered_ = false;
+    } else if (backend == TrackingBackend::SMC) {
+        controller_.logInfo("[Custom1State] Exiting UAV SMC acceleration tracking");
+        smc_strategy_.exit();
         sync_strategy_entered_ = false;
     } else {
         controller_.logInfo("[Custom1State] Exiting PX4 local pass-through");
