@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include "px4_multirotor_controller/control/trajectory_lifter.h"
+#include "px4_multirotor_controller/ros_time_conversion.h"
 #include "px4_multirotor_controller/output/control_output_consumer.h"
 #include "px4_multirotor_controller/output/debug_output_consumer.h"
 #include "px4_multirotor_controller/output/nmpc_output_consumer.h"
@@ -114,7 +116,8 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
         nh_, sensor_data_, controller_.activeTrajectoryCache(),
         [this] { return controller_.getConfig(); }, post_input_event,
         [this](const MpcTrajectoryState& trajectory) {
-            controller_.mpcTrajectoryBuffer().cachePending(trajectory);
+            cacheTrajectorySample(controller_.mpcTrajectoryBuffer(), trajectory,
+                                  toCoreTime(ros::Time::now()), controller_.getConfig());
         },
         kRosQueueSize);
 

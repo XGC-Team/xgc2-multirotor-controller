@@ -171,7 +171,7 @@ class SmcCustom1RuntimeTest : public ::testing::Test {
         const auto traj =
             ingestPositionTarget(ingress, config_.tracking_backend, config_.px4_local_lift);
         ASSERT_TRUE(traj.is_valid);
-        controller_->mpcTrajectoryBuffer().cachePending(traj);
+        cacheTrajectorySample(controller_->mpcTrajectoryBuffer(), traj, receipt, config_);
     }
 
     SensorData sensor_;
@@ -231,6 +231,26 @@ TEST_F(SmcCustom1RuntimeTest, FutureSegmentDoesNotReplaceTheActiveOne) {
         Eigen::Vector3d::Zero());
     expectAccelerationSetpoint(on_second, second_acceleration);
     EXPECT_GT(std::abs(on_second.position_cmd.ax - still_first.position_cmd.ax), 1e-3);
+}
+
+TEST_F(SmcCustom1RuntimeTest, BoundaryArrivalPreservesTheNowEffectivePendingSegment) {
+    start(TrackingBackend::SMC);
+    enterCustom1();
+    const double t0 = controller_->getCurrentTime();
+    cache(Time(t0), Time(t0), Eigen::Vector3d(0.0, 0.0, 1.0), Eigen::Vector3d::Zero(),
+          Eigen::Vector3d::Zero());
+    at(t0 + 0.02);
+    cache(Time(t0 + 0.1), Time(t0 + 0.05), Eigen::Vector3d(0.1, 0.0, 1.0),
+          Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+    // No controller tick at t0 + 0.1 has run when the next plan arrives.
+    cache(Time(t0 + 0.2), Time(t0 + 0.1), Eigen::Vector3d(-0.1, 0.0, 1.0),
+          Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+    at(t0 + 0.12);
+    expectAccelerationSetpoint(publishedCommand(*controller_), expectedSmcAcceleration(
+        config_, sensor_, Eigen::Vector3d(0.1, 0.0, 1.0), Eigen::Vector3d::Zero(),
+        Eigen::Vector3d::Zero()));
+    EXPECT_EQ(controller_->mpcTrajectoryBuffer().active().planning_time, Time(t0 + 0.1));
+    EXPECT_EQ(controller_->mpcTrajectoryBuffer().pending().planning_time, Time(t0 + 0.2));
 }
 
 TEST_F(SmcCustom1RuntimeTest, ExpiredSegmentReleasesAttitudeAndPublishesHover) {

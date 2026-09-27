@@ -241,6 +241,16 @@ inline bool promoteTrajectorySample(MpcTrajectoryBuffer& buffer, const Time& now
     return buffer.promotePending(buffer.pending().planning_time);
 }
 
+// Receipt can precede the next controller tick at an activation boundary.
+// Promote the due segment before replacing the pending slot with a future one.
+inline void cacheTrajectorySample(MpcTrajectoryBuffer& buffer, const MpcTrajectoryState& sample,
+                                  const Time& receipt, const ControllerConfig& config) {
+    if (usesStageEffectiveTime(config.tracking_backend, config.px4_local_lift)) {
+        promoteTrajectorySample(buffer, receipt, config.tracking_backend, config.px4_local_lift);
+    }
+    buffer.cachePending(sample);
+}
+
 struct EffectiveSegmentLift {
     bool success{false};
     Setpoint setpoint{};
