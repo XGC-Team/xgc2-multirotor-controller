@@ -10,7 +10,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
 )
 find_package(xgc2_state_machine REQUIRED CONFIG)
-find_package(xgc2_math REQUIRED CONFIG)
+find_package(xgc2_math 0.5.12 REQUIRED CONFIG)
 
 find_package(Eigen3 REQUIRED)
 

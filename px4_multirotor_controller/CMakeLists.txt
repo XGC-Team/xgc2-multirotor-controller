@@ -25,7 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 find_package(xgc2_acados REQUIRED CONFIG)
 find_package(xgc2_state_machine REQUIRED CONFIG)
-# Empty uses the installed xgc2_math headers (APT: >= 0.5.9). Set this to a
+# Empty uses the installed xgc2_math headers (APT: >= 0.5.12). Set this to a
 # math source include when that package is not installed yet. Do not hardcode
 # a worktree path; callers pass -DXGC2_MATH_INCLUDE_OVERRIDE=...
 set(XGC2_MATH_INCLUDE_OVERRIDE "" CACHE PATH
@@ -35,9 +35,9 @@ if(XGC2_MATH_INCLUDE_OVERRIDE)
     message(FATAL_ERROR
       "XGC2_MATH_INCLUDE_OVERRIDE is missing xgc2_math/control/smc_tracking_controller.hpp")
   endif()
-  find_package(xgc2_math REQUIRED CONFIG)
+  find_package(xgc2_math 0.5.12 REQUIRED CONFIG)
 else()
-  find_package(xgc2_math 0.5.9 REQUIRED CONFIG)
+  find_package(xgc2_math 0.5.12 REQUIRED CONFIG)
 endif()
 
 ## JsonCpp is supplied by the build image (libjsoncpp-dev); no vendored parser.
@@ -489,6 +489,7 @@ endif()
 
 ## Add gtest based cpp test target and link libraries
 if(CATKIN_ENABLE_TESTING)
+  find_package(rostest REQUIRED)
   # Reuse the production node's exact sources and dependencies, without main.
   # The fixture creates DroneController only; it never consumes ROS/MAVLink outputs.
   get_target_property(MULTIROTOR_POSITION_TEST_SOURCES ${PROJECT_NAME}_node SOURCES)
@@ -545,7 +546,8 @@ if(CATKIN_ENABLE_TESTING)
     )
   endif()
 
-  catkin_add_gtest(px4_multirotor_controller_smc_custom1_test
+  add_rostest_gtest(px4_multirotor_controller_smc_custom1_test
+    test/smc_custom1.test
     test/smc_custom1_runtime_test.cpp
     src/output/control_output_consumer.cpp
   )

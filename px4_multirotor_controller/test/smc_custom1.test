@@ -1,0 +1,4 @@
+<launch>
+  <test test-name="smc_custom1" pkg="px4_multirotor_controller"
+        type="px4_multirotor_controller_smc_custom1_test" time-limit="30" />
+</launch>

@@ -59,9 +59,9 @@
   <build_depend>eigen</build_depend>
   <build_depend>libjsoncpp-dev</build_depend>
   <build_depend version_gte="0.1.2-1~focal">libxgc2-state-machine-dev</build_depend>
-  <build_depend version_gte="0.5.9-1~focal">libxgc2-math-dev</build_depend>
+  <build_depend version_gte="0.5.12-1~">libxgc2-math-dev</build_depend>
   <build_depend>ros1_utils</build_depend>
-  <build_depend>multirotor_reference_trajectory_msgs</build_depend>
+  <build_depend version_gte="1.4.0">multirotor_reference_trajectory_msgs</build_depend>
   <build_depend>px4_multirotor_controller_msgs</build_depend>
   <build_depend>hover_thrust_estimator_msgs</build_depend>
   <build_depend>rigid_state_estimator_msgs</build_depend>
@@ -76,9 +76,9 @@
   <build_export_depend>eigen</build_export_depend>
   <build_export_depend>libjsoncpp-dev</build_export_depend>
   <build_export_depend version_gte="0.1.2-1~focal">libxgc2-state-machine-dev</build_export_depend>
-  <build_export_depend version_gte="0.5.9-1~focal">libxgc2-math-dev</build_export_depend>
+  <build_export_depend version_gte="0.5.12-1~">libxgc2-math-dev</build_export_depend>
   <build_export_depend>ros1_utils</build_export_depend>
-  <build_export_depend>multirotor_reference_trajectory_msgs</build_export_depend>
+  <build_export_depend version_gte="1.4.0">multirotor_reference_trajectory_msgs</build_export_depend>
   <build_export_depend>px4_multirotor_controller_msgs</build_export_depend>
   <build_export_depend>hover_thrust_estimator_msgs</build_export_depend>
   <build_export_depend>rigid_state_estimator_msgs</build_export_depend>
@@ -93,14 +93,16 @@
   <exec_depend>eigen</exec_depend>
   <exec_depend>libjsoncpp-dev</exec_depend>
   <exec_depend version_gte="0.1.2-1~focal">libxgc2-state-machine-dev</exec_depend>
-  <exec_depend version_gte="0.5.4-1">libxgc2-math-dev</exec_depend>
+  <exec_depend version_gte="0.5.12-1~">libxgc2-math-dev</exec_depend>
   <exec_depend>ros1_utils</exec_depend>
-  <exec_depend>multirotor_reference_trajectory_msgs</exec_depend>
+  <exec_depend version_gte="1.4.0">multirotor_reference_trajectory_msgs</exec_depend>
   <exec_depend>px4_multirotor_controller_msgs</exec_depend>
   <exec_depend>hover_thrust_estimator_msgs</exec_depend>
   <exec_depend>rigid_state_estimator_msgs</exec_depend>
   <exec_depend>xgc2-acados</exec_depend>
 
+
+  <test_depend>rostest</test_depend>
 
   <export>
     <build_type>catkin</build_type>
