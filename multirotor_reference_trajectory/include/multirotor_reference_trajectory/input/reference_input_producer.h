@@ -2,7 +2,6 @@
 
 #include <multirotor_reference_trajectory_msgs/AnalyticReference.h>
 #include <multirotor_reference_trajectory_msgs/SampledReference.h>
-#include <multirotor_reference_trajectory_msgs/WaypointReferenceRequest.h>
 #include <ros/ros.h>
 
 #include <string>
@@ -15,15 +14,12 @@ namespace multirotor_reference_trajectory {
 class ReferenceInputProducer {
    public:
     ReferenceInputProducer(ros::NodeHandle& nh, ReferenceTrajectoryRuntime& runtime,
-                           const std::string& analytic_topic, const std::string& waypoint_topic,
-                           const std::string& sampled_topic, const std::string& reset_topic,
-                           uint32_t queue_size);
+                           const std::string& analytic_topic, const std::string& sampled_topic,
+                           const std::string& reset_topic, uint32_t queue_size);
 
    private:
     void analyticCallback(
         const multirotor_reference_trajectory_msgs::AnalyticReference::ConstPtr& msg);
-    void waypointCallback(
-        const multirotor_reference_trajectory_msgs::WaypointReferenceRequest::ConstPtr& msg);
     void sampledCallback(
         const multirotor_reference_trajectory_msgs::SampledReference::ConstPtr& msg);
     void resetCallback(const std_msgs::Empty::ConstPtr& msg);
@@ -31,7 +27,6 @@ class ReferenceInputProducer {
 
     ReferenceTrajectoryRuntime& runtime_;
     ros::Subscriber analytic_sub_;
-    ros::Subscriber waypoint_sub_;
     ros::Subscriber sampled_sub_;
     ros::Subscriber reset_sub_;
 };

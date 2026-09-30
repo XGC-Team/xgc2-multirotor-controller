@@ -5,12 +5,11 @@ Usage: make_reference_stream.py OUT.stream
 
 Stream format (little-endian): magic b"MRTRPLY1", then records of
 u64 receive-time ns, u8 kind, u32 length, ROS-serialized message bytes.
-Kinds: 1 AnalyticReference, 2 WaypointReferenceRequest, 3 SampledReference,
+Kinds: 1 AnalyticReference, 3 SampledReference,
 4 reset (std_msgs/Empty).
 
 The scenario covers every analytic type (with default, explicit and
-non-finite parameters), sampled references, MINCO waypoint plans (fixed and
-optimized segment times, region constraints), rejected requests, a future
+non-finite parameters), sampled references (valid and invalid), rejected requests, a future
 start time, expiry back to Ready, and reset.
 """
 import io
@@ -21,7 +20,7 @@ import sys
 import rospy
 from geometry_msgs.msg import Point, Pose, Quaternion, Vector3
 from multirotor_reference_trajectory_msgs.msg import (AnalyticReference, FlatReferencePoint,
-                                                      SampledReference, WaypointReferenceRequest)
+                                                      SampledReference)
 from std_msgs.msg import Empty
 
 T0 = 1000.0  # receive time of the first record, seconds
@@ -80,27 +79,7 @@ def sampled(t, n=40, dt=0.1, monotonic=True):
     at(t, 3, m)
 
 
-def waypoints(t, points, segment_times=(), constraints=(), sizes=(), revision=0, stamp=None):
-    next_id[0] += 1
-    m = WaypointReferenceRequest()
-    m.header.stamp = rospy.Time.from_sec(T0 + t if stamp is None else stamp)
-    m.request_id = 100 + next_id[0]
-    m.trajectory_id = next_id[0]
-    m.revision = revision
-    m.waypoints = [pose(*p) for p in points]
-    m.constraint_types = list(constraints)
-    m.region_size = [Vector3(*s) for s in sizes]
-    m.segment_times = list(segment_times)
-    m.desired_speed = 1.0
-    m.time_weight = 0.1
-    m.max_iterations = 80
-    m.rel_cost_tol = 1.0e-5
-    m.objective = WaypointReferenceRequest.OBJECTIVE_MINCO
-    at(t, 2, m)
-
-
 A = AnalyticReference
-W = WaypointReferenceRequest
 t = 0.5
 analytic(t, A.ANALYTIC_CIRCLE_ENTRY, [1.5, 1.0, 1.2, 0.2, 0.3, 2.0, 0.5, -0.5], duration=8.0); t += 2.0
 analytic(t, A.ANALYTIC_HOLD, [], duration=3.0, origin=(0.5, 0.2, 1.0, 0.7)); t += 2.0
@@ -119,12 +98,6 @@ analytic(t, 42, [1.0, 1.0, 1.0]); t += 2.0  # unknown type -> circle entry
 analytic(t, A.ANALYTIC_CIRCLE, [1.0, 0.8, 1.5], start=T0 + t + 3.0); t += 2.0  # future start
 sampled(t); t += 2.0
 sampled(t, monotonic=False); t += 1.0  # rejected
-waypoints(t, [(0, 0, 1), (1, 0.5, 1.2), (2, 0, 1)], segment_times=(1.0, 1.0)); t += 3.0
-waypoints(t, [(0, 0, 1), (1, 1, 1.5), (2, 0, 1.2), (3, 1, 1)], constraints=(W.CONSTRAINT_POINT, W.CONSTRAINT_SPHERE, W.CONSTRAINT_BOX, W.CONSTRAINT_POINT),
-          sizes=((0, 0, 0), (0.2, 0.2, 0.2), (0.3, 0.2, 0.1), (0, 0, 0)), revision=5); t += 4.0
-waypoints(t, [(0, 0, 1)]); t += 1.0  # rejected: one waypoint
-waypoints(t, [(0, 0, 1), (1, 0, 1)], segment_times=(1.0, 1.0)); t += 1.0  # rejected: segment count
-waypoints(t, [(0, 0, 1), (1, 0, 1), (1, 1, 1)], segment_times=(0.8, 0.8), stamp=T0 + t + 1.5); t += 1.0
 analytic(t, A.ANALYTIC_HOLD, [], duration=1.0); t += 3.0  # expires -> Ready
 at(t, 4, Empty()); t += 1.0  # reset -> SelfCheck -> Ready
 sampled(t); t += 1.0

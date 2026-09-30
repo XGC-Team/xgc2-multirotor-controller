@@ -33,9 +33,7 @@ test -f "/opt/ros/${ROS_DISTRO}/share/multirotor_reference_trajectory/config/mul
 test -f "/opt/ros/${ROS_DISTRO}/share/multirotor_reference_trajectory/launch/uav_multirotor_reference_trajectory.launch"
 test -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h"
 test -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/AnalyticReference.h"
-test -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/WaypointReferenceRequest.h"
 test -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/SampledReference.h"
-test -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/ActivePolynomialReference.h"
 test -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/ReferenceStatus.h"
 test -f "/opt/ros/${ROS_DISTRO}/share/px4_multirotor_controller/config/uav_nmpc.yaml"
 test -f "/opt/ros/${ROS_DISTRO}/share/px4_multirotor_controller/launch/uav_nmpc_controller.launch"
@@ -64,3 +62,6 @@ done < <(find "/opt/ros/${ROS_DISTRO}/lib/px4_multirotor_controller" \
   "/opt/ros/${ROS_DISTRO}/lib/libmultirotor_reference_trajectory_core.so" -type f 2>/dev/null | sort -u)
 
 echo "Installed package check passed"
+
+test ! -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/WaypointReferenceRequest.h"
+test ! -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/ActivePolynomialReference.h"

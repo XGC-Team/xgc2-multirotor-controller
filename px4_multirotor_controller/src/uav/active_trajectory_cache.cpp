@@ -1,9 +1,9 @@
 #include "px4_multirotor_controller/uav/active_trajectory_cache.h"
-#include "px4_multirotor_controller/common/time.h"
 
 #include <algorithm>
 #include <cmath>
 
+#include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 
 namespace px4_multirotor_controller {
@@ -32,8 +32,7 @@ bool fatalReferenceFlags(uint32_t flags) {
     return (flags & kFatal) != 0U;
 }
 
-double paramAt(const reference::AnalyticReference& msg, size_t index,
-               double fallback) {
+double paramAt(const reference::AnalyticReference& msg, size_t index, double fallback) {
     return msg.params.size() > index && std::isfinite(msg.params[index]) ? msg.params[index]
                                                                          : fallback;
 }
@@ -46,9 +45,8 @@ void appendCoefficients(const std::vector<double>& flat, size_t offset, size_t c
 
 }  // namespace
 
-bool ActiveTrajectoryCache::updateAnalytic(
-    const reference::AnalyticReference& msg,
-    const Time& received_time) {
+bool ActiveTrajectoryCache::updateAnalytic(const reference::AnalyticReference& msg,
+                                           const Time& received_time) {
     uint32_t flags = 0U;
     auto evaluator = buildAnalyticEvaluator(msg, flags);
     if (!evaluator || fatalReferenceFlags(flags)) {
@@ -69,32 +67,8 @@ bool ActiveTrajectoryCache::updateAnalytic(
     return true;
 }
 
-bool ActiveTrajectoryCache::updatePolynomial(
-    const reference::ActivePolynomialReference& msg,
-    const Time& received_time) {
-    auto evaluator = std::make_unique<trajectory::PiecewisePolynomialEvaluator3>();
-    uint32_t flags = 0U;
-    if (!buildPolynomialEvaluator(msg, *evaluator, flags) || fatalReferenceFlags(flags)) {
-        return false;
-    }
-
-    std::lock_guard<std::mutex> lock(mutex_);
-    evaluator_ = std::shared_ptr<const trajectory::TrajectoryEvaluator3>(std::move(evaluator));
-    type_ = trajectory::TrajectoryModelType::kPolynomial;
-    trajectory_id_ = msg.trajectory_id;
-    revision_ = msg.revision;
-    ++sequence_;
-    start_time_ = msg.start_time.isZero() ? msg.header.stamp : msg.start_time;
-    if (start_time_.isZero()) {
-        start_time_ = received_time;
-    }
-    flags_ = flags | msg.flags;
-    return true;
-}
-
-bool ActiveTrajectoryCache::updateSampled(
-    const reference::SampledReference& msg,
-    const Time& received_time) {
+bool ActiveTrajectoryCache::updateSampled(const reference::SampledReference& msg,
+                                          const Time& received_time) {
     auto evaluator = std::make_unique<trajectory::SampledEvaluator3>();
     uint32_t flags = 0U;
     if (!buildSampledEvaluator(msg, *evaluator, flags) || fatalReferenceFlags(flags)) {
@@ -409,45 +383,9 @@ std::unique_ptr<trajectory::TrajectoryEvaluator3> ActiveTrajectoryCache::buildAn
     return fatalReferenceFlags(flags) ? nullptr : std::move(evaluator);
 }
 
-bool ActiveTrajectoryCache::buildPolynomialEvaluator(
-    const reference::ActivePolynomialReference& msg,
-    trajectory::PiecewisePolynomialEvaluator3& evaluator, uint32_t& flags) {
-    flags = msg.flags;
-    const size_t coeffs_per_segment = static_cast<size_t>(msg.order) + 1U;
-    const size_t segment_count = msg.segment_durations.size();
-    if (msg.order < 1U || segment_count == 0U ||
-        msg.coeff_x.size() != segment_count * coeffs_per_segment ||
-        msg.coeff_y.size() != msg.coeff_x.size() || msg.coeff_z.size() != msg.coeff_x.size()) {
-        flags |= trajectory::kFlagInvalidInput;
-        return false;
-    }
-    const bool has_yaw = msg.coeff_yaw.size() == segment_count * coeffs_per_segment;
-    std::vector<trajectory::PolynomialSegment3> segments;
-    segments.reserve(segment_count);
-    for (size_t i = 0; i < segment_count; ++i) {
-        trajectory::PolynomialSegment3 segment;
-        segment.duration = msg.segment_durations[i];
-        const size_t offset = i * coeffs_per_segment;
-        appendCoefficients(msg.coeff_x, offset, coeffs_per_segment, segment.x);
-        appendCoefficients(msg.coeff_y, offset, coeffs_per_segment, segment.y);
-        appendCoefficients(msg.coeff_z, offset, coeffs_per_segment, segment.z);
-        if (has_yaw) {
-            appendCoefficients(msg.coeff_yaw, offset, coeffs_per_segment, segment.yaw);
-        }
-        segments.push_back(std::move(segment));
-    }
-    if (!evaluator.setSegments(std::move(segments), msg.order)) {
-        flags |= trajectory::kFlagInvalidInput;
-        return false;
-    }
-    flags |= trajectory::TrajectoryValidator3::validate(evaluator, trajectory::TrajectoryLimits3{},
-                                                        0.02);
-    return !fatalReferenceFlags(flags);
-}
-
-bool ActiveTrajectoryCache::buildSampledEvaluator(
-    const reference::SampledReference& msg,
-    trajectory::SampledEvaluator3& evaluator, uint32_t& flags) {
+bool ActiveTrajectoryCache::buildSampledEvaluator(const reference::SampledReference& msg,
+                                                  trajectory::SampledEvaluator3& evaluator,
+                                                  uint32_t& flags) {
     flags = msg.flags;
     std::vector<trajectory::SampledPoint3> samples;
     samples.reserve(msg.points.size());

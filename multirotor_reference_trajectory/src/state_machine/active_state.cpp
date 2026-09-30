@@ -66,11 +66,13 @@ void ActiveState::publishActiveIfDue(::state_machine::StateContext& ctx) {
     if (!active_gate_.due(runtime_.currentTime(), 1.0 / runtime_.config().active_publish_rate_hz)) {
         return;
     }
-    uint32_t event_id = output_event_type::PUBLISH_ACTIVE_POLYNOMIAL;
+    uint32_t event_id;
     if (runtime_.activeType() == trajectory::TrajectoryModelType::kAnalytic) {
         event_id = output_event_type::PUBLISH_ACTIVE_ANALYTIC;
     } else if (runtime_.activeType() == trajectory::TrajectoryModelType::kSampled) {
         event_id = output_event_type::PUBLISH_ACTIVE_SAMPLED;
+    } else {
+        return;
     }
     ::state_machine::Event event(event_id, ::state_machine::EventTimestamp{runtime_.currentTime()});
     event.category = ::state_machine::EventCategory::kOutput;

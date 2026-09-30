@@ -2,7 +2,6 @@
 
 #include <hover_thrust_estimator_msgs/HoverThrustEstimate.h>
 #include <mavros_msgs/PositionTarget.h>
-#include <multirotor_reference_trajectory_msgs/ActivePolynomialReference.h>
 #include <multirotor_reference_trajectory_msgs/AnalyticReference.h>
 #include <multirotor_reference_trajectory_msgs/SampledReference.h>
 #include <ros/ros.h>
@@ -30,8 +29,6 @@ class TrajectoryInputProducer {
     void algSetpointCallback(const mavros_msgs::PositionTarget::ConstPtr& msg);
     void activeAnalyticCallback(
         const multirotor_reference_trajectory_msgs::AnalyticReference::ConstPtr& msg);
-    void activePolynomialCallback(
-        const multirotor_reference_trajectory_msgs::ActivePolynomialReference::ConstPtr& msg);
     void activeSampledCallback(
         const multirotor_reference_trajectory_msgs::SampledReference::ConstPtr& msg);
     void hoverThrustCallback(const hover_thrust_estimator_msgs::HoverThrustEstimate::ConstPtr& msg);
@@ -44,7 +41,6 @@ class TrajectoryInputProducer {
     TrajectorySink trajectory_sink_;
     ros::Subscriber alg_setpoint_sub_;
     ros::Subscriber active_analytic_sub_;
-    ros::Subscriber active_polynomial_sub_;
     ros::Subscriber active_sampled_sub_;
     ros::Subscriber hover_thrust_sub_;
 };

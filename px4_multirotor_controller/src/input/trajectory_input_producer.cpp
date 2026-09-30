@@ -1,14 +1,14 @@
 #include "px4_multirotor_controller/input/trajectory_input_producer.h"
-#include "px4_multirotor_controller/control/trajectory_lifter.h"
-#include "px4_multirotor_controller/ros_reference_conversion.h"
-#include "px4_multirotor_controller/ros_time_conversion.h"
 
 #include <ros/ros.h>
 
 #include <cmath>
 #include <utility>
 
+#include "px4_multirotor_controller/control/trajectory_lifter.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
+#include "px4_multirotor_controller/ros_reference_conversion.h"
+#include "px4_multirotor_controller/ros_time_conversion.h"
 
 namespace px4_multirotor_controller {
 
@@ -28,9 +28,6 @@ TrajectoryInputProducer::TrajectoryInputProducer(ros::NodeHandle& nh, SensorData
     active_analytic_sub_ =
         nh.subscribe("alg/multirotor_reference_trajectory/active/analytic", queue_size,
                      &TrajectoryInputProducer::activeAnalyticCallback, this);
-    active_polynomial_sub_ =
-        nh.subscribe("alg/multirotor_reference_trajectory/active/polynomial", queue_size,
-                     &TrajectoryInputProducer::activePolynomialCallback, this);
     active_sampled_sub_ =
         nh.subscribe("alg/multirotor_reference_trajectory/active/sampled", queue_size,
                      &TrajectoryInputProducer::activeSampledCallback, this);
@@ -59,8 +56,7 @@ void TrajectoryInputProducer::algSetpointCallback(
     ingress.yaw_rate = msg->yaw_rate;
     ingress.type_mask = msg->type_mask;
     ingress.coordinate_frame = msg->coordinate_frame;
-    ingress.header_stamp =
-        msg->header.stamp.isZero() ? Time() : toCoreTime(msg->header.stamp);
+    ingress.header_stamp = msg->header.stamp.isZero() ? Time() : toCoreTime(msg->header.stamp);
     ingress.receipt_time = toCoreTime(ros::Time::now());
     const MpcTrajectoryState traj =
         ingestPositionTarget(ingress, config.tracking_backend, config.px4_local_lift);
@@ -89,26 +85,13 @@ void TrajectoryInputProducer::activeAnalyticCallback(
         ROS_ERROR("[TrajectoryInputProducer] Received null active analytic trajectory");
         return;
     }
-    if (!active_trajectory_cache_.updateAnalytic(toCoreReference(*msg), toCoreTime(ros::Time::now()))) {
+    if (!active_trajectory_cache_.updateAnalytic(toCoreReference(*msg),
+                                                 toCoreTime(ros::Time::now()))) {
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active analytic trajectory");
         return;
     }
     postInputEvent(event_type::INPUT_REFERENCE_TRAJECTORY_UPDATED,
                    "alg/multirotor_reference_trajectory/active/analytic");
-}
-
-void TrajectoryInputProducer::activePolynomialCallback(
-    const multirotor_reference_trajectory_msgs::ActivePolynomialReference::ConstPtr& msg) {
-    if (!msg) {
-        ROS_ERROR("[TrajectoryInputProducer] Received null active polynomial trajectory");
-        return;
-    }
-    if (!active_trajectory_cache_.updatePolynomial(toCoreReference(*msg), toCoreTime(ros::Time::now()))) {
-        ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active polynomial trajectory");
-        return;
-    }
-    postInputEvent(event_type::INPUT_REFERENCE_TRAJECTORY_UPDATED,
-                   "alg/multirotor_reference_trajectory/active/polynomial");
 }
 
 void TrajectoryInputProducer::activeSampledCallback(
@@ -117,7 +100,8 @@ void TrajectoryInputProducer::activeSampledCallback(
         ROS_ERROR("[TrajectoryInputProducer] Received null active sampled trajectory");
         return;
     }
-    if (!active_trajectory_cache_.updateSampled(toCoreReference(*msg), toCoreTime(ros::Time::now()))) {
+    if (!active_trajectory_cache_.updateSampled(toCoreReference(*msg),
+                                                toCoreTime(ros::Time::now()))) {
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active sampled trajectory");
         return;
     }

@@ -1,9 +1,10 @@
 #include "multirotor_reference_trajectory/output/reference_output_consumer.h"
-#include "multirotor_reference_trajectory/ros_reference_conversion.h"
 
 #include <cmath>
 #include <memory>
 #include <utility>
+
+#include "multirotor_reference_trajectory/ros_reference_conversion.h"
 
 namespace multirotor_reference_trajectory {
 namespace {
@@ -21,9 +22,9 @@ std::unique_ptr<::state_machine::runtime::Task<ros::NodeHandle>> makePublishTask
 ReferenceOutputConsumer::ReferenceOutputConsumer(
     ros::NodeHandle& nh, ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
     ReferenceTrajectoryRuntime& runtime, const std::string& status_topic,
-    const std::string& active_analytic_topic, const std::string& active_polynomial_topic,
-    const std::string& active_sampled_topic, const std::string& reference_path_topic,
-    double reference_path_sample_dt, double reference_path_preview_duration, uint32_t queue_size)
+    const std::string& active_analytic_topic, const std::string& active_sampled_topic,
+    const std::string& reference_path_topic, double reference_path_sample_dt,
+    double reference_path_preview_duration, uint32_t queue_size)
     : executor_(executor),
       runtime_(runtime),
       reference_path_sample_dt_(reference_path_sample_dt > 0.0 ? reference_path_sample_dt : 0.02),
@@ -33,9 +34,6 @@ ReferenceOutputConsumer::ReferenceOutputConsumer(
         status_topic, queue_size, true);
     active_analytic_pub_ = nh.advertise<multirotor_reference_trajectory_msgs::AnalyticReference>(
         active_analytic_topic, queue_size, true);
-    active_polynomial_pub_ =
-        nh.advertise<multirotor_reference_trajectory_msgs::ActivePolynomialReference>(
-            active_polynomial_topic, queue_size, true);
     active_sampled_pub_ = nh.advertise<multirotor_reference_trajectory_msgs::SampledReference>(
         active_sampled_topic, queue_size, true);
     reference_path_pub_ = nh.advertise<nav_msgs::Path>(reference_path_topic, queue_size, true);
@@ -43,21 +41,15 @@ ReferenceOutputConsumer::ReferenceOutputConsumer(
 
 bool ReferenceOutputConsumer::handle(const ::state_machine::Event& event) {
     if (event.id == output_event_type::PUBLISH_STATUS) {
-        executor_.pushTask(
-            makePublishTask("PublishReferenceStatus", status_pub_,
-                            toRos(runtime_.makeStatus(event.timestamp > 0.0 ? event.timestamp
-                                                                            : ros::Time::now().toSec()))));
+        executor_.pushTask(makePublishTask(
+            "PublishReferenceStatus", status_pub_,
+            toRos(runtime_.makeStatus(event.timestamp > 0.0 ? event.timestamp
+                                                            : ros::Time::now().toSec()))));
         return true;
     }
     if (event.id == output_event_type::PUBLISH_ACTIVE_ANALYTIC) {
         executor_.pushTask(makePublishTask("PublishActiveAnalytic", active_analytic_pub_,
                                            toRos(runtime_.activeAnalyticMessage())));
-        publishReferencePath(event.timestamp);
-        return true;
-    }
-    if (event.id == output_event_type::PUBLISH_ACTIVE_POLYNOMIAL) {
-        executor_.pushTask(makePublishTask("PublishActivePolynomial", active_polynomial_pub_,
-                                           toRos(runtime_.activePolynomialMessage())));
         publishReferencePath(event.timestamp);
         return true;
     }

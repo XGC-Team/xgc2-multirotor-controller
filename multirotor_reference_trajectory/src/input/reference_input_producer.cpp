@@ -1,21 +1,19 @@
 #include "multirotor_reference_trajectory/input/reference_input_producer.h"
-#include "multirotor_reference_trajectory/ros_reference_conversion.h"
 
 #include <utility>
+
+#include "multirotor_reference_trajectory/ros_reference_conversion.h"
 
 namespace multirotor_reference_trajectory {
 
 ReferenceInputProducer::ReferenceInputProducer(ros::NodeHandle& nh,
                                                ReferenceTrajectoryRuntime& runtime,
                                                const std::string& analytic_topic,
-                                               const std::string& waypoint_topic,
                                                const std::string& sampled_topic,
                                                const std::string& reset_topic, uint32_t queue_size)
     : runtime_(runtime) {
     analytic_sub_ =
         nh.subscribe(analytic_topic, queue_size, &ReferenceInputProducer::analyticCallback, this);
-    waypoint_sub_ =
-        nh.subscribe(waypoint_topic, queue_size, &ReferenceInputProducer::waypointCallback, this);
     sampled_sub_ =
         nh.subscribe(sampled_topic, queue_size, &ReferenceInputProducer::sampledCallback, this);
     reset_sub_ =
@@ -33,19 +31,6 @@ void ReferenceInputProducer::analyticCallback(
         return;
     }
     post(event_type::ANALYTIC_RECEIVED, "analytic_reference");
-}
-
-void ReferenceInputProducer::waypointCallback(
-    const multirotor_reference_trajectory_msgs::WaypointReferenceRequest::ConstPtr& msg) {
-    if (!msg) {
-        ROS_ERROR("[ReferenceInputProducer] Null waypoint reference");
-        return;
-    }
-    if (!runtime_.acceptWaypoint(toCore(*msg))) {
-        ROS_WARN_THROTTLE(1.0, "[ReferenceInputProducer] Rejected waypoint request");
-        return;
-    }
-    post(event_type::WAYPOINT_RECEIVED, "waypoint_reference");
 }
 
 void ReferenceInputProducer::sampledCallback(

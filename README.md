@@ -31,3 +31,14 @@ The controller consumes only
 diagnostic consistency input; raw VRPN twist is neither subscribed nor accepted
 as a control-state source. Simulation uses the same fused-state boundary as the
 future onboard deployment.
+
+## Reference inputs
+
+The reference runtime publishes analytic and sampled references, including
+circle and torus-knot entry trajectories. UAV waypoint optimization and external
+active polynomial ingestion are retired. NMPC and DFBC retain the analytic and
+sampled cache; PX4_LOCAL and SMC retain PositionTarget ingestion, PVA lifting,
+Custom1, and their existing output and takeoff/landing paths.
+
+This revision requires the 1.4 message contract. All consumers of UAV
+ReferenceStatus must be rebuilt together because its ROS1 MD5 changed.

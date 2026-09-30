@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include <Eigen/Dense>
 #include <memory>
 #include <mutex>
@@ -8,10 +7,10 @@
 #include <xgc2_math/control.hpp>
 #include <xgc2_math/trajectory.hpp>
 
-#include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/common/time.h"
-#include "px4_multirotor_controller/uav/reference_types.h"
+#include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
+#include "px4_multirotor_controller/uav/reference_types.h"
 
 namespace px4_multirotor_controller {
 
@@ -30,13 +29,8 @@ struct UavReferencePoint {
 
 class ActiveTrajectoryCache {
    public:
-    bool updateAnalytic(const reference::AnalyticReference& msg,
-                        const Time& received_time);
-    bool updatePolynomial(
-        const reference::ActivePolynomialReference& msg,
-        const Time& received_time);
-    bool updateSampled(const reference::SampledReference& msg,
-                       const Time& received_time);
+    bool updateAnalytic(const reference::AnalyticReference& msg, const Time& received_time);
+    bool updateSampled(const reference::SampledReference& msg, const Time& received_time);
     void clear();
 
     bool sample(const Time& now, UavReferencePoint& sample) const;
@@ -53,12 +47,9 @@ class ActiveTrajectoryCache {
     static bool finiteVector(const Eigen::Vector3d& value);
     static std::unique_ptr<xgc2_math::trajectory::TrajectoryEvaluator3> buildAnalyticEvaluator(
         const reference::AnalyticReference& msg, uint32_t& flags);
-    static bool buildPolynomialEvaluator(
-        const reference::ActivePolynomialReference& msg,
-        xgc2_math::trajectory::PiecewisePolynomialEvaluator3& evaluator, uint32_t& flags);
-    static bool buildSampledEvaluator(
-        const reference::SampledReference& msg,
-        xgc2_math::trajectory::SampledEvaluator3& evaluator, uint32_t& flags);
+    static bool buildSampledEvaluator(const reference::SampledReference& msg,
+                                      xgc2_math::trajectory::SampledEvaluator3& evaluator,
+                                      uint32_t& flags);
     static UavReferencePoint toPoint(const xgc2_math::trajectory::FlatOutput3& flat, double t);
     static xgc2_math::control::Se3Reference toNmpcReference(
         const xgc2_math::trajectory::FullStateReference3& full);

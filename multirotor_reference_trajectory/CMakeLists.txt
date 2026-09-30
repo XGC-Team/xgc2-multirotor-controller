@@ -36,7 +36,6 @@ add_library(multirotor_reference_trajectory_core
   src/multirotor_reference_trajectory_runtime.cpp
   src/state_machine/self_check_state.cpp
   src/state_machine/ready_state.cpp
-  src/state_machine/planning_state.cpp
   src/state_machine/active_state.cpp
 )
 set_target_properties(multirotor_reference_trajectory_core PROPERTIES INCLUDE_DIRECTORIES "")

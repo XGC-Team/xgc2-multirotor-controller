@@ -15,11 +15,11 @@
 #include <vector>
 
 #include "px4_multirotor_controller/control/trajectory_lifter.h"
-#include "px4_multirotor_controller/ros_time_conversion.h"
 #include "px4_multirotor_controller/output/control_output_consumer.h"
 #include "px4_multirotor_controller/output/debug_output_consumer.h"
 #include "px4_multirotor_controller/output/nmpc_output_consumer.h"
 #include "px4_multirotor_controller/output/reference_activation_output_consumer.h"
+#include "px4_multirotor_controller/ros_time_conversion.h"
 #include "xgc2_math/geometry/math_helpers.h"
 
 namespace px4_multirotor_controller {
@@ -135,7 +135,6 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     ROS_INFO("  - %s (check only)", resolveTopicName(nh_, vrpn_pose_topic).c_str());
     ROS_INFO("  - alg/setpoint_raw/local");
     ROS_INFO("  - alg/multirotor_reference_trajectory/active/analytic");
-    ROS_INFO("  - alg/multirotor_reference_trajectory/active/polynomial");
     ROS_INFO("  - alg/multirotor_reference_trajectory/active/sampled");
     ROS_INFO("  - hover_thrust/estimate_state");
     ROS_INFO("  - /command (global)");

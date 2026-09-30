@@ -55,18 +55,6 @@ struct AnalyticReference {
     std::vector<double> params;
 };
 
-struct ActivePolynomialReference {
-    Header header;
-    uint32_t trajectory_id{0};
-    uint32_t revision{0};
-    uint32_t flags{0};
-    Time start_time;
-    double duration{0.0};
-    uint8_t order{0};
-    std::vector<double> segment_durations;
-    std::vector<double> coeff_x, coeff_y, coeff_z, coeff_yaw;
-};
-
 struct FlatReferencePoint {
     double t_from_start{0.0};
     Point position;

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <multirotor_reference_trajectory_msgs/ActivePolynomialReference.h>
 #include <multirotor_reference_trajectory_msgs/AnalyticReference.h>
 #include <multirotor_reference_trajectory_msgs/ReferenceStatus.h>
 #include <multirotor_reference_trajectory_msgs/SampledReference.h>
@@ -21,7 +20,6 @@ class ReferenceOutputConsumer final : public ::state_machine::runtime::EventCons
                             ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
                             ReferenceTrajectoryRuntime& runtime, const std::string& status_topic,
                             const std::string& active_analytic_topic,
-                            const std::string& active_polynomial_topic,
                             const std::string& active_sampled_topic,
                             const std::string& reference_path_topic,
                             double reference_path_sample_dt, double reference_path_preview_duration,
@@ -40,7 +38,6 @@ class ReferenceOutputConsumer final : public ::state_machine::runtime::EventCons
     ReferenceTrajectoryRuntime& runtime_;
     ros::Publisher status_pub_;
     ros::Publisher active_analytic_pub_;
-    ros::Publisher active_polynomial_pub_;
     ros::Publisher active_sampled_pub_;
     ros::Publisher reference_path_pub_;
     double reference_path_sample_dt_{0.02};
