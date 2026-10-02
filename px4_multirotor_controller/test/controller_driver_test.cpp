@@ -1,0 +1,103 @@
+#include <gtest/gtest.h>
+#include <atomic>
+#include <condition_variable>
+#include <future>
+#include "px4_multirotor_controller/driver/controller_driver.h"
+#include "px4_multirotor_controller/driver/controller_config.h"
+using namespace px4_multirotor_controller;
+TEST(ControllerStatistics, OriginalWindowJitterAndSingleMessageHeartbeat) {
+    SensorData data; SensorStatistics statistics(data); statistics.start(Time(100.0));
+    statistics.observe(SensorStream::State, Time(100.01));
+    statistics.advance(Time(101.0)); statistics.advance(Time(102.0));
+    statistics.advance(Time(102.6)); EXPECT_TRUE(data.state_stats.is_active);
+    statistics.advance(Time(103.0)); EXPECT_FALSE(data.state_stats.is_active);
+    EXPECT_DOUBLE_EQ(data.state_stats.time_since_last_msg, 2.99);
+    statistics.observe(SensorStream::State, Time(103.1)); EXPECT_TRUE(data.state_stats.is_active);
+    statistics.resetNewFlags(); EXPECT_FALSE(data.state_stats.is_new);
+    for (int i = 1; i <= 10; ++i) statistics.observe(SensorStream::LocalPose, Time(103.0 + i * 0.02));
+    statistics.advance(Time(103.3));
+    EXPECT_NEAR(data.local_pos_stats.frequency_hz, 50.0, 1e-9);
+    EXPECT_NEAR(data.local_pos_stats.dt_max, 0.02, 1e-9);
+    EXPECT_GT(data.local_pos_stats.jitter, 0.0); // original first dt is zero
+}
+TEST(ControllerConfiguration, SamePolicyForRosAndNativeValuesAndOwningProfile) {
+    auto getter = [](const std::string& key, ControllerParameterValue& value) {
+        if (key == "world_boundary_json") { value = std::string("null"); return true; }
+        if (key == "tracking_backend") { value = std::string("dfbc"); return true; }
+        if (key == "nmpc/control_period") { value = -1.0; return true; }
+        return false;
+    };
+    auto ros = readControllerConfig(ControllerParameters(getter));
+    auto native = readControllerConfig(ControllerParameters(getter));
+    EXPECT_EQ(ros.tracking_backend, native.tracking_backend);
+    EXPECT_EQ(ros.tracking_backend, TrackingBackend::DFBC);
+    EXPECT_DOUBLE_EQ(ros.takeoff_altitude, 2.3); // owning YAML, not C++ default
+    EXPECT_DOUBLE_EQ(ros.nmpc.control_period, 0.01); // unchanged validation
+    EXPECT_EQ(ros.local_type_mask, native.local_type_mask);
+    EXPECT_TRUE(ros.dfbc.acceleration_correction_enabled);
+    EXPECT_DOUBLE_EQ(ros.safety.position_jump_threshold, native.safety.position_jump_threshold);
+}
+TEST(NmpcGeneration, InvalidatedAndUnissuedResultsCannotPoisonNextScope) {
+    NmpcResultBuffer buffer;
+    const auto first = buffer.beginGeneration(); const auto id1 = buffer.reserveRequestSequence();
+    NmpcSolveResult result; result.control_generation = first; result.sequence = id1; result.success = true;
+    ASSERT_TRUE(buffer.store(result));
+    buffer.invalidateGeneration(first);
+    const auto second = buffer.beginGeneration(); const auto id2 = buffer.reserveRequestSequence();
+    ASSERT_GT(id2, id1); EXPECT_FALSE(buffer.store(result));
+    NmpcSolveResult output; EXPECT_FALSE(buffer.consumeNewerThan(0, output));
+    result.control_generation = second; result.sequence = id2 + 100;
+    EXPECT_FALSE(buffer.store(result));
+    result.sequence = id2; EXPECT_TRUE(buffer.store(result));
+    ASSERT_TRUE(buffer.consumeNewerThan(id1, output)); EXPECT_EQ(output.sequence, id2);
+}
+TEST(NmpcExecution, ConfigSnapshotBusyLateCompletionStopAndRestart) {
+    SensorData data; DroneController controller(data); ControllerConfig config; controller.setConfig(config);
+    reference::AnalyticReference ref; ref.start_time = ref.header.stamp = Time(100.0);
+    ref.duration = 60.0; ref.analytic_type = reference::AnalyticReference::ANALYTIC_HOLD;
+    ref.origin.position.z = 1.0; ref.origin.orientation.w = 1.0;
+    ASSERT_TRUE(controller.activeTrajectoryCache().updateAnalytic(ref, Time(100.0)));
+    std::mutex mutex; std::condition_variable condition; bool entered = false, release = false;
+    std::atomic<unsigned> completions{0}; std::atomic<double> captured{0.0};
+    NmpcExecution execution(controller, [] { return Time(100.01); },
+        [&](::state_machine::Event) { ++completions; return ::state_machine::Status{}; },
+        [&](const NmpcExecution::Request& request) {
+            captured.store(request.config.nmpc.gravity);
+            { std::unique_lock<std::mutex> lock(mutex); entered = true; condition.notify_all();
+              condition.wait(lock, [&] { return release; }); }
+            NmpcSolveResult result; result.success = true; result.target.thrust = 0.61; return result;
+        });
+    execution.start();
+    auto make_request = [&] {
+        auto& buffer = controller.nmpcResultBuffer();
+        ::state_machine::Event event(output_event_type::REQUEST_NMPC_SOLVE, ::state_machine::EventTimestamp{100.01});
+        event.correlation_id = buffer.reserveRequestSequence();
+        event.payload["control_generation"] = static_cast<int64_t>(buffer.activeGeneration());
+        return event;
+    };
+    controller.nmpcResultBuffer().beginGeneration();
+    ASSERT_TRUE(execution.handle(make_request()));
+    { std::unique_lock<std::mutex> lock(mutex); ASSERT_TRUE(condition.wait_for(lock, std::chrono::seconds(2), [&] { return entered; })); }
+    config.nmpc.gravity = 12.0; controller.setConfig(config);
+    ASSERT_TRUE(execution.handle(make_request())); // deterministic busy rejection
+    NmpcSolveResult busy; ASSERT_TRUE(controller.nmpcResultBuffer().consumeNewerThan(0, busy));
+    EXPECT_EQ(busy.solver_status, nmpc_solver_status::kDispatcherBusy);
+    auto stopped = std::async(std::launch::async, [&] { execution.stop(); });
+    // Wait on the actual generation invalidation, not a timing sleep.
+    const auto invalidation_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (controller.nmpcResultBuffer().activeGeneration() != 0 && std::chrono::steady_clock::now() < invalidation_deadline) std::this_thread::yield();
+    EXPECT_EQ(controller.nmpcResultBuffer().activeGeneration(), 0U);
+    { std::lock_guard<std::mutex> lock(mutex); release = true; } condition.notify_all();
+    ASSERT_EQ(stopped.wait_for(std::chrono::seconds(2)), std::future_status::ready); stopped.get();
+    EXPECT_DOUBLE_EQ(captured.load(), 9.8066); // accepted config, not mutable 12.0
+    EXPECT_EQ(completions.load(), 1U); // busy failure only, late success invalidated
+    EXPECT_FALSE(controller.nmpcResultBuffer().consumeNewerThan(0, busy));
+    execution.start(); controller.nmpcResultBuffer().beginGeneration();
+    ASSERT_TRUE(execution.handle(make_request()));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (completions.load() < 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+    EXPECT_EQ(completions.load(), 2U);
+    ASSERT_TRUE(controller.nmpcResultBuffer().consumeNewerThan(0, busy)); EXPECT_TRUE(busy.success);
+    EXPECT_DOUBLE_EQ(captured.load(), 12.0);
+    execution.stop();
+}

@@ -14,7 +14,7 @@
 #include <state_machine/state_machine.hpp>
 #include <string>
 
-#include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/driver/sensor_statistics.h"
 
 namespace px4_multirotor_controller {
 
@@ -23,7 +23,7 @@ class SensorInputProducer {
     using EventSink = std::function<::state_machine::Status(::state_machine::Event)>;
 
     SensorInputProducer(ros::NodeHandle& nh, SensorData& sensor_data,
-                        ros1_utils::PositionQualityStats& vrpn_quality_stats, uint32_t queue_size,
+                        ros1_utils::PositionQualityStats& vrpn_quality_stats, SensorStatistics& statistics, uint32_t queue_size,
                         EventSink event_sink, std::function<void()> on_state_message);
 
     void setVrpnQualityConfig(const ros1_utils::PositionQualityConfig& config);
@@ -51,12 +51,8 @@ class SensorInputProducer {
     uint32_t queue_size_{5};
     EventSink event_sink_;
     std::function<void()> on_state_message_;
-    ros1_utils::TopicStatsManager stats_manager_;
-    // Written by stats_manager_ (callbacks and its timer); copied into
-    // SensorData by syncStats().
-    struct RosStats {
-        ros1_utils::TopicStats state_estimate, local_pos, local_velocity, imu, state, battery, vrpn_pose;
-    } ros_stats_;
+    SensorStatistics& statistics_;
+    std::vector<ros::Subscriber> subscribers_;
     ros1_utils::PositionQualityDetector vrpn_quality_detector_;
     std::string state_estimate_topic_{"alg/state_estimator/state"};
     std::string vrpn_pose_topic_{"pose"};

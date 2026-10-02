@@ -86,6 +86,11 @@ for ros_package in "${ROS_PACKAGES[@]}"; do
 done
 copy_path "${PREFIX_ROOT}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so" "${pkg_root}"
 copy_path "${PREFIX_ROOT}/lib/libpx4_multirotor_controller_core.so" "${pkg_root}"
+# The product owns its native ABI adapter. Header-only Runtime SDK is a build
+# dependency; the resulting ELF ships with its owning core, never in runtime.
+if [[ -f "${PREFIX_ROOT}/lib/libctl_px4.so" ]]; then
+  copy_path "${PREFIX_ROOT}/lib/libctl_px4.so" "${pkg_root}"
+fi
 copy_path "${PREFIX_ROOT}/lib/libmultirotor_reference_trajectory_core.so" "${pkg_root}"
 
 mkdir -p "${pkg_root}/DEBIAN" "${pkg_root}/usr/share/doc/${PACKAGE}"

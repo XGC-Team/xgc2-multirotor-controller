@@ -208,17 +208,22 @@ TEST(ActiveTrajectoryCache, SampledReferenceRequiresFiniteHighOrderSamples) {
 
 TEST(NmpcResultBuffer, KeepsNewestSequence) {
     NmpcResultBuffer buffer;
+    const auto generation = buffer.beginGeneration();
+    const auto first = buffer.reserveRequestSequence();
+    const auto second = buffer.reserveRequestSequence();
     NmpcSolveResult newer;
-    newer.sequence = 2;
+    newer.control_generation = generation;
+    newer.sequence = second;
     newer.success = true;
     newer.stamp = Time(1.0);
-    buffer.store(newer);
+    ASSERT_TRUE(buffer.store(newer)) << "generation=" << generation << " active=" << buffer.activeGeneration() << " id=" << second << " last=" << buffer.lastRequestSequence();
 
     NmpcSolveResult older;
-    older.sequence = 1;
+    older.sequence = first;
+    older.control_generation = generation;
     older.success = false;
     older.stamp = Time(2.0);
-    buffer.store(older);
+    EXPECT_FALSE(buffer.store(older));
 
     NmpcSolveResult output;
     ASSERT_TRUE(buffer.consumeNewerThan(0, output));

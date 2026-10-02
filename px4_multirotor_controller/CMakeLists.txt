@@ -325,11 +325,27 @@ target_link_libraries(px4_multirotor_controller_uav_nmpc_runtime
   m
 )
 
+# Both transports read the same owning profile and the same validation code.
+find_program(XGC_CONTROLLER_PYTHON3 python3 REQUIRED)
+file(MAKE_DIRECTORY "${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}")
+execute_process(COMMAND "${XGC_CONTROLLER_PYTHON3}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/generate_profile.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/config/uav_nmpc.yaml"
+  "${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}/controller_profile.h"
+  RESULT_VARIABLE XGC_CONTROLLER_PROFILE_RESULT)
+if(NOT XGC_CONTROLLER_PROFILE_RESULT EQUAL 0)
+  message(FATAL_ERROR "Cannot compile owning controller configuration")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS config/uav_nmpc.yaml)
+
 ## The controller core: ROS-free. It gets no directory-level (catkin) include
 ## directories and links no ROS library; -Wl,--no-undefined makes any ROS
 ## symbol it used fail the link. The node and test targets link it.
 add_library(px4_multirotor_controller_core
   src/drone_controller.cpp
+  src/driver/controller_config.cpp
+  src/driver/sensor_statistics.cpp
+  src/driver/nmpc_execution.cpp
   src/world_boundary.cpp
   src/tracking/dfbc_attitude_rate_strategy.cpp
   src/tracking/smc_acceleration_strategy.cpp
@@ -349,6 +365,8 @@ add_library(px4_multirotor_controller_core
   src/uav/state_machine/custom1_state.cpp
 )
 set_target_properties(px4_multirotor_controller_core PROPERTIES INCLUDE_DIRECTORIES "")
+set_target_properties(px4_multirotor_controller_core PROPERTIES INSTALL_RPATH "$ORIGIN;/opt/xgc2/acados/lib")
+set_target_properties(px4_multirotor_controller_uav_nmpc_runtime PROPERTIES INSTALL_RPATH "$ORIGIN;/opt/xgc2/acados/lib")
 if(XGC2_MATH_INCLUDE_OVERRIDE)
   target_include_directories(px4_multirotor_controller_core BEFORE PUBLIC
     "${XGC2_MATH_INCLUDE_OVERRIDE}")
@@ -571,3 +589,54 @@ endif()
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+
+# Runtime is an ABI dependency only. No runtime/domain implementation is built.
+option(PX4_CONTROLLER_NATIVE_ADAPTER "Build the product-owned native ABI adapter" OFF)
+set(XGC_RUNTIME_SDK_SOURCE_ROOT "" CACHE PATH "Explicit Runtime SDK source root")
+if(PX4_CONTROLLER_NATIVE_ADAPTER)
+  if(XGC_RUNTIME_SDK_SOURCE_ROOT)
+    if(NOT TARGET XgcRuntime::SDK)
+      add_subdirectory("${XGC_RUNTIME_SDK_SOURCE_ROOT}/abi" "${CMAKE_CURRENT_BINARY_DIR}/runtime-sdk")
+    endif()
+  else()
+    find_package(XgcRuntimeSDK CONFIG REQUIRED)
+  endif()
+  add_library(ctl_px4 SHARED native/ctl_px4.cpp)
+  set_target_properties(ctl_px4 PROPERTIES INSTALL_RPATH "$ORIGIN")
+  target_include_directories(ctl_px4 PRIVATE native
+    ${CMAKE_CURRENT_SOURCE_DIR}/include ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+    ${MULTIROTOR_UAV_NMPC_GENERATED_DIR} ${EIGEN3_INCLUDE_DIRS}
+    ${MULTIROTOR_ACADOS_INCLUDE_DIRS})
+  set_target_properties(ctl_px4 PROPERTIES INCLUDE_DIRECTORIES
+    "${CMAKE_CURRENT_SOURCE_DIR}/native;${CMAKE_CURRENT_SOURCE_DIR}/include;${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR};${MULTIROTOR_UAV_NMPC_GENERATED_DIR};${EIGEN3_INCLUDE_DIRS};${MULTIROTOR_ACADOS_INCLUDE_DIRS}")
+  target_link_libraries(ctl_px4 PRIVATE XgcRuntime::SDK px4_multirotor_controller_core)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(ctl_px4 PRIVATE -fvisibility=hidden -Wall -Wextra)
+    target_link_options(ctl_px4 PRIVATE -Wl,--no-undefined)
+  endif()
+  install(TARGETS ctl_px4 LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
+endif()
+
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(px4_controller_driver_test test/controller_driver_test.cpp)
+  if(TARGET px4_controller_driver_test)
+    target_include_directories(px4_controller_driver_test BEFORE PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+      ${MULTIROTOR_UAV_NMPC_GENERATED_DIR} ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS})
+    target_link_libraries(px4_controller_driver_test px4_multirotor_controller_core gtest_main)
+  endif()
+  add_executable(px4_nmpc_generation_reentry_test test/nmpc_generation_reentry_test.cpp)
+  target_include_directories(px4_nmpc_generation_reentry_test BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+    ${MULTIROTOR_UAV_NMPC_GENERATED_DIR} ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS})
+  target_link_libraries(px4_nmpc_generation_reentry_test px4_multirotor_controller_core)
+  add_test(NAME px4_nmpc_generation_reentry_test COMMAND px4_nmpc_generation_reentry_test)
+endif()
+
+if(CATKIN_ENABLE_TESTING AND PX4_CONTROLLER_NATIVE_ADAPTER)
+  add_executable(controller_transport_parity test/controller_transport_parity.cpp src/input/sensor_input_producer.cpp)
+  target_include_directories(controller_transport_parity BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+    ${MULTIROTOR_UAV_NMPC_GENERATED_DIR} ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS})
+  target_link_libraries(controller_transport_parity PRIVATE px4_multirotor_controller_core XgcRuntime::SDK ${catkin_LIBRARIES} gtest dl)
+endif()

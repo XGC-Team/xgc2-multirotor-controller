@@ -44,6 +44,7 @@ class Custom1State : public ::state_machine::State {
     bool tracking_armed_{false};
 
     uint64_t request_sequence_{0};
+    uint64_t control_generation_{0};
     uint64_t in_flight_sequence_{0};
     uint64_t consumed_result_sequence_{0};
     bool request_in_flight_{false};

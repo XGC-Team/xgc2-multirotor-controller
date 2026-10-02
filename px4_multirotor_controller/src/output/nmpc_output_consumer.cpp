@@ -54,145 +54,31 @@ geometry_msgs::Twist twistFromState(const Se3StateVector& state) {
 
 }  // namespace
 
-NmpcOutputConsumer::NmpcOutputConsumer(ros::NodeHandle& nh, DroneController& controller,
-                                       EventSink event_sink, uint32_t queue_size)
-    : nh_(nh), controller_(controller), event_sink_(std::move(event_sink)) {
-    debug_pub_ = nh_.advertise<px4_multirotor_controller_msgs::NmpcDebugSample>(
-        "alg/nmpc/debug_sample", queue_size);
-    predicted_path_pub_ = nh_.advertise<nav_msgs::Path>("alg/nmpc/predicted_path", queue_size);
-    predicted_poses_pub_ =
-        nh_.advertise<geometry_msgs::PoseArray>("alg/nmpc/predicted_poses", queue_size);
-    backend_.configure(controller_.getConfig());
-    worker_ = std::thread(&NmpcOutputConsumer::workerLoop, this);
+NmpcOutputConsumer::NmpcOutputConsumer(ros::NodeHandle& nh, NmpcExecution& execution, uint32_t queue_size)
+ : execution_(execution) {
+ debug_pub_ = nh.advertise<px4_multirotor_controller_msgs::NmpcDebugSample>("alg/nmpc/debug_sample", queue_size);
+ predicted_path_pub_ = nh.advertise<nav_msgs::Path>("alg/nmpc/predicted_path", queue_size);
+ predicted_poses_pub_ = nh.advertise<geometry_msgs::PoseArray>("alg/nmpc/predicted_poses", queue_size);
+ execution_.setDiagnosticSink([this](uint64_t sequence, const Time& stamp,
+                                   const UavNmpcTrackingBackend& backend, bool success) {
+   publishDebug(sequence, stamp, backend);
+   if (success) publishPrediction(stamp, backend);
+ });
 }
-
 NmpcOutputConsumer::~NmpcOutputConsumer() {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        stop_ = true;
-    }
-    condition_.notify_all();
-    if (worker_.joinable()) {
-        worker_.join();
-    }
-    backend_.exit();
+ execution_.stop();
+ execution_.setDiagnosticSink({});
 }
+bool NmpcOutputConsumer::handle(const ::state_machine::Event& event) { return execution_.handle(event); }
 
-bool NmpcOutputConsumer::handle(const ::state_machine::Event& event) {
-    if (event.id != output_event_type::REQUEST_NMPC_SOLVE) {
-        return false;
-    }
-
-    const uint64_t sequence = event.correlation_id;
-    const ControllerConfig config = controller_.getConfig();
-    const ros::Time now(event.timestamp > 0.0 ? event.timestamp : ros::Time::now().toSec());
-    Request request;
-    request.sequence = sequence;
-    request.now = now;
-    request.sensor = controller_.getSensorData();
-
-    const double stage_dt =
-        config.nmpc.prediction_horizon / static_cast<double>(UavNmpcSolver::horizonSteps());
-    if (!controller_.activeTrajectoryCache().sampleHorizon(
-            toCoreTime(now), stage_dt, UavNmpcSolver::horizonSteps(), config.nmpc.gravity,
-            request.references)) {
-        reject(sequence, nmpc_solver_status::kReferenceSamplingFailed);
-        return true;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (busy_ || has_pending_) {
-            reject(sequence, nmpc_solver_status::kDispatcherBusy);
-            return true;
-        }
-        pending_ = std::move(request);
-        has_pending_ = true;
-    }
-    condition_.notify_one();
-    return true;
-}
-
-void NmpcOutputConsumer::workerLoop() {
-    bool entered = false;
-    while (true) {
-        Request request;
-        {
-            std::unique_lock<std::mutex> lock(mutex_);
-            condition_.wait(lock, [this] { return stop_ || has_pending_; });
-            if (stop_) {
-                return;
-            }
-            request = std::move(pending_);
-            has_pending_ = false;
-            busy_ = true;
-        }
-
-        NmpcSolveResult result;
-        result.sequence = request.sequence;
-        result.stamp = toCoreTime(request.now);
-        backend_.configure(controller_.getConfig());
-        if (request.sequence == 1) {
-            backend_.exit();
-            entered = false;
-        }
-        if (!entered) {
-            entered = backend_.enter(request.sensor);
-        }
-        if (entered) {
-            result.success =
-                backend_.compute(request.sensor, request.references, toCoreTime(request.now), result.target);
-            result.solver_status = backend_.status();
-            result.solve_time_ms = backend_.solveTimeMs();
-            publishDebug(request.sequence, request.now);
-            if (result.success) {
-                publishPrediction(request.now);
-            }
-        } else {
-            result.success = false;
-            result.solver_status = nmpc_solver_status::kBackendUnavailable;
-        }
-
-        controller_.nmpcResultBuffer().store(result);
-        postResultEvent(request.sequence, result.success);
-
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            busy_ = false;
-        }
-    }
-}
-
-void NmpcOutputConsumer::reject(uint64_t sequence, int solver_status) {
-    NmpcSolveResult result;
-    result.sequence = sequence;
-    result.success = false;
-    result.solver_status = solver_status;
-    result.stamp = toCoreTime(ros::Time::now());
-    controller_.nmpcResultBuffer().store(result);
-    postResultEvent(sequence, false);
-}
-
-void NmpcOutputConsumer::postResultEvent(uint64_t sequence, bool success) {
-    if (!event_sink_) {
-        return;
-    }
-    ::state_machine::Event event(
-        success ? event_type::INPUT_NMPC_SOLVE_SUCCEEDED : event_type::INPUT_NMPC_SOLVE_FAILED,
-        ::state_machine::EventTimestamp{ros::Time::now().toSec()});
-    event.source = "nmpc_output_consumer";
-    event.correlation_id = sequence;
-    (void)event_sink_(std::move(event));
-}
-
-void NmpcOutputConsumer::publishDebug(uint64_t sequence, const ros::Time& stamp) {
-    const NmpcDebugData& debug = backend_.lastDebugData();
+void NmpcOutputConsumer::publishDebug(uint64_t sequence, const Time& stamp, const UavNmpcTrackingBackend& backend) {
+    const NmpcDebugData& debug = backend.lastDebugData();
     if (!debug.valid) {
         return;
     }
 
     px4_multirotor_controller_msgs::NmpcDebugSample msg;
-    msg.header.stamp = stamp;
+    msg.header.stamp = toRosTime(stamp);
     msg.header.frame_id = "world";
     msg.sequence = sequence;
     msg.success = debug.success;
@@ -236,15 +122,15 @@ void NmpcOutputConsumer::publishDebug(uint64_t sequence, const ros::Time& stamp)
     debug_pub_.publish(msg);
 }
 
-void NmpcOutputConsumer::publishPrediction(const ros::Time& stamp) {
+void NmpcOutputConsumer::publishPrediction(const Time& stamp, const UavNmpcTrackingBackend& backend) {
     nav_msgs::Path path;
     geometry_msgs::PoseArray poses;
-    path.header.stamp = stamp;
+    path.header.stamp = toRosTime(stamp);
     path.header.frame_id = "world";
     poses.header = path.header;
 
-    const auto& predicted_states = backend_.predictedStates();
-    const size_t count = backend_.predictedStateCount();
+    const auto& predicted_states = backend.predictedStates();
+    const size_t count = backend.predictedStateCount();
     path.poses.reserve(count);
     poses.poses.reserve(count);
     for (size_t i = 0; i < count; ++i) {

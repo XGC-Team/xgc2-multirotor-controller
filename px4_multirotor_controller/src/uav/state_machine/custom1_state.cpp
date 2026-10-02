@@ -21,9 +21,10 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
     hover_y_ = sensor_checks::worldY(controller_.getSensorData(), config.tracking_backend);
     hover_z_ = sensor_checks::worldZ(controller_.getSensorData(), config.tracking_backend);
     tracking_armed_ = false;
-    request_sequence_ = 0;
+    control_generation_ = controller_.nmpcResultBuffer().beginGeneration();
+    request_sequence_ = controller_.nmpcResultBuffer().lastRequestSequence();
     in_flight_sequence_ = 0;
-    consumed_result_sequence_ = 0;
+    consumed_result_sequence_ = request_sequence_;
     request_in_flight_ = false;
     last_request_time_ = 0.0;
     request_deadline_ = 0.0;
@@ -230,6 +231,15 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
 }
 
 void Custom1State::handleNmpcEventMode(::state_machine::StateContext& ctx, double current_time) {
+    if (!controller_.nmpcResultBuffer().isGenerationActive(control_generation_)) {
+        control_generation_ = controller_.nmpcResultBuffer().beginGeneration();
+        request_sequence_ = controller_.nmpcResultBuffer().lastRequestSequence();
+        consumed_result_sequence_ = request_sequence_;
+        request_in_flight_ = false;
+        in_flight_sequence_ = 0;
+        last_request_time_ = 0.0;
+    }
+
     consumeNmpcResult(ctx, current_time);
 
     if (request_in_flight_ && current_time > request_deadline_) {
@@ -354,6 +364,7 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
     if (!controller_.nmpcResultBuffer().consumeNewerThan(consumed_result_sequence_, result)) {
         return;
     }
+    if (result.control_generation != control_generation_ || result.sequence != in_flight_sequence_) return;
     consumed_result_sequence_ = result.sequence;
 
     if (request_in_flight_ && result.sequence == in_flight_sequence_) {
@@ -403,7 +414,7 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
 }
 
 void Custom1State::dispatchNmpcRequest(::state_machine::StateContext& ctx, double current_time) {
-    ++request_sequence_;
+    request_sequence_ = controller_.nmpcResultBuffer().reserveRequestSequence();
     in_flight_sequence_ = request_sequence_;
     request_in_flight_ = true;
     const double period = controller_.getConfig().nmpc.control_period;
@@ -421,6 +432,7 @@ void Custom1State::dispatchNmpcRequest(::state_machine::StateContext& ctx, doubl
                                  ::state_machine::EventTimestamp{current_time});
     event.source = "custom1_state";
     event.correlation_id = request_sequence_;
+    event.payload["control_generation"] = static_cast<int64_t>(control_generation_);
     ctx.emitOutput(std::move(event));
 }
 
@@ -559,6 +571,7 @@ bool Custom1State::shouldPublish(double current_time) const {
 }
 
 ::state_machine::ActionResult Custom1State::onExit(::state_machine::StateContext&) {
+    controller_.nmpcResultBuffer().invalidateGeneration(control_generation_);
     nmpc_wait_log_timer_.stop();
     trajectory_wait_log_timer_.stop();
     tracking_armed_ = false;

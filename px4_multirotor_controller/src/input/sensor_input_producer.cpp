@@ -11,7 +11,7 @@ namespace px4_multirotor_controller {
 
 SensorInputProducer::SensorInputProducer(ros::NodeHandle& nh, SensorData& sensor_data,
                                          ros1_utils::PositionQualityStats& vrpn_quality_stats,
-                                         uint32_t queue_size, EventSink event_sink,
+                                         SensorStatistics& statistics, uint32_t queue_size, EventSink event_sink,
                                          std::function<void()> on_state_message)
     : nh_(nh),
       sensor_data_(sensor_data),
@@ -19,7 +19,9 @@ SensorInputProducer::SensorInputProducer(ros::NodeHandle& nh, SensorData& sensor
       queue_size_(queue_size),
       event_sink_(std::move(event_sink)),
       on_state_message_(std::move(on_state_message)),
-      stats_manager_(nh) {}
+      statistics_(statistics) {
+    statistics_.setQualityOutput(SensorStream::Pose, &vrpn_quality_stats_.effective_frequency_hz);
+}
 
 void SensorInputProducer::setVrpnQualityConfig(const ros1_utils::PositionQualityConfig& config) {
     vrpn_quality_detector_.setConfig(config);
@@ -52,46 +54,49 @@ void SensorInputProducer::start() {
         return;
     }
 
-    stats_manager_.register_topic<rigid_state_estimator_msgs::RigidStateEstimate>(
-        nh_, state_estimate_topic_, queue_size_, &SensorInputProducer::stateEstimateCallback, this,
-        &ros_stats_.state_estimate);
-    stats_manager_.register_topic<geometry_msgs::PoseStamped>(
-        nh_, "mavros/local_position/pose", queue_size_, &SensorInputProducer::localPosCallback,
-        this, &ros_stats_.local_pos);
-    stats_manager_.register_topic<geometry_msgs::TwistStamped>(
-        nh_, "mavros/local_position/velocity_local", queue_size_,
-        &SensorInputProducer::velocityCallback, this, &ros_stats_.local_velocity);
-    stats_manager_.register_topic<sensor_msgs::Imu>(nh_, "mavros/imu/data", queue_size_,
-                                                    &SensorInputProducer::imuCallback, this,
-                                                    &ros_stats_.imu);
-    stats_manager_.register_topic<mavros_msgs::State>(nh_, "mavros/state", queue_size_,
-                                                      &SensorInputProducer::stateCallback, this,
-                                                      &ros_stats_.state);
-    stats_manager_.register_topic<sensor_msgs::BatteryState>(nh_, "mavros/battery", queue_size_,
-                                                             &SensorInputProducer::batteryCallback,
-                                                             this, &ros_stats_.battery);
-    stats_manager_.register_topic<geometry_msgs::PoseStamped>(
-        nh_, vrpn_pose_topic_, queue_size_, &SensorInputProducer::vrpnPoseCallback, this,
-        &ros_stats_.vrpn_pose, &vrpn_quality_stats_);
-    stats_manager_.start();
+    subscribers_.push_back(nh_.subscribe<rigid_state_estimator_msgs::RigidStateEstimate>(state_estimate_topic_, queue_size_,
+        [this](const rigid_state_estimator_msgs::RigidStateEstimate::ConstPtr& message) {
+            statistics_.observe(SensorStream::Estimate, toCoreTime(ros::Time::now()));
+            stateEstimateCallback(message);
+        }));
+    subscribers_.push_back(nh_.subscribe<geometry_msgs::PoseStamped>("mavros/local_position/pose", queue_size_,
+        [this](const geometry_msgs::PoseStamped::ConstPtr& message) {
+            statistics_.observe(SensorStream::LocalPose, toCoreTime(ros::Time::now()));
+            localPosCallback(message);
+        }));
+    subscribers_.push_back(nh_.subscribe<geometry_msgs::TwistStamped>("mavros/local_position/velocity_local", queue_size_,
+        [this](const geometry_msgs::TwistStamped::ConstPtr& message) {
+            statistics_.observe(SensorStream::LocalVelocity, toCoreTime(ros::Time::now()));
+            velocityCallback(message);
+        }));
+    subscribers_.push_back(nh_.subscribe<sensor_msgs::Imu>("mavros/imu/data", queue_size_,
+        [this](const sensor_msgs::Imu::ConstPtr& message) {
+            statistics_.observe(SensorStream::Imu, toCoreTime(ros::Time::now()));
+            imuCallback(message);
+        }));
+    subscribers_.push_back(nh_.subscribe<mavros_msgs::State>("mavros/state", queue_size_,
+        [this](const mavros_msgs::State::ConstPtr& message) {
+            statistics_.observe(SensorStream::State, toCoreTime(ros::Time::now()));
+            stateCallback(message);
+        }));
+    subscribers_.push_back(nh_.subscribe<sensor_msgs::BatteryState>("mavros/battery", queue_size_,
+        [this](const sensor_msgs::BatteryState::ConstPtr& message) {
+            statistics_.observe(SensorStream::Battery, toCoreTime(ros::Time::now()));
+            batteryCallback(message);
+        }));
+    subscribers_.push_back(nh_.subscribe<geometry_msgs::PoseStamped>(vrpn_pose_topic_, queue_size_,
+        [this](const geometry_msgs::PoseStamped::ConstPtr& message) {
+            statistics_.observe(SensorStream::Pose, toCoreTime(ros::Time::now()));
+            vrpnPoseCallback(message);
+        }));
     started_ = true;
 }
 
 void SensorInputProducer::resetNewFlags() {
-    stats_manager_.resetNewFlags();
+    statistics_.resetNewFlags();
 }
 
 namespace {
-
-void copyStats(const ros1_utils::TopicStats& from, SensorData::TopicStats& to) {
-    to.frequency_hz = from.frequency_hz;
-    to.dt_max = from.dt_max;
-    to.time_since_last_msg = from.time_since_last_msg;
-    to.jitter = from.jitter;
-    to.last_message_time = toCoreTime(from.last_message_time);
-    to.is_active = from.is_active;
-    to.is_new = from.is_new;
-}
 
 using Rse = rigid_state_estimator_msgs::RigidStateEstimate;
 static_assert(state_estimate::STATE_SELF_CHECK == Rse::STATE_SELF_CHECK, "estimator state");
@@ -122,15 +127,7 @@ static_assert(state_estimate::FLAG_FILTER_IMU_ONLY == Rse::FLAG_FILTER_IMU_ONLY,
 
 }  // namespace
 
-void SensorInputProducer::syncStats() {
-    copyStats(ros_stats_.state_estimate, sensor_data_.uav_state_estimate_stats);
-    copyStats(ros_stats_.local_pos, sensor_data_.local_pos_stats);
-    copyStats(ros_stats_.local_velocity, sensor_data_.local_velocity_stats);
-    copyStats(ros_stats_.imu, sensor_data_.imu_stats);
-    copyStats(ros_stats_.state, sensor_data_.state_stats);
-    copyStats(ros_stats_.battery, sensor_data_.battery_stats);
-    copyStats(ros_stats_.vrpn_pose, sensor_data_.vrpn_pose_stats);
-}
+void SensorInputProducer::syncStats() {} // Shared driver owns the actual stats slots.
 
 void SensorInputProducer::localPosCallback(const geometry_msgs::PoseStamped::ConstPtr& msg) {
     sensor_data_.local_x = msg->pose.position.x;
@@ -217,6 +214,7 @@ void SensorInputProducer::vrpnPoseCallback(const geometry_msgs::PoseStamped::Con
     sensor_data_.vrpn_qw = msg->pose.orientation.w;
     vrpn_quality_stats_ = vrpn_quality_detector_.process(sensor_data_.vrpn_x, sensor_data_.vrpn_y,
                                                          sensor_data_.vrpn_z);
+    if (vrpn_quality_stats_.frame_is_valid) statistics_.markValidFrame(SensorStream::Pose);
     postInputEvent(event_type::INPUT_VRPN_POSE_UPDATED, "pose");
 }
 

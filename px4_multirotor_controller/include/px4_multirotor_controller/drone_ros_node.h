@@ -7,7 +7,7 @@
 #include <state_machine/runtime/async_task_executor.hpp>
 #include <state_machine/runtime/event_dispatcher.hpp>
 
-#include "px4_multirotor_controller/drone_controller.h"
+#include "px4_multirotor_controller/driver/controller_driver.h"
 #include "px4_multirotor_controller/input/command_input_producer.h"
 #include "px4_multirotor_controller/input/sensor_input_producer.h"
 #include "px4_multirotor_controller/input/trajectory_input_producer.h"
@@ -37,7 +37,8 @@ class DroneRosNode {
     bool load_fact_pending_{false};
 
     SensorData sensor_data_;
-    DroneController controller_;
+    ControllerDriver driver_;
+    DroneController& controller_;
 
     ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> output_event_executor_;
     ::state_machine::runtime::EventDispatcher output_event_dispatcher_;
