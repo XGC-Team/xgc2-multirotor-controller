@@ -84,6 +84,12 @@ docker run --rm \
     done
 
     /workspace/xgc2-multirotor-controller/.xgc2/scripts/install_published_products.sh
+    apt-get install -y --no-install-recommends libxgc2-runtime-sdk-dev
+    dpkg --compare-versions "$(dpkg-query -W -f="\${Version}" libxgc2-runtime-sdk-dev)" ge 0.1.0-1~focal
+    test -f /usr/include/xgc-runtime/xgc_rt.h
+    test -f /usr/share/cmake/XgcRuntimeSDK/XgcRuntimeSDKConfig.cmake
+    dpkg-query -S /usr/include/xgc-runtime/xgc_rt.h
+    dpkg-query -S /usr/share/cmake/XgcRuntimeSDK/XgcRuntimeSDKConfig.cmake
 
     rm -rf /workspace/work/src /workspace/work/build /workspace/work/devel /workspace/work/install-root
     mkdir -p /workspace/work/src/xgc2-multirotor-controller
@@ -96,10 +102,14 @@ docker run --rm \
     parallel_jobs="$(nproc)"
     catkin_make -j"${parallel_jobs}" -l"${parallel_jobs}" \
       run_tests_multirotor_reference_trajectory \
-      run_tests_px4_multirotor_controller
+      run_tests_px4_multirotor_controller \
+      -DPX4_CONTROLLER_NATIVE_ADAPTER=ON \
+      -DMULTIROTOR_REFERENCE_NATIVE_ADAPTER=ON
     catkin_test_results
     DESTDIR=/workspace/work/install-root catkin_make -j"${parallel_jobs}" -l"${parallel_jobs}" install \
       -DCMAKE_INSTALL_PREFIX=/opt/ros/noetic \
+      -DPX4_CONTROLLER_NATIVE_ADAPTER=ON \
+      -DMULTIROTOR_REFERENCE_NATIVE_ADAPTER=ON \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG" \
       -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG"
@@ -107,6 +117,9 @@ docker run --rm \
     /workspace/xgc2-multirotor-controller/.xgc2/scripts/package_debs.sh \
       --install-root /workspace/work/install-root \
       --output-dir /workspace/out
+
+    /workspace/xgc2-multirotor-controller/.xgc2/scripts/check_native_package_payload.sh \
+      /workspace/work/install-root /workspace/out
 
     if [[ "${INSTALL_CHECK}" == "true" ]]; then
       apt-get install -y /workspace/out/*.deb

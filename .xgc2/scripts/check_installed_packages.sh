@@ -42,9 +42,11 @@ test -f "/opt/ros/${ROS_DISTRO}/include/px4_multirotor_controller/uav/state_mach
 test -x "/opt/ros/${ROS_DISTRO}/lib/px4_multirotor_controller/px4_multirotor_controller_node"
 test -f "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so"
 test -f "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_core.so"
-if [[ -f "/opt/ros/${ROS_DISTRO}/lib/libctl_px4.so" ]]; then
-  ldd "/opt/ros/${ROS_DISTRO}/lib/libctl_px4.so" | awk '/not found/ {missing=1} END {exit missing ? 1 : 0}'
-fi
+for native_library in libctl_px4.so libref_trajectory.so; do
+  test -f "/opt/ros/${ROS_DISTRO}/lib/${native_library}"
+  file -b "/opt/ros/${ROS_DISTRO}/lib/${native_library}" | grep -q '^ELF'
+  ldd "/opt/ros/${ROS_DISTRO}/lib/${native_library}" | awk '/not found/ {missing=1} END {exit missing ? 1 : 0}'
+done
 test -f "/opt/ros/${ROS_DISTRO}/lib/libmultirotor_reference_trajectory_core.so"
 roslaunch --files multirotor_reference_trajectory uav_multirotor_reference_trajectory.launch >/tmp/xgc2-multirotor-reference-files.txt
 roslaunch --files px4_multirotor_controller uav_nmpc_controller.launch world_boundary_json:=null >/tmp/xgc2-px4-controller-files.txt

@@ -1,7 +1,7 @@
 schema: xgc2.product.v1
 id: xgc2-multirotor-controller
 name: XGC2 Multirotor Controller
-version: 1.1.18-27
+version: 1.1.18-28
 kind: ros1-apt
 summary: ROS1 PX4 multirotor controller and multirotor reference trajectory packages
   for XGC2 robots.
@@ -48,12 +48,17 @@ ownership:
   - /opt/ros/noetic/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so
   - /opt/ros/noetic/lib/libpx4_multirotor_controller_core.so
   - /opt/ros/noetic/lib/libmultirotor_reference_trajectory_core.so
+  - /opt/ros/noetic/lib/libctl_px4.so
+  - /opt/ros/noetic/lib/libref_trajectory.so
 release:
+  requires:
+  - libxgc2-runtime-sdk-dev
   dependency_policy:
+    libxgc2-runtime-sdk-dev: rebuild
     libxgc2-math-dev: rebuild
     libxgc2-state-machine-dev: rebuild
     xgc2-acados: rebuild
     xgc2-ros-msgs: rebuild
     xgc2-ros1-utils: rebuild
   apt_versions:
-    focal: 1.1.18-27
+    focal: 1.1.18-28

@@ -48,6 +48,18 @@ fi
 ARCH="$(dpkg --print-architecture)"
 PREFIX="/opt/ros/${ROS_DISTRO}"
 PREFIX_ROOT="${INSTALL_ROOT}${PREFIX}"
+# A configured build must install both owning native facades before packaging.
+for native_library in libctl_px4.so libref_trajectory.so; do
+  native_path="${PREFIX_ROOT}/lib/${native_library}"
+  if [[ ! -f "${native_path}" ]]; then
+    echo "missing required installed native library: ${native_path}" >&2
+    exit 1
+  fi
+  if ! file -b "${native_path}" | grep -q '^ELF'; then
+    echo "required native library is not ELF: ${native_path}" >&2
+    exit 1
+  fi
+done
 BUILD_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -88,9 +100,8 @@ copy_path "${PREFIX_ROOT}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so" 
 copy_path "${PREFIX_ROOT}/lib/libpx4_multirotor_controller_core.so" "${pkg_root}"
 # The product owns its native ABI adapter. Header-only Runtime SDK is a build
 # dependency; the resulting ELF ships with its owning core, never in runtime.
-if [[ -f "${PREFIX_ROOT}/lib/libctl_px4.so" ]]; then
-  copy_path "${PREFIX_ROOT}/lib/libctl_px4.so" "${pkg_root}"
-fi
+copy_path "${PREFIX_ROOT}/lib/libctl_px4.so" "${pkg_root}"
+copy_path "${PREFIX_ROOT}/lib/libref_trajectory.so" "${pkg_root}"
 copy_path "${PREFIX_ROOT}/lib/libmultirotor_reference_trajectory_core.so" "${pkg_root}"
 
 mkdir -p "${pkg_root}/DEBIAN" "${pkg_root}/usr/share/doc/${PACKAGE}"
