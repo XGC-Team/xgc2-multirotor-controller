@@ -63,6 +63,13 @@ bool DebugOutputConsumer::handle(const ::state_machine::Event& event) {
             return true;
         }
         case output_event_type::PUBLISH_STATE_MACHINE_EVENTS:
+            // DebugMonitor requests this every control tick (1 kHz). With no
+            // subscriber roscpp drops the message anyway, so skip the snapshot,
+            // the task allocation and the worker wake-up. A subscriber still
+            // receives every tick's message from the moment it is connected.
+            if (events_pub_.getNumSubscribers() == 0) {
+                return true;
+            }
             executor_.pushTask(makePublishTask("PublishStateMachineEvents", events_pub_,
                                                snapshotStateMachineEvents()));
             return true;
