@@ -46,7 +46,7 @@ for missing in "${WIRE_PATHS[@]}"; do
   root="$work/missing-wire"
   rm -rf -- "$root" "$work/wire-out"
   mkdir -p "$root"
-  cp -al "$install_root/." "$root/"
+  cp -a "$install_root/." "$root/"
   rm -- "$root$missing"
   if "$script_dir/package_debs.sh" --install-root "$root" --output-dir "$work/wire-out" >"$work/wire-negative.log" 2>&1; then
     echo "packager accepted missing owning DTO export: $missing" >&2; exit 1
