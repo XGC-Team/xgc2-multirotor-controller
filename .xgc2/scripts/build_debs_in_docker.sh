@@ -85,7 +85,7 @@ docker run --rm \
 
     /workspace/xgc2-multirotor-controller/.xgc2/scripts/install_published_products.sh
     apt-get install -y --no-install-recommends libxgc2-runtime-sdk-dev
-    dpkg --compare-versions "$(dpkg-query -W -f="\${Version}" libxgc2-runtime-sdk-dev)" ge 0.1.0-1~focal
+    dpkg --compare-versions "$(dpkg-query -W -f="\${Version}" libxgc2-runtime-sdk-dev)" ge 0.1.0-2~focal
     test -f /usr/include/xgc-runtime/xgc_rt.h
     test -f /usr/share/cmake/XgcRuntimeSDK/XgcRuntimeSDKConfig.cmake
     dpkg-query -S /usr/include/xgc-runtime/xgc_rt.h
@@ -110,6 +110,7 @@ docker run --rm \
       -DCMAKE_INSTALL_PREFIX=/opt/ros/noetic \
       -DPX4_CONTROLLER_NATIVE_ADAPTER=ON \
       -DMULTIROTOR_REFERENCE_NATIVE_ADAPTER=ON \
+      -DCMAKE_INSTALL_INCLUDEDIR=include -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_DATADIR=share \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG" \
       -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG"

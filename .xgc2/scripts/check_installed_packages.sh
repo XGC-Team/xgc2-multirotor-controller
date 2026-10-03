@@ -70,3 +70,14 @@ echo "Installed package check passed"
 
 test ! -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/WaypointReferenceRequest.h"
 test ! -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/ActivePolynomialReference.h"
+
+WIRE_PATHS=(
+  "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory/reference_wire.hpp"
+  "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory/reference_wire_v1.h"
+  "/opt/ros/${ROS_DISTRO}/share/cmake/ReferenceTrajectoryNative/ReferenceTrajectoryNativeConfig.cmake"
+  "/opt/ros/${ROS_DISTRO}/share/cmake/ReferenceTrajectoryNative/ReferenceTrajectoryNativeTargets.cmake"
+)
+for path in "${WIRE_PATHS[@]}"; do
+  test -f "${path}"
+  dpkg-query -S "${path}" | grep -Fxq "ros-${ROS_DISTRO}-xgc2-multirotor-controller: ${path}"
+done

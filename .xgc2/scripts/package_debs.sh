@@ -60,6 +60,18 @@ for native_library in libctl_px4.so libref_trajectory.so; do
     exit 1
   fi
 done
+WIRE_PATHS=(
+  "${PREFIX}/include/multirotor_reference_trajectory/reference_wire.hpp"
+  "${PREFIX}/include/multirotor_reference_trajectory/reference_wire_v1.h"
+  "${PREFIX}/share/cmake/ReferenceTrajectoryNative/ReferenceTrajectoryNativeConfig.cmake"
+  "${PREFIX}/share/cmake/ReferenceTrajectoryNative/ReferenceTrajectoryNativeTargets.cmake"
+)
+for path in "${WIRE_PATHS[@]}"; do
+  [[ -f "${INSTALL_ROOT}${path}" ]] || {
+    echo "missing required installed owning DTO export: ${path}" >&2
+    exit 1
+  }
+done
 BUILD_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -95,6 +107,9 @@ copy_ros_package() {
 
 for ros_package in "${ROS_PACKAGES[@]}"; do
   copy_ros_package "${ros_package}"
+done
+for path in "${WIRE_PATHS[@]}"; do
+  copy_path "${INSTALL_ROOT}${path}" "${pkg_root}"
 done
 copy_path "${PREFIX_ROOT}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so" "${pkg_root}"
 copy_path "${PREFIX_ROOT}/lib/libpx4_multirotor_controller_core.so" "${pkg_root}"

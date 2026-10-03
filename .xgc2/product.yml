@@ -39,6 +39,7 @@ usage:
     '
 ownership:
   paths:
+  - /opt/ros/noetic/share/cmake/ReferenceTrajectoryNative
   - /opt/ros/noetic/share/multirotor_reference_trajectory
   - /opt/ros/noetic/share/px4_multirotor_controller
   - /opt/ros/noetic/include/multirotor_reference_trajectory
