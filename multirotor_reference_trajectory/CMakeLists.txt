@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(multirotor_reference_trajectory)
 
+# Wire layouts/codecs are independently installable, with no ROS/SDK dependency.
+add_subdirectory(native/wire)
+
 find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   multirotor_reference_trajectory_msgs
@@ -83,6 +86,15 @@ install(DIRECTORY config launch
 )
 
 if(CATKIN_ENABLE_TESTING)
+  add_executable(reference_wire_layout_c test/native-wire/layout.c)
+  target_include_directories(reference_wire_layout_c PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  add_test(NAME reference_wire_layout_c COMMAND reference_wire_layout_c)
+
+  add_executable(reference_wire_api_cpp test/native-wire/api.cpp)
+  target_include_directories(reference_wire_api_cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  set_target_properties(reference_wire_api_cpp PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES)
+  add_test(NAME reference_wire_api_cpp COMMAND reference_wire_api_cpp)
+
   catkin_add_gtest(multirotor_reference_trajectory_unit_test
     test/multirotor_reference_trajectory_unit_test.cpp
   )
@@ -133,16 +145,18 @@ endif()
 # The reference generator product owns its native facade and original runtime.
 option(MULTIROTOR_REFERENCE_NATIVE_ADAPTER "Build the product-owned reference ABI facade" OFF)
 if(MULTIROTOR_REFERENCE_NATIVE_ADAPTER)
-  if(NOT TARGET XgcRuntime::SDK)
-    if(XGC_RUNTIME_SDK_SOURCE_ROOT)
-      add_subdirectory("${XGC_RUNTIME_SDK_SOURCE_ROOT}/abi" "${CMAKE_CURRENT_BINARY_DIR}/runtime-sdk")
-    else()
-      find_package(XgcRuntimeSDK CONFIG REQUIRED)
-    endif()
+  find_package(XgcRuntimeSDK CONFIG REQUIRED)
+  get_target_property(reference_sdk_imported XgcRuntime::SDK IMPORTED)
+  if(NOT reference_sdk_imported)
+    message(FATAL_ERROR "reference native adapter requires the installed Runtime SDK target")
   endif()
   add_library(ref_trajectory SHARED native/ref_trajectory.cpp)
   set_target_properties(ref_trajectory PROPERTIES INCLUDE_DIRECTORIES "" INSTALL_RPATH "$ORIGIN")
-  target_include_directories(ref_trajectory PRIVATE native ${CMAKE_CURRENT_SOURCE_DIR}/include ${EIGEN3_INCLUDE_DIRS})
-  target_link_libraries(ref_trajectory PRIVATE multirotor_reference_trajectory_core XgcRuntime::SDK)
+  target_include_directories(ref_trajectory PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${EIGEN3_INCLUDE_DIRS})
+  target_link_libraries(ref_trajectory PRIVATE
+    multirotor_reference_trajectory_core
+    XgcRuntime::SDK
+    ReferenceTrajectoryNative::Wire
+  )
   install(TARGETS ref_trajectory LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
 endif()

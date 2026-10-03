@@ -48,9 +48,8 @@
 
 #include "flat_config.hpp"
 #include "multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h"
-#include "reference_wire.hpp"
+#include "multirotor_reference_trajectory/reference_wire.hpp"
 #include "xgc_rt.h"
-#include "xgc_schemas_v1.h"
 
 namespace {
 

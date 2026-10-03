@@ -1,4 +1,4 @@
-// Encode and decode the xgc.ref.* schemas (xgc_schemas_v1.h): a fixed head
+// Encode and decode this product's xgc.ref.* v1 wire structs: a fixed head
 // followed by its variable parts.
 //
 // The functions are templates over the message type, because the
@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-#include "xgc_schemas_v1.h"
+#include "multirotor_reference_trajectory/reference_wire_v1.h"
 
 namespace xgc_ref_wire {
 
