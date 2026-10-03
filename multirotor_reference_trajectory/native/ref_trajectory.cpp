@@ -306,10 +306,12 @@ struct RefTrajectory {
     for (uint32_t port : {kAnalytic, kSampled, kReset, kClock}) {
       while (host->next(host->host, port, &v) == XGC_OK) {
         if (port == kClock) {
-          xgc_clock_v1 c;
-          if (v.len == sizeof c) {
-            std::memcpy(&c, v.data, sizeof c);
-            clock_limit = std::max(clock_limit, c.seconds);
+          // xgc.clock/1 replay payload is exactly one double of seconds.
+          // Decode that scalar without retaining the retired SDK schema type.
+          double seconds;
+          if (v.len == sizeof seconds) {
+            std::memcpy(&seconds, v.data, sizeof seconds);
+            clock_limit = std::max(clock_limit, seconds);
           }
           continue;
         }
