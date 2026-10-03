@@ -66,6 +66,6 @@ with tempfile.TemporaryDirectory(prefix="xgc-command-input-") as directory:
         path.write_text('#include "support.h"\n')
     (root / "main.cpp").write_text(MAIN)
     binary = root / "test"
-    subprocess.run(["g++", "-std=c++14", "-I" + str(root), "-I" + str(PACKAGE / "include"), str(PACKAGE / "src/input/command_input_producer.cpp"), str(root / "main.cpp"), "-o", str(binary)], check=True)
+    subprocess.run(["g++", "-std=c++17", "-I" + str(root), "-I" + str(PACKAGE / "include"), str(PACKAGE / "src/input/command_input_producer.cpp"), str(root / "main.cpp"), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 print("Production command callback: custom1 tracks, land lands, stop is not remapped, Hover remains independent")
