@@ -91,6 +91,10 @@ docker run --rm \
     dpkg-query -S /usr/include/xgc-runtime/xgc_rt.h
     dpkg-query -S /usr/share/cmake/XgcRuntimeSDK/XgcRuntimeSDKConfig.cmake
 
+    cmake -S /workspace/xgc2-multirotor-controller/multirotor_reference_trajectory/native/wire \
+      -B /workspace/work/reference-wire -DCMAKE_INSTALL_PREFIX=/opt/ros/noetic
+    cmake --install /workspace/work/reference-wire
+
     rm -rf /workspace/work/src /workspace/work/build /workspace/work/devel /workspace/work/install-root
     mkdir -p /workspace/work/src/xgc2-multirotor-controller
     rsync -a --delete /workspace/xgc2-multirotor-controller/ /workspace/work/src/xgc2-multirotor-controller/

@@ -54,8 +54,16 @@ ownership:
 release:
   requires:
   - libxgc2-runtime-sdk-dev
+  - libxgc2-robotics-interfaces-dev
+  - xgc2-estimator-hover-thrust
+  - xgc2-estimator-rigid-state
+  - xgc2-lightweight-sim
   dependency_policy:
     libxgc2-runtime-sdk-dev: rebuild
+    libxgc2-robotics-interfaces-dev: rebuild
+    xgc2-estimator-hover-thrust: rebuild
+    xgc2-estimator-rigid-state: rebuild
+    xgc2-lightweight-sim: rebuild
     libxgc2-math-dev: rebuild
     libxgc2-state-machine-dev: rebuild
     xgc2-acados: rebuild
