@@ -2,6 +2,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <future>
+#include <limits>
 #include "px4_multirotor_controller/driver/controller_driver.h"
 #include "px4_multirotor_controller/driver/controller_config.h"
 using namespace px4_multirotor_controller;
@@ -76,6 +77,15 @@ TEST(NmpcExecution, ConfigSnapshotBusyLateCompletionStopAndRestart) {
         return event;
     };
     controller.nmpcResultBuffer().beginGeneration();
+    for (double invalid : {std::numeric_limits<double>::quiet_NaN(),
+                           std::numeric_limits<double>::infinity(),
+                           -std::numeric_limits<double>::infinity()}) {
+        auto event = make_request(); event.timestamp = invalid;
+        EXPECT_NO_THROW(EXPECT_TRUE(execution.handle(event)));
+    }
+    EXPECT_EQ(completions.load(), 0U);
+    NmpcSolveResult no_result;
+    EXPECT_FALSE(controller.nmpcResultBuffer().consumeNewerThan(0, no_result));
     ASSERT_TRUE(execution.handle(make_request()));
     { std::unique_lock<std::mutex> lock(mutex); ASSERT_TRUE(condition.wait_for(lock, std::chrono::seconds(2), [&] { return entered; })); }
     config.nmpc.gravity = 12.0; controller.setConfig(config);
@@ -98,6 +108,32 @@ TEST(NmpcExecution, ConfigSnapshotBusyLateCompletionStopAndRestart) {
     while (completions.load() < 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
     EXPECT_EQ(completions.load(), 2U);
     ASSERT_TRUE(controller.nmpcResultBuffer().consumeNewerThan(0, busy)); EXPECT_TRUE(busy.success);
+    EXPECT_EQ(busy.stamp, Time(100.01)); // original accepted request time, not completion time
     EXPECT_DOUBLE_EQ(captured.load(), 12.0);
     execution.stop();
+}
+
+TEST(NmpcResultFreshness, FutureDuplicateMalformedAndDisabledTimeoutPolicy) {
+    NmpcResultBuffer buffer; const auto generation = buffer.beginGeneration();
+    NmpcSolveResult result; result.control_generation = generation;
+    result.sequence = buffer.reserveRequestSequence(); result.success = true;
+    result.stamp = Time(0.0);
+    ASSERT_TRUE(buffer.store(result));
+    EXPECT_TRUE(buffer.hasFreshSuccess(Time(0.0), 0.1));
+    EXPECT_TRUE(buffer.hasFreshSuccess(Time(1.0), 0.0));
+    EXPECT_TRUE(buffer.hasFreshSuccess(Time(1.0), -1.0));
+    result.sequence = buffer.reserveRequestSequence(); result.stamp = Time(100.0);
+    ASSERT_TRUE(buffer.store(result));
+    EXPECT_FALSE(buffer.hasFreshSuccess(Time(99.0), 0.1));
+    EXPECT_FALSE(buffer.hasFreshSuccess(Time(99.0), 0.0));
+    EXPECT_FALSE(buffer.hasFreshSuccess(Time(99.0), -1.0));
+    EXPECT_TRUE(buffer.hasFreshSuccess(Time(100.1), 0.1));
+    EXPECT_FALSE(buffer.hasFreshSuccess(Time(100, 100000001), 0.1));
+    result.stamp = Time(100.1); result.target.thrust = 0.91;
+    EXPECT_FALSE(buffer.store(result)); // same request cannot rewrite stamp or target
+    NmpcSolveResult stored; ASSERT_TRUE(buffer.consumeNewerThan(0, stored));
+    EXPECT_EQ(stored.stamp, Time(100.0)); EXPECT_NE(stored.target.thrust, 0.91);
+    EXPECT_FALSE(buffer.hasFreshSuccess(Time(100.2), 0.1)); // duplicate did not refresh success
+    result.sequence = buffer.reserveRequestSequence(); result.stamp.nsec = 1000000000U;
+    EXPECT_FALSE(buffer.store(result));
 }

@@ -31,8 +31,9 @@ uint64_t NmpcResultBuffer::lastRequestSequence() const {
 bool NmpcResultBuffer::store(const NmpcSolveResult& result) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (active_generation_ == 0 || result.control_generation != active_generation_ ||
-        result.sequence == 0 || result.sequence > request_counter_) return false;
-    if (has_result_ && result.sequence < latest_.sequence) {
+        result.sequence == 0 || result.sequence > request_counter_ ||
+        result.stamp.nsec >= 1000000000U) return false;
+    if (has_result_ && result.sequence <= latest_.sequence) {
         return false;
     }
     latest_ = result;
@@ -49,10 +50,18 @@ bool NmpcResultBuffer::consumeNewerThan(uint64_t sequence, NmpcSolveResult& resu
     return true;
 }
 
+bool NmpcResultBuffer::isResultTimestampFresh(const Time& stamp, const Time& now, double timeout) {
+    // Time already rejects nonfinite fromSec inputs; public sec/nsec fields
+    // still require canonical nanoseconds. Logical time zero remains valid.
+    if (stamp.nsec >= 1000000000U || now.nsec >= 1000000000U || stamp > now) return false;
+    const double age = static_cast<double>(now.toNSec() - stamp.toNSec()) * 1e-9;
+    return timeout <= 0.0 || age <= timeout;
+}
+
 bool NmpcResultBuffer::hasFreshSuccess(const Time& now, double timeout) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return has_result_ && active_generation_ != 0 && latest_.control_generation == active_generation_ && latest_.success &&
-           (timeout <= 0.0 || (now - latest_.stamp).toSec() <= timeout);
+           isResultTimestampFresh(latest_.stamp, now, timeout);
 }
 
 }  // namespace px4_multirotor_controller

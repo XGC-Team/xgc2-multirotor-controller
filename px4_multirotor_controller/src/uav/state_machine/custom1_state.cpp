@@ -2,6 +2,7 @@
 #include "px4_multirotor_controller/common/time.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <utility>
 
@@ -371,10 +372,11 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
         request_in_flight_ = false;
     }
 
-    const double result_age = current_time - result.stamp.toSec();
-    const double result_timeout = controller_.getConfig().nmpc.result_timeout;
-    if (!request_in_flight_ && result.sequence == in_flight_sequence_ &&
-        current_time > request_deadline_ && result_timeout > 0.0 && result_age > result_timeout) {
+    // The buffer and actual output consumer use the same timestamp policy,
+    // regardless of whether the solver deadline has elapsed.
+    if (!std::isfinite(current_time) || current_time < 0.0 ||
+        !NmpcResultBuffer::isResultTimestampFresh(
+            result.stamp, Time(current_time), controller_.getConfig().nmpc.result_timeout)) {
         return;
     }
 

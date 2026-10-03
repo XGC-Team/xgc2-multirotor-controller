@@ -1,5 +1,6 @@
 #include "px4_multirotor_controller/driver/nmpc_execution.h"
 #include <utility>
+#include <cmath>
 namespace px4_multirotor_controller {
 NmpcExecution::NmpcExecution(DroneController& controller, Clock clock, EventSink sink, Compute compute)
  : controller_(controller), clock_(std::move(clock)), event_sink_(std::move(sink)), compute_(std::move(compute)) {}
@@ -22,6 +23,9 @@ bool NmpcExecution::handle(const ::state_machine::Event& event) {
     if (event.id != output_event_type::REQUEST_NMPC_SOLVE) {
         return false;
     }
+
+    // A raw nonfinite event time cannot be represented by the original Time.
+    if (!std::isfinite(event.timestamp)) return true;
 
     const uint64_t sequence = event.correlation_id;
     const auto token = event.payload.find("control_generation");

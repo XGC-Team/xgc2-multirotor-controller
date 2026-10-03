@@ -36,6 +36,7 @@ class NmpcResultBuffer {
     bool store(const NmpcSolveResult& result);
     bool consumeNewerThan(uint64_t sequence, NmpcSolveResult& result) const;
     bool hasFreshSuccess(const Time& now, double timeout) const;
+    static bool isResultTimestampFresh(const Time& stamp, const Time& now, double timeout);
 
    private:
     mutable std::mutex mutex_;
