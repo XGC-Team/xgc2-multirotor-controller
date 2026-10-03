@@ -9,7 +9,7 @@
 #include <sensor_msgs/Imu.h>
 #include <mavros_msgs/State.h>
 #include <xgc_rt.h>
-#include <xgc_schemas_v1.h>
+#include <xgc-robotics-interfaces/robotics_interfaces_v1.h>
 #include "px4_multirotor_controller/driver/controller_driver.h"
 #include "px4_multirotor_controller/driver/controller_config.h"
 #include "px4_multirotor_controller/input/sensor_input_producer.h"

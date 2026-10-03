@@ -85,9 +85,15 @@
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
 #include "px4_multirotor_controller/uav/nmpc_tracking_backend.h"
 #include "px4_multirotor_controller/uav/reference_activation.h"
-#include "reference_wire.hpp"
-#include "xgc_rt.h"
-#include "xgc_schemas_v1.h"
+#include <multirotor_reference_trajectory/reference_wire.hpp>
+#include <xgc_rt.h>
+#include <xgc-robotics-interfaces/robotics_interfaces_v1.h>
+#include <xgc-robotics-interfaces/control_records_v1.h>
+#include <hover_thrust_estimator/native/hover_thrust_wire.h>
+#include <estimator_vrpn_px4_rotor_state/native/rigid_state_wire_v1.h>
+#include <xgc-lightweight-sim/simulation_records_v1.h>
+
+using hover_thrust_native::xgc_hover_thrust_v1;
 
 namespace {
 
@@ -471,7 +477,7 @@ struct CtlPx4 {
     driver.statistics().resetNewFlags();
     ++k;
     if (input_time) {
-      const xgc_clock_v1 done{t};
+      const double done{t};
       publish(kTickDone, round, &done, sizeof done);
     }
     return true;
@@ -483,10 +489,11 @@ struct CtlPx4 {
                           kAlgSetpoint, kHoverThrust, kRefActiveAnalytic, kRefActiveSampled}) {
       while (host->next(host->host, port, &v) == XGC_OK) {
         if (port == kClock) {
-          xgc_clock_v1 c;
-          if (v.len == sizeof c) {
-            std::memcpy(&c, v.data, sizeof c);
-            clock_limit = std::max(clock_limit, c.seconds);
+          // xgc.clock/1 is the original 8-byte double seconds payload.
+          double seconds;
+          if (v.len == sizeof seconds) {
+            std::memcpy(&seconds, v.data, sizeof seconds);
+            clock_limit = std::max(clock_limit, seconds);
           }
           continue;
         }

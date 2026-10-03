@@ -26,9 +26,12 @@ tracking strategies and thresholds remain in their original implementations.
 
 Enable `PX4_CONTROLLER_NATIVE_ADAPTER=ON` when configuring the owning catkin
 workspace. Installed SDK consumption uses
-`find_package(XgcRuntimeSDK CONFIG REQUIRED)`. For an explicit source SDK, set
-`XGC_RUNTIME_SDK_SOURCE_ROOT` to the sync-runtime root; CMake adds only its `abi`
-entry point and links `XgcRuntime::SDK`. It never probes alternate SDK paths.
+`find_package(XgcRuntimeSDK CONFIG REQUIRED)` and links `XgcRuntime::SDK`.
+Set `CMAKE_PREFIX_PATH` to the installed SDK and wire-owner prefixes. Native
+records/codecs are imported from `XgcRoboticsInterfaces::Interfaces`,
+`HoverThrustNative::Wire`, `RigidStateNative::Wire`,
+`ReferenceTrajectoryNative::Wire` and `XgcLightweightSim::Interfaces`.
+No Runtime source headers or private wire copies are used.
 The native ELF installs beside the owning controller core; its headers-only SDK
 is not a runtime dependency. The package assembler includes it when built.
 

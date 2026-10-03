@@ -592,24 +592,28 @@ endif()
 
 # Runtime is an ABI dependency only. No runtime/domain implementation is built.
 option(PX4_CONTROLLER_NATIVE_ADAPTER "Build the product-owned native ABI adapter" OFF)
-set(XGC_RUNTIME_SDK_SOURCE_ROOT "" CACHE PATH "Explicit Runtime SDK source root")
 if(PX4_CONTROLLER_NATIVE_ADAPTER)
-  if(XGC_RUNTIME_SDK_SOURCE_ROOT)
-    if(NOT TARGET XgcRuntime::SDK)
-      add_subdirectory("${XGC_RUNTIME_SDK_SOURCE_ROOT}/abi" "${CMAKE_CURRENT_BINARY_DIR}/runtime-sdk")
-    endif()
-  else()
-    find_package(XgcRuntimeSDK CONFIG REQUIRED)
-  endif()
+  find_package(XgcRuntimeSDK CONFIG REQUIRED)
+  find_package(XgcRoboticsInterfaces CONFIG REQUIRED)
+  find_package(HoverThrustNativeWire CONFIG REQUIRED)
+  find_package(RigidStateNativeWire CONFIG REQUIRED)
+  find_package(ReferenceTrajectoryNative CONFIG REQUIRED)
+  find_package(XgcLightweightSimInterfaces CONFIG REQUIRED)
   add_library(ctl_px4 SHARED native/ctl_px4.cpp)
   set_target_properties(ctl_px4 PROPERTIES INSTALL_RPATH "$ORIGIN")
-  target_include_directories(ctl_px4 PRIVATE native
+  target_include_directories(ctl_px4 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
     ${MULTIROTOR_UAV_NMPC_GENERATED_DIR} ${EIGEN3_INCLUDE_DIRS}
     ${MULTIROTOR_ACADOS_INCLUDE_DIRS})
   set_target_properties(ctl_px4 PROPERTIES INCLUDE_DIRECTORIES
-    "${CMAKE_CURRENT_SOURCE_DIR}/native;${CMAKE_CURRENT_SOURCE_DIR}/include;${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR};${MULTIROTOR_UAV_NMPC_GENERATED_DIR};${EIGEN3_INCLUDE_DIRS};${MULTIROTOR_ACADOS_INCLUDE_DIRS}")
-  target_link_libraries(ctl_px4 PRIVATE XgcRuntime::SDK px4_multirotor_controller_core)
+    "${CMAKE_CURRENT_SOURCE_DIR}/include;${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR};${MULTIROTOR_UAV_NMPC_GENERATED_DIR};${EIGEN3_INCLUDE_DIRS};${MULTIROTOR_ACADOS_INCLUDE_DIRS}")
+  target_link_libraries(ctl_px4 PRIVATE px4_multirotor_controller_core
+    XgcRuntime::SDK
+    XgcRoboticsInterfaces::Interfaces
+    HoverThrustNative::Wire
+    RigidStateNative::Wire
+    ReferenceTrajectoryNative::Wire
+    XgcLightweightSim::Interfaces)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ctl_px4 PRIVATE -fvisibility=hidden -Wall -Wextra)
     target_link_options(ctl_px4 PRIVATE -Wl,--no-undefined)
@@ -638,5 +642,5 @@ if(CATKIN_ENABLE_TESTING AND PX4_CONTROLLER_NATIVE_ADAPTER)
   target_include_directories(controller_transport_parity BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
     ${MULTIROTOR_UAV_NMPC_GENERATED_DIR} ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS})
-  target_link_libraries(controller_transport_parity PRIVATE px4_multirotor_controller_core XgcRuntime::SDK ${catkin_LIBRARIES} gtest dl)
+  target_link_libraries(controller_transport_parity PRIVATE px4_multirotor_controller_core XgcRuntime::SDK XgcRoboticsInterfaces::Interfaces ${catkin_LIBRARIES} gtest dl)
 endif()
