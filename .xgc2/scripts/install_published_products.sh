@@ -9,7 +9,6 @@ apt-get install -y --no-install-recommends \
   libxgc2-robotics-interfaces-dev \
   libxgc2-hover-thrust-dev \
   ros-noetic-xgc2-estimator-rigid-state \
-  xgc2-lightweight-sim \
   libxgc2-math-dev \
   libxgc2-state-machine-dev \
   xgc2-acados \

@@ -91,7 +91,6 @@
 #include <xgc-robotics-interfaces/control_records_v1.h>
 #include <hover_thrust_estimator/native/hover_thrust_wire.h>
 #include <estimator_vrpn_px4_rotor_state/native/rigid_state_wire_v1.h>
-#include <xgc-lightweight-sim/simulation_records_v1.h>
 
 using hover_thrust_native::xgc_hover_thrust_v1;
 
