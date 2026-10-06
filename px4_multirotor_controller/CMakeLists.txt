@@ -598,7 +598,6 @@ if(PX4_CONTROLLER_NATIVE_ADAPTER)
   find_package(HoverThrustNativeWire CONFIG REQUIRED)
   find_package(RigidStateNativeWire CONFIG REQUIRED)
   find_package(ReferenceTrajectoryNative CONFIG REQUIRED)
-  find_package(XgcLightweightSimInterfaces CONFIG REQUIRED)
   add_library(ctl_px4 SHARED native/ctl_px4.cpp)
   set_target_properties(ctl_px4 PROPERTIES INSTALL_RPATH "$ORIGIN")
   target_include_directories(ctl_px4 PRIVATE
@@ -612,8 +611,7 @@ if(PX4_CONTROLLER_NATIVE_ADAPTER)
     XgcRoboticsInterfaces::Interfaces
     HoverThrustNative::Wire
     RigidStateNative::Wire
-    ReferenceTrajectoryNative::Wire
-    XgcLightweightSim::Interfaces)
+    ReferenceTrajectoryNative::Wire)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ctl_px4 PRIVATE -fvisibility=hidden -Wall -Wextra)
     target_link_options(ctl_px4 PRIVATE -Wl,--no-undefined)

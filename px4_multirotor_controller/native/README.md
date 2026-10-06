@@ -29,8 +29,8 @@ workspace. Installed SDK consumption uses
 `find_package(XgcRuntimeSDK CONFIG REQUIRED)` and links `XgcRuntime::SDK`.
 Set `CMAKE_PREFIX_PATH` to the installed SDK and wire-owner prefixes. Native
 records/codecs are imported from `XgcRoboticsInterfaces::Interfaces`,
-`HoverThrustNative::Wire`, `RigidStateNative::Wire`,
-`ReferenceTrajectoryNative::Wire` and `XgcLightweightSim::Interfaces`.
+`HoverThrustNative::Wire`, `RigidStateNative::Wire` and
+`ReferenceTrajectoryNative::Wire`.
 No Runtime source headers or private wire copies are used.
 The native ELF installs beside the owning controller core; its headers-only SDK
 is not a runtime dependency. The package assembler includes it when built.
