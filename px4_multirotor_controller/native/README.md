@@ -32,6 +32,8 @@ records/codecs are imported from `XgcRoboticsInterfaces::Interfaces`,
 `HoverThrustNative::Wire`, `RigidStateNative::Wire` and
 `ReferenceTrajectoryNative::Wire`.
 No Runtime source headers or private wire copies are used.
+FCU arming and mode requests use `fcu_request` (`xgc.fcu_request/1`) for the
+ROS edge's MAVROS service caller.
 The native ELF installs beside the owning controller core; its headers-only SDK
 is not a runtime dependency. The package assembler includes it when built.
 

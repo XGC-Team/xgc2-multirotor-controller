@@ -102,7 +102,7 @@ namespace sm = state_machine;
 enum Port : uint32_t {
   kEstimate, kLocalPose, kLocalVelocity, kImu, kFcuState, kBattery, kVrpnPose, kCommand, kClock,
   kSetpoint, kAttitudeRate, kFcuRequest, kStatus, kTrace, kAlgSetpoint, kHoverThrust,
-  kRefActiveAnalytic, kRefActiveSampled, kRefRequest, kTickDone, kAttitudeCommand, kFcuRequestFull, kPortCount
+  kRefActiveAnalytic, kRefActiveSampled, kRefRequest, kTickDone, kAttitudeCommand, kPortCount
 };
 constexpr uint32_t kFirstStatsPort = kEstimate;
 constexpr uint32_t kStatsPorts = 7;  // estimate .. vrpn_pose, in port order
@@ -129,7 +129,6 @@ bool read(const std::vector<uint8_t>& d, T* out) {
 std::string bounded(const char* s, size_t n) { return std::string(s, strnlen(s, n)); }
 
 struct CtlPx4 {
-  uint64_t fcu_request_sequence{0};
   const xgc_host_api* host{nullptr};
   pmc::SensorData sensor;
   pmc::ControllerDriver driver{sensor};
@@ -430,10 +429,6 @@ struct CtlPx4 {
           m.kind = 1;
           m.arm = std::get<bool>(it->second) ? 1u : 0u;
           publish(kFcuRequest, round, &m, sizeof m);
-          xgc_fcu_request_v2 full{};
-          std::memcpy(&full, &m, sizeof m);
-          full.request_id = ++fcu_request_sequence;
-          publish(kFcuRequestFull, round, &full, sizeof full);
         }
       } else if (e.id == pmc::output_event_type::REQUEST_MODE) {
         const auto it = e.payload.find("mode");
@@ -443,10 +438,6 @@ struct CtlPx4 {
           m.kind = 2;
           std::strncpy(m.mode, std::get<std::string>(it->second).c_str(), sizeof m.mode - 1);
           publish(kFcuRequest, round, &m, sizeof m);
-          xgc_fcu_request_v2 full{};
-          std::memcpy(&full, &m, sizeof m);
-          full.request_id = ++fcu_request_sequence;
-          publish(kFcuRequestFull, round, &full, sizeof full);
         }
       } else if (e.id == pmc::output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION) {
         activateReference(e, t, round);
@@ -640,7 +631,6 @@ const xgc_port_decl kPorts[kPortCount] = {
     {"ref_request", XGC_PORT_OUT_OPTIONAL, "xgc.ref.analytic/1", XGC_QOS_EVENT},
     {"tick_done", XGC_PORT_OUT_OPTIONAL, "xgc.clock/1", XGC_QOS_EVENT},
     {"attitude_command", XGC_PORT_OUT_OPTIONAL, "xgc.attitude_target/2", XGC_QOS_CONTROL},
-    {"fcu_request_full", XGC_PORT_OUT_OPTIONAL, "xgc.fcu_request/2", XGC_QOS_EVENT},
 };
 
 const xgc_plugin_vtbl kVtbl = {create, configure, activate, step, deactivate, destroy, domain_state};
