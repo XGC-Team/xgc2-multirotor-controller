@@ -20,8 +20,10 @@ void Px4ServiceOutputConsumer::initializeClientsIfNeeded() {
         return;
     }
 
-    arming_client_ = nh_.serviceClient<mavros_msgs::CommandLong>("mavros/cmd/command", true);
-    set_mode_client_ = nh_.serviceClient<mavros_msgs::SetMode>("mavros/set_mode", true);
+    // These low-rate commands must reconnect after a flight service appears
+    // or restarts; a failed persistent connection otherwise remains invalid.
+    arming_client_ = nh_.serviceClient<mavros_msgs::CommandLong>("mavros/cmd/command");
+    set_mode_client_ = nh_.serviceClient<mavros_msgs::SetMode>("mavros/set_mode");
     clients_initialized_ = true;
 
     ROS_INFO("[Px4ServiceOutputConsumer] Registered critical service clients");
