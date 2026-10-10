@@ -325,11 +325,12 @@ target_link_libraries(px4_multirotor_controller_uav_nmpc_runtime
   m
 )
 
-# Both transports read the same owning profile and the same validation code.
+# The module reads the owning profile (config/uav_nmpc.yaml) for the values the ROS launch file loads
+# into the node's parameters, and the same validation code as the node.
 find_program(XGC_CONTROLLER_PYTHON3 python3 REQUIRED)
 file(MAKE_DIRECTORY "${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}")
 execute_process(COMMAND "${XGC_CONTROLLER_PYTHON3}"
-  "${CMAKE_CURRENT_SOURCE_DIR}/native/generate_profile.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/module/generate_profile.py"
   "${CMAKE_CURRENT_SOURCE_DIR}/config/uav_nmpc.yaml"
   "${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}/controller_profile.h"
   RESULT_VARIABLE XGC_CONTROLLER_PROFILE_RESULT)
@@ -436,6 +437,35 @@ target_link_libraries(${PROJECT_NAME}_node
   pthread
 )
 
+## The aggregation module (xgc2-module module ABI): the same ROS-free core behind typed ports. Like the
+## core it gets no ROS include directory and links no ROS library; -Wl,--no-undefined makes any ROS
+## symbol it used fail the link. Only the module entry point is exported
+## (module_support/exports.map). The reference payload headers are those of the reference package
+## of this repository (a build dependency in package.xml).
+set(MODULE_SUPPORT_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../module_support/include)
+set(MULTIROTOR_REFERENCE_INCLUDE_DIR
+  ${CMAKE_CURRENT_SOURCE_DIR}/../multirotor_reference_trajectory/include)
+add_library(${PROJECT_NAME}_module MODULE module/controller_module.cpp)
+set_target_properties(${PROJECT_NAME}_module PROPERTIES
+  INCLUDE_DIRECTORIES ""
+  CXX_VISIBILITY_PRESET hidden
+  VISIBILITY_INLINES_HIDDEN ON
+  INSTALL_RPATH "$ORIGIN;/opt/xgc2/acados/lib"
+)
+target_include_directories(${PROJECT_NAME}_module BEFORE PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/module
+  ${MODULE_SUPPORT_INCLUDE_DIR}
+  ${MULTIROTOR_REFERENCE_INCLUDE_DIR}
+)
+target_compile_definitions(${PROJECT_NAME}_module PRIVATE
+  PX4_MODULE_VERSION="${${PROJECT_NAME}_VERSION}")
+target_link_libraries(${PROJECT_NAME}_module PRIVATE px4_multirotor_controller_core)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(${PROJECT_NAME}_module PRIVATE -Wall -Wextra)
+  set_property(TARGET ${PROJECT_NAME}_module APPEND_STRING PROPERTY LINK_FLAGS
+    " -Wl,--no-undefined -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../module_support/exports.map")
+endif()
+
 #############
 ## Install ##
 #############
@@ -444,6 +474,10 @@ install(TARGETS px4_multirotor_controller_uav_nmpc_runtime px4_multirotor_contro
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+install(TARGETS ${PROJECT_NAME}_module
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
 
 install(DIRECTORY include/${PROJECT_NAME}/
@@ -590,35 +624,6 @@ endif()
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-# Runtime is an ABI dependency only. No runtime/domain implementation is built.
-option(PX4_CONTROLLER_NATIVE_ADAPTER "Build the product-owned native ABI adapter" OFF)
-if(PX4_CONTROLLER_NATIVE_ADAPTER)
-  find_package(XgcRuntimeSDK CONFIG REQUIRED)
-  find_package(XgcRoboticsInterfaces CONFIG REQUIRED)
-  find_package(HoverThrustNativeWire CONFIG REQUIRED)
-  find_package(RigidStateNativeWire CONFIG REQUIRED)
-  find_package(ReferenceTrajectoryNative CONFIG REQUIRED)
-  add_library(ctl_px4 SHARED native/ctl_px4.cpp)
-  set_target_properties(ctl_px4 PROPERTIES INSTALL_RPATH "$ORIGIN")
-  target_include_directories(ctl_px4 PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
-    ${MULTIROTOR_UAV_NMPC_GENERATED_DIR} ${EIGEN3_INCLUDE_DIRS}
-    ${MULTIROTOR_ACADOS_INCLUDE_DIRS})
-  set_target_properties(ctl_px4 PROPERTIES INCLUDE_DIRECTORIES
-    "${CMAKE_CURRENT_SOURCE_DIR}/include;${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR};${MULTIROTOR_UAV_NMPC_GENERATED_DIR};${EIGEN3_INCLUDE_DIRS};${MULTIROTOR_ACADOS_INCLUDE_DIRS}")
-  target_link_libraries(ctl_px4 PRIVATE px4_multirotor_controller_core
-    XgcRuntime::SDK
-    XgcRoboticsInterfaces::Interfaces
-    HoverThrustNative::Wire
-    RigidStateNative::Wire
-    ReferenceTrajectoryNative::Wire)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(ctl_px4 PRIVATE -fvisibility=hidden -Wall -Wextra)
-    target_link_options(ctl_px4 PRIVATE -Wl,--no-undefined)
-  endif()
-  install(TARGETS ctl_px4 LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
-endif()
-
 if(CATKIN_ENABLE_TESTING)
   catkin_add_gtest(px4_controller_driver_test test/controller_driver_test.cpp)
   if(TARGET px4_controller_driver_test)
@@ -635,10 +640,28 @@ if(CATKIN_ENABLE_TESTING)
   add_test(NAME px4_nmpc_generation_reentry_test COMMAND px4_nmpc_generation_reentry_test)
 endif()
 
-if(CATKIN_ENABLE_TESTING AND PX4_CONTROLLER_NATIVE_ADAPTER)
-  add_executable(controller_transport_parity test/controller_transport_parity.cpp src/input/sensor_input_producer.cpp)
-  target_include_directories(controller_transport_parity BEFORE PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
-    ${MULTIROTOR_UAV_NMPC_GENERATED_DIR} ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS})
-  target_link_libraries(controller_transport_parity PRIVATE px4_multirotor_controller_core XgcRuntime::SDK XgcRoboticsInterfaces::Interfaces ${catkin_LIBRARIES} gtest dl)
+if(CATKIN_ENABLE_TESTING)
+  add_executable(controller_payloads_layout_c test/payloads_layout.c)
+  target_include_directories(controller_payloads_layout_c PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  set_target_properties(controller_payloads_layout_c PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
+  add_test(NAME controller_payloads_layout_c COMMAND controller_payloads_layout_c)
+
+  add_executable(controller_payloads_api_cpp test/payloads_api.cpp)
+  target_include_directories(controller_payloads_api_cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  set_target_properties(controller_payloads_api_cpp PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES)
+  add_test(NAME controller_payloads_api_cpp COMMAND controller_payloads_api_cpp)
+
+  # The module as a shared library, through an in-test host and a scripted vehicle; with the
+  # reference module (a library of the other package of this repository) for the chain tests.
+  catkin_add_gtest(controller_module_test test/controller_module_test.cpp)
+  if(TARGET controller_module_test)
+    add_dependencies(controller_module_test ${PROJECT_NAME}_module ${catkin_EXPORTED_TARGETS})
+    target_include_directories(controller_module_test BEFORE PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/module ${CMAKE_CURRENT_SOURCE_DIR}/test
+      ${MODULE_SUPPORT_INCLUDE_DIR} ${MULTIROTOR_REFERENCE_INCLUDE_DIR})
+    target_compile_definitions(controller_module_test PRIVATE
+      CONTROLLER_MODULE_PATH="$<TARGET_FILE:${PROJECT_NAME}_module>"
+      REFERENCE_MODULE_DIRECTORIES="${CATKIN_DEVEL_PREFIX}/lib:${CATKIN_DEVEL_PREFIX}/../../lib")
+    target_link_libraries(controller_module_test px4_multirotor_controller_core dl pthread)
+  endif()
 endif()
