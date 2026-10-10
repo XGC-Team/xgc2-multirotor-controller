@@ -7,16 +7,16 @@
 // consumers do with ROS topics and MAVROS services, the module does with typed ports; the payloads
 // are in px4_multirotor_controller/payloads.h and multirotor_reference_trajectory/payloads.h.
 //
-//   in  state_estimate        state  xgc2.px4.state_estimate.v1       alg/state_estimator/state
-//   in  local_pose            state  xgc2.px4.pose.v1       required  mavros/local_position/pose
-//   in  local_velocity        state  xgc2.px4.velocity.v1   required  mavros/local_position/velocity_local
-//   in  imu                   state  xgc2.px4.imu.v1        required  mavros/imu/data
-//   in  fcu_state             state  xgc2.px4.fcu_state.v1  required  mavros/state
-//   in  battery               state  xgc2.px4.battery.v1              mavros/battery
-//   in  vrpn_pose             state  xgc2.px4.pose.v1       required  pose (the canonical pose)
+//   in  state_estimate        event  xgc2.px4.state_estimate.v1       alg/state_estimator/state
+//   in  local_pose            event  xgc2.px4.pose.v1       required  mavros/local_position/pose
+//   in  local_velocity        event  xgc2.px4.velocity.v1   required  mavros/local_position/velocity_local
+//   in  imu                   event  xgc2.px4.imu.v1        required  mavros/imu/data
+//   in  fcu_state             event  xgc2.px4.fcu_state.v1  required  mavros/state
+//   in  battery               event  xgc2.px4.battery.v1              mavros/battery
+//   in  vrpn_pose             event  xgc2.px4.pose.v1       required  pose (the canonical pose)
 //   in  command               event  xgc2.px4.command.v1              /command
 //   in  alg_setpoint          event  xgc2.px4.position_target.v1      alg/setpoint_raw/local
-//   in  hover_thrust          state  xgc2.px4.hover_thrust.v1         hover_thrust/estimate_state
+//   in  hover_thrust          event  xgc2.px4.hover_thrust.v1         hover_thrust/estimate_state
 //   in  ref_active_analytic   state  xgc2.px4.reference_analytic.v1   the reference module's
 //   in  ref_active_sampled    state  xgc2.px4.reference_sampled.v1    active/analytic, active/sampled
 //   out setpoint              state  xgc2.px4.position_target.v1      mavros/setpoint_raw/local
@@ -27,7 +27,11 @@
 //
 // Every input sample is stamped by its producer with the time it was received. That stamp is the
 // time of the receive statistics and of the input event, like ros::Time::now() in the node's
-// callbacks. A step applies the samples that arrived in stamp order, updates the controller at the
+// callbacks. The sensor inputs are event ports, not state ports: the controller's receive
+// statistics and its frame counters are part of its safety logic and count every message, as the
+// node's callbacks do, so a burst of two messages within one step must not become one. Only the
+// active reference is a state: the reference module publishes it as one, and the newest is the one
+// that counts. A step applies the samples that arrived in stamp order, updates the controller at the
 // host clock and handles the output events the way the node's consumers do; with the period of 1 ms
 // it is one iteration of the node's 1 kHz control loop. The NMPC solver runs on a worker thread of
 // ControllerDriver; its completion wakes the host, so the step that consumes the result does not wait
@@ -140,22 +144,23 @@ constexpr xgc2_port_kind kState = XGC2_PORT_STATE;
 constexpr xgc2_port_kind kEvent = XGC2_PORT_EVENT;
 
 const xgc2_port_desc kPorts[kPortCount] = {
-    describe<xgc2_px4_state_estimate_v1>("state_estimate", kIn, kState,
-                                         XGC2_PX4_STATE_ESTIMATE_SCHEMA),
-    describe<xgc2_px4_pose_v1>("local_pose", kIn, kState, XGC2_PX4_POSE_SCHEMA, 0,
+    describe<xgc2_px4_state_estimate_v1>("state_estimate", kIn, kEvent,
+                                         XGC2_PX4_STATE_ESTIMATE_SCHEMA, 8),
+    describe<xgc2_px4_pose_v1>("local_pose", kIn, kEvent, XGC2_PX4_POSE_SCHEMA, 8,
                                XGC2_PORT_REQUIRED),
-    describe<xgc2_px4_velocity_v1>("local_velocity", kIn, kState, XGC2_PX4_VELOCITY_SCHEMA, 0,
+    describe<xgc2_px4_velocity_v1>("local_velocity", kIn, kEvent, XGC2_PX4_VELOCITY_SCHEMA, 8,
                                    XGC2_PORT_REQUIRED),
-    describe<xgc2_px4_imu_v1>("imu", kIn, kState, XGC2_PX4_IMU_SCHEMA, 0, XGC2_PORT_REQUIRED),
-    describe<xgc2_px4_fcu_state_v1>("fcu_state", kIn, kState, XGC2_PX4_FCU_STATE_SCHEMA, 0,
+    describe<xgc2_px4_imu_v1>("imu", kIn, kEvent, XGC2_PX4_IMU_SCHEMA, 16, XGC2_PORT_REQUIRED),
+    describe<xgc2_px4_fcu_state_v1>("fcu_state", kIn, kEvent, XGC2_PX4_FCU_STATE_SCHEMA, 8,
                                     XGC2_PORT_REQUIRED),
-    describe<xgc2_px4_battery_v1>("battery", kIn, kState, XGC2_PX4_BATTERY_SCHEMA),
-    describe<xgc2_px4_pose_v1>("vrpn_pose", kIn, kState, XGC2_PX4_POSE_SCHEMA, 0,
+    describe<xgc2_px4_battery_v1>("battery", kIn, kEvent, XGC2_PX4_BATTERY_SCHEMA, 4),
+    describe<xgc2_px4_pose_v1>("vrpn_pose", kIn, kEvent, XGC2_PX4_POSE_SCHEMA, 8,
                                XGC2_PORT_REQUIRED),
     describe<xgc2_px4_command_v1>("command", kIn, kEvent, XGC2_PX4_COMMAND_SCHEMA, 8),
     describe<xgc2_px4_position_target_v1>("alg_setpoint", kIn, kEvent,
                                           XGC2_PX4_POSITION_TARGET_SCHEMA, 8),
-    describe<xgc2_px4_hover_thrust_v1>("hover_thrust", kIn, kState, XGC2_PX4_HOVER_THRUST_SCHEMA),
+    describe<xgc2_px4_hover_thrust_v1>("hover_thrust", kIn, kEvent, XGC2_PX4_HOVER_THRUST_SCHEMA,
+                                       8),
     describe<xgc2_px4_reference_analytic_v1>("ref_active_analytic", kIn, kState,
                                              XGC2_PX4_REFERENCE_ANALYTIC_SCHEMA),
     describe<xgc2_px4_reference_sampled_v1>("ref_active_sampled", kIn, kState,

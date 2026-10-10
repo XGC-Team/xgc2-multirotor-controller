@@ -518,7 +518,7 @@ if(PX4_CONTROLLER_REPLAY_HARNESS)
     ${MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS}
   )
   add_dependencies(${PROJECT_NAME}_replay_harness ${catkin_EXPORTED_TARGETS})
-  target_link_libraries(${PROJECT_NAME}_replay_harness ${MULTIROTOR_REPLAY_LIBRARIES})
+  target_link_libraries(${PROJECT_NAME}_replay_harness ${MULTIROTOR_REPLAY_LIBRARIES} z)
 
   # ActiveTrajectoryCache golden output (the recorded flight sends no reference).
   add_executable(${PROJECT_NAME}_reference_cache_golden test/replay/reference_cache_golden.cpp ${MULTIROTOR_REPLAY_SOURCES})
@@ -663,5 +663,37 @@ if(CATKIN_ENABLE_TESTING)
       CONTROLLER_MODULE_PATH="$<TARGET_FILE:${PROJECT_NAME}_module>"
       REFERENCE_MODULE_DIRECTORIES="${CATKIN_DEVEL_PREFIX}/lib:${CATKIN_DEVEL_PREFIX}/../../lib")
     target_link_libraries(controller_module_test px4_multirotor_controller_core dl pthread)
+  endif()
+
+  # The real ROS input producer against the module, on a private ROS master.
+  add_rostest_gtest(controller_transport_parity
+    test/controller_transport_parity.test
+    test/controller_transport_parity.cpp
+    src/input/sensor_input_producer.cpp
+  )
+  if(TARGET controller_transport_parity)
+    add_dependencies(controller_transport_parity ${PROJECT_NAME}_module ${catkin_EXPORTED_TARGETS})
+    target_include_directories(controller_transport_parity BEFORE PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/test
+      ${MODULE_SUPPORT_INCLUDE_DIR} ${MULTIROTOR_REFERENCE_INCLUDE_DIR}
+      ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR} ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS})
+    target_compile_definitions(controller_transport_parity PRIVATE
+      CONTROLLER_MODULE_PATH="$<TARGET_FILE:${PROJECT_NAME}_module>")
+    target_link_libraries(controller_transport_parity px4_multirotor_controller_core
+                          ${catkin_LIBRARIES} dl pthread)
+  endif()
+
+  # The module against the ROS node's behavior on the recorded flights and a scripted flight.
+  catkin_add_gtest(controller_module_parity_test test/controller_module_parity_test.cpp)
+  if(TARGET controller_module_parity_test)
+    add_dependencies(controller_module_parity_test ${PROJECT_NAME}_module ${catkin_EXPORTED_TARGETS})
+    target_include_directories(controller_module_parity_test BEFORE PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/module ${CMAKE_CURRENT_SOURCE_DIR}/test
+      ${MODULE_SUPPORT_INCLUDE_DIR} ${MULTIROTOR_REFERENCE_INCLUDE_DIR})
+    target_compile_definitions(controller_module_parity_test PRIVATE
+      CONTROLLER_MODULE_PATH="$<TARGET_FILE:${PROJECT_NAME}_module>"
+      CONTROLLER_REPLAY_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/replay/data")
+    target_link_libraries(controller_module_parity_test px4_multirotor_controller_core
+                          ${catkin_LIBRARIES} z dl pthread)
   endif()
 endif()

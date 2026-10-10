@@ -1,0 +1,4 @@
+<launch>
+  <test test-name="controller_transport_parity" pkg="px4_multirotor_controller"
+        type="controller_transport_parity" time-limit="30" />
+</launch>
