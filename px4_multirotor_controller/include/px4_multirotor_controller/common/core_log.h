@@ -9,8 +9,8 @@ namespace px4_multirotor_controller {
 
 // Logging for the controller core, without ROS. The core formats a line and
 // hands it to one process-wide sink: stderr by default, rosconsole when the
-// ROS node installs its sink (ros_log_sink.h), or whatever an aggregator
-// module installs.
+// ROS node installs its sink (ros_log_sink.h), or the module's, which hands
+// the line to the host.
 enum class LogLevel { kInfo, kWarn, kError };
 using LogSink = void (*)(LogLevel level, const char* message);
 

@@ -94,13 +94,7 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     command_input_producer_ =
         std::make_unique<CommandInputProducer>(nh_, post_input_event, kRosQueueSize);
     trajectory_input_producer_ = std::make_unique<TrajectoryInputProducer>(
-        nh_, sensor_data_, controller_.activeTrajectoryCache(),
-        [this] { return controller_.getConfig(); }, post_input_event,
-        [this](const MpcTrajectoryState& trajectory) {
-            cacheTrajectorySample(controller_.mpcTrajectoryBuffer(), trajectory,
-                                  toCoreTime(ros::Time::now()), controller_.getConfig());
-        },
-        kRosQueueSize);
+        nh_, controller_, sensor_data_, post_input_event, kRosQueueSize);
 
     output_event_executor_.start();
     sensor_input_producer_->start();

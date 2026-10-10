@@ -12,9 +12,10 @@ namespace px4_multirotor_controller {
 // State timers (setpoint throttling, request retry intervals, log gates)
 // measure this time, not the host's wall clock. So they follow simulated or
 // replayed time exactly and stay identical to wall time on hardware, where
-// update() receives the current ROS time. The value is per thread: each
-// controller is updated on its own thread (the ROS node's loop thread, or
-// one module thread in an aggregator).
+// update() receives the current ROS time. The value is per thread and is set
+// at the start of every update(), so it is valid on whichever thread updates
+// the controller (the ROS node's loop thread, or the host worker thread that
+// runs the module's step).
 struct ControllerClock {
     using rep = double;
     using period = std::ratio<1>;

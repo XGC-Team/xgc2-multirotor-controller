@@ -28,7 +28,7 @@ struct PublishedCommand {
     Setpoint position_cmd{};
 };
 
-// Same decision as ControlOutputConsumer and ctl-px4: an attitude event is a
+// Same decision as ControlOutputConsumer and the module: an attitude event is a
 // body-rate command only while the target is valid. A position event is the
 // setpoint that replaces it.
 PublishedCommand publishedCommand(DroneController& controller) {
