@@ -656,6 +656,9 @@ if(CATKIN_ENABLE_TESTING)
   catkin_add_gtest(controller_module_test test/controller_module_test.cpp)
   if(TARGET controller_module_test)
     add_dependencies(controller_module_test ${PROJECT_NAME}_module ${catkin_EXPORTED_TARGETS})
+    if(TARGET px4_multirotor_reference_module)  # catkin_make: one project for both packages
+      add_dependencies(controller_module_test px4_multirotor_reference_module)
+    endif()
     target_include_directories(controller_module_test BEFORE PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/module ${CMAKE_CURRENT_SOURCE_DIR}/test
       ${MODULE_SUPPORT_INCLUDE_DIR} ${MULTIROTOR_REFERENCE_INCLUDE_DIR})

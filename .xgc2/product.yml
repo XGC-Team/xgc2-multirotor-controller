@@ -1,10 +1,10 @@
 schema: xgc2.product.v1
 id: xgc2-multirotor-controller
 name: XGC2 Multirotor Controller
-version: 1.1.18-30
+version: 1.2.0-1
 kind: ros1-apt
 summary: ROS1 PX4 multirotor controller and multirotor reference trajectory packages
-  for XGC2 robots.
+  and their xgc2-module modules for XGC2 robots.
 ros:
   distro: noetic
   packages:
@@ -39,7 +39,6 @@ usage:
     '
 ownership:
   paths:
-  - /opt/ros/noetic/share/cmake/ReferenceTrajectoryNative
   - /opt/ros/noetic/share/multirotor_reference_trajectory
   - /opt/ros/noetic/share/px4_multirotor_controller
   - /opt/ros/noetic/include/multirotor_reference_trajectory
@@ -49,23 +48,14 @@ ownership:
   - /opt/ros/noetic/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so
   - /opt/ros/noetic/lib/libpx4_multirotor_controller_core.so
   - /opt/ros/noetic/lib/libmultirotor_reference_trajectory_core.so
-  - /opt/ros/noetic/lib/libctl_px4.so
-  - /opt/ros/noetic/lib/libref_trajectory.so
+  - /opt/ros/noetic/lib/libpx4_multirotor_controller_module.so
+  - /opt/ros/noetic/lib/libpx4_multirotor_reference_module.so
 release:
-  requires:
-  - libxgc2-runtime-sdk-dev
-  - libxgc2-robotics-interfaces-dev
-  - xgc2-estimator-hover-thrust
-  - xgc2-estimator-rigid-state
   dependency_policy:
-    libxgc2-runtime-sdk-dev: rebuild
-    libxgc2-robotics-interfaces-dev: rebuild
-    xgc2-estimator-hover-thrust: rebuild
-    xgc2-estimator-rigid-state: rebuild
     libxgc2-math-dev: rebuild
     libxgc2-state-machine-dev: rebuild
     xgc2-acados: rebuild
     xgc2-ros-msgs: rebuild
     xgc2-ros1-utils: rebuild
   apt_versions:
-    focal: 1.1.18-30
+    focal: 1.2.0-1

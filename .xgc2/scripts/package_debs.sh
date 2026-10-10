@@ -48,27 +48,30 @@ fi
 ARCH="$(dpkg --print-architecture)"
 PREFIX="/opt/ros/${ROS_DISTRO}"
 PREFIX_ROOT="${INSTALL_ROOT}${PREFIX}"
-# A configured build must install both owning native facades before packaging.
-for native_library in libctl_px4.so libref_trajectory.so; do
-  native_path="${PREFIX_ROOT}/lib/${native_library}"
-  if [[ ! -f "${native_path}" ]]; then
-    echo "missing required installed native library: ${native_path}" >&2
+# The two xgc2-module modules are part of the product: the build must have installed both, and the
+# public payload headers they exchange data with, before packaging.
+MODULE_LIBRARIES=(
+  libpx4_multirotor_reference_module.so
+  libpx4_multirotor_controller_module.so
+)
+for module_library in "${MODULE_LIBRARIES[@]}"; do
+  module_path="${PREFIX_ROOT}/lib/${module_library}"
+  if [[ ! -f "${module_path}" ]]; then
+    echo "missing required installed module library: ${module_path}" >&2
     exit 1
   fi
-  if ! file -b "${native_path}" | grep -q '^ELF'; then
-    echo "required native library is not ELF: ${native_path}" >&2
+  if ! file -b "${module_path}" | grep -q '^ELF'; then
+    echo "required module library is not ELF: ${module_path}" >&2
     exit 1
   fi
 done
-WIRE_PATHS=(
-  "${PREFIX}/include/multirotor_reference_trajectory/reference_wire.hpp"
-  "${PREFIX}/include/multirotor_reference_trajectory/reference_wire_v1.h"
-  "${PREFIX}/share/cmake/ReferenceTrajectoryNative/ReferenceTrajectoryNativeConfig.cmake"
-  "${PREFIX}/share/cmake/ReferenceTrajectoryNative/ReferenceTrajectoryNativeTargets.cmake"
+PAYLOAD_HEADERS=(
+  "${PREFIX}/include/multirotor_reference_trajectory/payloads.h"
+  "${PREFIX}/include/px4_multirotor_controller/payloads.h"
 )
-for path in "${WIRE_PATHS[@]}"; do
+for path in "${PAYLOAD_HEADERS[@]}"; do
   [[ -f "${INSTALL_ROOT}${path}" ]] || {
-    echo "missing required installed owning DTO export: ${path}" >&2
+    echo "missing required installed payload header: ${path}" >&2
     exit 1
   }
 done
@@ -108,15 +111,12 @@ copy_ros_package() {
 for ros_package in "${ROS_PACKAGES[@]}"; do
   copy_ros_package "${ros_package}"
 done
-for path in "${WIRE_PATHS[@]}"; do
-  copy_path "${INSTALL_ROOT}${path}" "${pkg_root}"
-done
 copy_path "${PREFIX_ROOT}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so" "${pkg_root}"
 copy_path "${PREFIX_ROOT}/lib/libpx4_multirotor_controller_core.so" "${pkg_root}"
-# The product owns its native ABI adapter. Header-only Runtime SDK is a build
-# dependency; the resulting ELF ships with its owning core, never in runtime.
-copy_path "${PREFIX_ROOT}/lib/libctl_px4.so" "${pkg_root}"
-copy_path "${PREFIX_ROOT}/lib/libref_trajectory.so" "${pkg_root}"
+# The modules ship beside the cores they run; the host loads them by path.
+for module_library in "${MODULE_LIBRARIES[@]}"; do
+  copy_path "${PREFIX_ROOT}/lib/${module_library}" "${pkg_root}"
+done
 copy_path "${PREFIX_ROOT}/lib/libmultirotor_reference_trajectory_core.so" "${pkg_root}"
 
 mkdir -p "${pkg_root}/DEBIAN" "${pkg_root}/usr/share/doc/${PACKAGE}"

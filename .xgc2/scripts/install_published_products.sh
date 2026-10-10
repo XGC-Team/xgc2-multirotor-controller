@@ -6,9 +6,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export DEBIAN_FRONTEND=noninteractive
 "${SCRIPT_DIR}/setup_xgc2_apt_source.sh"
 apt-get install -y --no-install-recommends \
-  libxgc2-robotics-interfaces-dev \
-  libxgc2-hover-thrust-dev \
-  ros-noetic-xgc2-estimator-rigid-state \
   libxgc2-math-dev \
   libxgc2-state-machine-dev \
   xgc2-acados \
