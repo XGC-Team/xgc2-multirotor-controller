@@ -32,11 +32,12 @@
 // statistics and its frame counters are part of its safety logic and count every message, as the
 // node's callbacks do, so a burst of two messages within one step must not become one. Only the
 // active reference is a state: the reference module publishes it as one, and the newest is the one
-// that counts. A step applies the samples that arrived in stamp order, updates the controller at
-// the host clock and handles the output events the way the node's consumers do; with the period of
-// 1 ms it is one iteration of the node's 1 kHz control loop. The NMPC solver runs on a worker
-// thread of ControllerDriver; its completion wakes the host, so the step that consumes the result
-// does not wait for the next period.
+// that counts. A step applies the samples that arrived in stamp order; a step of the period (or of
+// a wake) then updates the controller at the host clock and handles the output events the way the
+// node's consumers do, so with the period of 1 ms it is one iteration of the node's 1 kHz control
+// loop, and a step that only has samples to deliver leaves the update to the next one. The NMPC
+// solver runs on a worker thread of ControllerDriver; its completion wakes the host, so the step
+// that consumes the result does not wait for the next period.
 //
 // The telemetry the node publishes for observers (sensor statistics, state machine events, tracking
 // error, NMPC debug samples) is not a port of the module.
@@ -49,6 +50,12 @@
 // controller is flying is refused (XGC2_ERR_STATE); on the ground it takes effect at once.
 //
 // start() builds the controller afresh; stop() tears it down (the solver thread is joined).
+//
+// Threads. The controller's state machine is bound to the thread that first updates it, and the
+// host calls an instance from any of its worker threads, a different one each time. The module
+// gives the controller a thread of its own (module_support::OwnerThread) that builds it, applies
+// the inputs, updates it and destroys it; the calling thread reads the inputs and writes the
+// outputs with the host API and waits meanwhile, so the two never work at the same time.
 
 #include <algorithm>
 #include <atomic>
@@ -60,6 +67,7 @@
 #include <functional>
 #include <memory>
 #include <module_support/json_config.hpp>
+#include <module_support/owner_thread.hpp>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -187,8 +195,8 @@ constexpr int64_t kControlPeriodNs = 1000000;  // the node's hard-coded 1 kHz lo
 class ControllerModule;
 
 // The core logs through one process-wide sink without a context. The module routes a line to the
-// host of the instance whose call is running on this thread; the solver thread has no such call and
-// falls back to stderr, like the core's default sink.
+// host of the instance whose call or owner thread task is running on this thread; the solver thread
+// has none and falls back to stderr, like the core's default sink.
 thread_local const ControllerModule* t_running = nullptr;
 std::atomic<int> g_instances{0};
 
@@ -224,8 +232,7 @@ class ControllerModule {
     // becomes the module's failure.
     template <class F>
     xgc2_status guarded(const char* where, F&& f) {
-        const ControllerModule* const outer = t_running;
-        t_running = this;
+        LogScope scope(this);
         xgc2_status status = XGC2_ERR_INTERNAL;
         try {
             status = f();
@@ -234,7 +241,6 @@ class ControllerModule {
         } catch (...) {
             log(kLogError, std::string(where) + ": unknown exception");
         }
-        t_running = outer;
         return status;
     }
 
@@ -267,8 +273,11 @@ class ControllerModule {
     xgc2_status start() {
         if (runtime_)
             return XGC2_ERR_STATE;
-        runtime_ = std::make_unique<Runtime>(config_, [this] { host_->wake(ctx_); });
-        runtime_->driver.start(time(host_->now_ns(ctx_)));
+        owner_.run([this] {
+            LogScope scope(this);
+            runtime_ = std::make_unique<Runtime>(config_, [this] { host_->wake(ctx_); });
+            runtime_->driver.start(time(host_->now_ns(ctx_)));
+        });
         host_->set_period_ns(ctx_, kControlPeriodNs);
         reported_ = false;
         reportIfChanged();
@@ -278,8 +287,11 @@ class ControllerModule {
     xgc2_status stop() {
         if (runtime_) {
             // Joins the solver thread: no wake() is called after this returns.
-            runtime_->driver.stop();
-            runtime_.reset();
+            owner_.run([this] {
+                LogScope scope(this);
+                runtime_->driver.stop();
+                runtime_.reset();
+            });
         }
         return XGC2_OK;
     }
@@ -291,19 +303,30 @@ class ControllerModule {
             return XGC2_ERR_STATE;
         Runtime& rt = *runtime_;
         const pmc::Time now = time(ctx->now_ns);
+        // The node's callbacks deliver samples whenever they arrive and its loop updates the
+        // controller at its own rate: a step that only has samples to deliver leaves the update to
+        // the period, or to the wake of a finished solve.
+        const bool update_due = (ctx->reasons & (XGC2_STEP_TIMER | XGC2_STEP_WAKE)) != 0;
         collectInputs(ctx);
-        for (const Input& input : inputs_) {
-            try {
-                apply(rt, input);
-            } catch (const std::exception& e) {
-                log(kLogError,
-                    std::string("input ") + kPorts[input.port].name + " refused: " + e.what());
+        const std::vector<sm::Event> outputs = owner_.run([&] {
+            LogScope scope(this);
+            for (const Input& input : inputs_) {
+                try {
+                    apply(rt, input);
+                } catch (const std::exception& e) {
+                    log(kLogError,
+                        std::string("input ") + kPorts[input.port].name + " refused: " + e.what());
+                }
             }
-        }
-        rt.driver.update(now);
+            if (!update_due)
+                return std::vector<sm::Event>{};
+            rt.driver.update(now);
+            return rt.driver.controller().getStateMachine().currentOutputEvents();
+        });
+        if (!update_due)
+            return XGC2_OK;
         wrote_ = write_failed_ = false;
-        for (const sm::Event& event :
-             rt.driver.controller().getStateMachine().currentOutputEvents()) {
+        for (const sm::Event& event : outputs) {
             try {
                 handle(rt, event, ctx->now_ns, now);
             } catch (const std::exception& e) {
@@ -324,6 +347,22 @@ class ControllerModule {
     }
 
    private:
+    // While alive, the core's log lines of the calling thread go to this instance's host log.
+    class LogScope {
+       public:
+        explicit LogScope(const ControllerModule* module) : outer_(t_running) {
+            t_running = module;
+        }
+        ~LogScope() {
+            t_running = outer_;
+        }
+        LogScope(const LogScope&) = delete;
+        LogScope& operator=(const LogScope&) = delete;
+
+       private:
+        const ControllerModule* outer_;
+    };
+
     // Everything that exists while the module is started. start() builds it, stop() destroys it, so
     // a restart begins with a controller in SelfCheck and no history.
     struct Runtime {
@@ -715,6 +754,7 @@ class ControllerModule {
     const xgc2_host_api* host_;
     void* ctx_;
     pmc::ControllerConfig config_;
+    module_support::OwnerThread owner_;  // builds, updates and destroys the runtime
     std::unique_ptr<Runtime> runtime_;
     std::vector<Input> inputs_;
     uint64_t post_failures_{0};

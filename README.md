@@ -26,8 +26,8 @@ sudo apt install ros-noetic-xgc2-multirotor-controller
 The package installs the ROS nodes, the cores, the two module libraries
 (`libpx4_multirotor_reference_module.so`, `libpx4_multirotor_controller_module.so`)
 and the public payload headers `multirotor_reference_trajectory/payloads.h` and
-`px4_multirotor_controller/payloads.h` (schema ids `xgc2.px4.*`). It requires no
-runtime SDK, no robotics-interfaces package and no estimator node or wire package;
+`px4_multirotor_controller/payloads.h` (schema ids `xgc2.px4.*`). It needs neither the
+runtime SDK nor the robotics interface records, and no estimator node or wire package;
 the estimators' ROS message packages remain its only link to them.
 
 ## Smoke Test

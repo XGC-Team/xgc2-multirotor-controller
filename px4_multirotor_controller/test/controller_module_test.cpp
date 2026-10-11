@@ -248,6 +248,32 @@ TEST_F(ControllerModuleTest, BecomesReadyWithTheSensorsAndLeavesReadyWithoutThem
     EXPECT_FALSE(vehicle_->failed);
 }
 
+TEST_F(ControllerModuleTest, AStepWithOnlyInputsDeliversThemAndLeavesTheUpdateToThePeriod) {
+    open(config(kFlightConfig));
+    ASSERT_TRUE(reach("Ready", 3.0));
+    xgc2_px4_command_v1 command{};
+    std::strcpy(command.text, "takeoff");
+    ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
+    // Like the node's callbacks between two iterations of its loop: the command is queued ...
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    EXPECT_EQ(host_->lastReportDetail(), "Ready");
+    // ... and the next update of the controller acts on it.
+    ASSERT_EQ(host_->step(XGC2_STEP_TIMER), XGC2_OK);
+    EXPECT_EQ(host_->lastReportDetail(), "TakeoffInit");
+}
+
+TEST_F(ControllerModuleTest, StepsOnDifferentWorkerThreadsDriveTheSameController) {
+    // The in-test host calls the module on a different worker thread each time, as the host's pool
+    // may; the controller's state machine accepts updates from one thread only.
+    open(config(kFlightConfig));
+    ASSERT_TRUE(reach("Ready", 3.0));
+    xgc2_px4_command_v1 command{};
+    std::strcpy(command.text, "takeoff");
+    ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
+    ASSERT_TRUE(reach("Hover", 20.0)) << "state " << vehicle_->state();
+    EXPECT_GT(host_->workerThreadsUsed(), 1U);
+}
+
 TEST_F(ControllerModuleTest, TakeoffRequestsOffboardAndArmingAndStreamsSetpoints) {
     open(config(kFlightConfig));
     ASSERT_TRUE(reach("Ready", 3.0));

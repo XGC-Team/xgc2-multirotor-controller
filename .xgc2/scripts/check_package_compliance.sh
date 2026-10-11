@@ -60,6 +60,7 @@ required_files=(
   px4_multirotor_controller/include/px4_multirotor_controller/payloads.h
   px4_multirotor_controller/module/controller_module.cpp
   module_support/include/xgc2/module.h
+  module_support/include/module_support/owner_thread.hpp
 )
 
 for file in "${required_files[@]}"; do

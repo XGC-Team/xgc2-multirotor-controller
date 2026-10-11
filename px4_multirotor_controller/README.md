@@ -56,10 +56,17 @@ A layout never changes; a different layout gets a new schema id.
 
 ### Behavior
 
-- **One step is one iteration of the node's 1 kHz loop.** `start()` asks the host for a 1 ms period.
-  A step takes the samples that arrived (event ports in order, the state ports whose bit is set in
-  `changed_inputs`), applies them in the order of their sample stamps, updates the controller at the
-  host clock, and handles the controller's output events the way the node's output consumers do.
+- **A step of the period is one iteration of the node's 1 kHz loop.** `start()` asks the host for a
+  1 ms period. A step takes the samples that arrived (event ports in order, the state ports whose bit
+  is set in `changed_inputs`), applies them in the order of their sample stamps, updates the
+  controller at the host clock, and handles the controller's output events the way the node's output
+  consumers do. A step that has only samples to deliver (the host also steps on input commits) applies
+  them and leaves the update to the next period, like the node's callbacks between two iterations of
+  its loop; a step of a wake updates at once.
+- **Threads.** The host calls an instance from any of its worker threads, a different one each time,
+  while the state machine library binds a machine to the thread that first updates it. The module
+  builds, updates and destroys the controller on a thread of its own (`module_support::OwnerThread`);
+  the calling thread reads the inputs and writes the outputs with the host API and waits meanwhile.
 - **Sensor inputs are event ports.** The controller's receive statistics and its frame counters are part
   of its safety logic and count every message; a state port would merge a burst of two messages within
   one step. The active reference is a state port: only the newest one counts.
@@ -244,7 +251,7 @@ catkin test px4_multirotor_controller
 | Test | What it checks |
 |---|---|
 | `controller_payloads_layout_c`, `controller_payloads_api_cpp` | The payload headers compile as C11 and C++ and the layout is the one the `static_assert`s state. |
-| `controller_module_test` | The module with an in-test host (`module_support/include/module_support/test_host.hpp`): the descriptor, the configuration (valid and invalid), start/period, the takeoff sequence, commands, live `configure`, `stop`/`start`, a full request queue, and closed loops with a scripted vehicle and the reference module for DFBC and NMPC, including `wake()` from the solver thread and none after `stop()`. |
+| `controller_module_test` | The module with an in-test host (`module_support/include/module_support/test_host.hpp`): the descriptor, the configuration (valid and invalid), start/period, the takeoff sequence on worker threads that change at every call, commands, a step with only samples, live `configure`, `stop`/`start`, a full request queue, and closed loops with a scripted vehicle and the reference module for DFBC and NMPC, including `wake()` from the solver thread and none after `stop()`. |
 | `controller_module_parity_test` | The module against the ROS node's behavior without ROS (`test/replay/controller_node_path.h`: the input producers' handling of a message and one iteration of the control loop, with the NMPC solved inline). Both get the same recorded messages and integer-nanosecond ticks; every setpoint, attitude-rate command, flight controller request, status and reference request must be equal bit for bit after every tick, and the flight states must agree. Inputs: three recorded software-plant flights (`px4_local`, `dfbc`, `nmpc`, `test/replay/data`) and a scripted flight that reaches DFBC and NMPC tracking (`test/replay/scripted_flight.h`). |
 | `controller_transport_parity` (rostest) | The real `SensorInputProducer` on a private ROS master against the module: the messages arrive through ROS topics on one side and as mapped payloads on the other (the sensors speak twice, then fall silent); both must show the same flight state, receive statistics and heartbeat, and leave `Ready` for the sensor timeout at the same tick. |
 | the existing core and node tests | `controller_driver_test`, the state machine, strategies, world boundary and the Python tests of `.github/workflows/ci.yml` are unchanged. |

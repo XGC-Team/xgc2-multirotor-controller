@@ -127,6 +127,14 @@ if(CATKIN_ENABLE_TESTING)
   set_target_properties(reference_payloads_api_cpp PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES)
   add_test(NAME reference_payloads_api_cpp COMMAND reference_payloads_api_cpp)
 
+  # module_support is shared by the two modules of this repository; its tests run with this package.
+  catkin_add_gtest(module_support_test ../module_support/test/owner_thread_test.cpp)
+  if(TARGET module_support_test)
+    target_compile_features(module_support_test PRIVATE cxx_std_17)
+    target_include_directories(module_support_test BEFORE PRIVATE ${MODULE_SUPPORT_INCLUDE_DIR})
+    target_link_libraries(module_support_test ${catkin_LIBRARIES} pthread)
+  endif()
+
   # The module as a shared library, through an in-test host.
   catkin_add_gtest(reference_module_test test/reference_module_test.cpp)
   # The module against the ROS node's behavior on the scripted request stream.

@@ -8,7 +8,10 @@
 //    not rely on zeroed memory), a second write_begin before the commit returns NULL;
 //  - an output returns NULL from write_begin once its test-set capacity is used up (limitOutput),
 //    as a full event queue does;
-//  - wake() may be called from any thread; waitWake() lets the test wait for it.
+//  - wake() may be called from any thread; waitWake() lets the test wait for it;
+//  - create, configure, start, step, stop and destroy are called one at a time, but each on the
+//    next of three worker threads in rotation, as the host's worker pool may run an instance:
+//    a module must not rely on being called from the same thread twice.
 #pragma once
 
 #include <dlfcn.h>
@@ -19,13 +22,16 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <memory>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "module_support/owner_thread.hpp"
 #include "xgc2/module.h"
 
 namespace module_support {
@@ -128,22 +134,22 @@ class TestHost {
     xgc2_status create(const std::string& json) {
         config_ = json;
         const xgc2_config config{config_.c_str(), config_.size()};
-        return desc_->create(&api_, this, &config, &instance_);
+        return onWorker([&] { return desc_->create(&api_, this, &config, &instance_); });
     }
     xgc2_status configure(const std::string& json) {
         config_ = json;
         const xgc2_config config{config_.c_str(), config_.size()};
-        return desc_->configure(instance_, &config);
+        return onWorker([&] { return desc_->configure(instance_, &config); });
     }
     xgc2_status start() {
-        return desc_->start(instance_);
+        return onWorker([&] { return desc_->start(instance_); });
     }
     xgc2_status stop() {
-        return desc_->stop(instance_);
+        return onWorker([&] { return desc_->stop(instance_); });
     }
     void destroy() {
         if (instance_ != nullptr) {
-            desc_->destroy(instance_);
+            onWorker([&] { desc_->destroy(instance_); });
             instance_ = nullptr;
         }
     }
@@ -169,7 +175,7 @@ class TestHost {
             p.step_latest = p.latest;
         }
         in_step_ = true;
-        const xgc2_status status = desc_->step(instance_, &ctx);
+        const xgc2_status status = onWorker([&] { return desc_->step(instance_, &ctx); });
         in_step_ = false;
         for (Port& p : ports_)
             p.held.clear();
@@ -250,6 +256,10 @@ class TestHost {
     }
     int64_t periodNs() const {
         return period_ns_.load();
+    }
+    // How many different threads the module has been called on.
+    size_t workerThreadsUsed() const {
+        return worker_ids_.size();
     }
     std::vector<std::pair<int, std::string>> logs() const {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -394,6 +404,22 @@ class TestHost {
         h.reports_.emplace_back(health, detail == nullptr ? "" : detail);
     }
 
+    // Runs a module call on the next worker thread in rotation and waits for it.
+    template <class F>
+    auto onWorker(F&& call) -> decltype(call()) {
+        if (workers_.empty()) {
+            for (int i = 0; i < kWorkerCount; ++i)
+                workers_.push_back(std::make_unique<OwnerThread>());
+        }
+        OwnerThread& worker = *workers_[next_worker_++ % workers_.size()];
+        return worker.run([&]() -> decltype(call()) {
+            worker_ids_.insert(std::this_thread::get_id());
+            return call();
+        });
+    }
+
+    static constexpr int kWorkerCount = 3;
+
     const xgc2_module_desc* desc_;
     xgc2_host_api api_{};
     xgc2_instance* instance_{nullptr};
@@ -410,6 +436,9 @@ class TestHost {
     std::thread::id wake_thread_;
     std::vector<std::pair<int, std::string>> logs_;
     std::vector<std::pair<int, std::string>> reports_;
+    std::vector<std::unique_ptr<OwnerThread>> workers_;
+    size_t next_worker_{0};
+    std::set<std::thread::id> worker_ids_;
 };
 
 }  // namespace module_support

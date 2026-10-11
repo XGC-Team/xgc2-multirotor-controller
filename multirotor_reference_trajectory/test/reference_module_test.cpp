@@ -226,6 +226,35 @@ TEST_F(ReferenceModuleTest, AnalyticRequestBecomesTheActiveReference) {
     EXPECT_TRUE(host_->outputs("active_sampled").empty());
 }
 
+TEST_F(ReferenceModuleTest, AStepWithOnlyRequestsDeliversThemAndLeavesTheUpdateToThePeriod) {
+    open();
+    run(5);
+    host_->clearOutputs();
+    host_->setNow(host_->now() + 200000000);  // the status is due
+    auto bad = analytic(mrt::reference::AnalyticReference::ANALYTIC_HOLD, {}, 6.0);
+    bad.origin_position[0] = std::nan("");  // a request the runtime refuses
+    pushAnalytic(bad);
+    // Like the node's callback between two iterations of its loop: the request is delivered ...
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    EXPECT_TRUE(host_->logged(2, "rejected analytic reference"));
+    // ... without an update of the runtime ...
+    EXPECT_TRUE(host_->outputs("status").empty());
+    // ... which the next period makes.
+    ASSERT_EQ(host_->step(XGC2_STEP_TIMER), XGC2_OK);
+    EXPECT_EQ(host_->outputs("status").size(), 1U);
+}
+
+TEST_F(ReferenceModuleTest, StepsOnDifferentWorkerThreadsDriveTheSameRuntime) {
+    // The in-test host calls the module on a different worker thread each time, as the host's pool
+    // may; the runtime's state machine accepts updates from one thread only.
+    open();
+    run(5);
+    pushAnalytic(analytic(mrt::reference::AnalyticReference::ANALYTIC_HOLD, {}, 30.0));
+    run(15);
+    EXPECT_EQ(host_->lastReportDetail(), "Active");
+    EXPECT_GT(host_->workerThreadsUsed(), 1U);
+}
+
 TEST_F(ReferenceModuleTest, ActiveReferenceIsPublishedAtTheConfiguredRate) {
     open("{\"active_publish_rate\": 10.0, \"status_rate\": 10.0}");
     run(3);

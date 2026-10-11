@@ -18,8 +18,9 @@
 //
 // A request is stamped by its producer with its receipt time, which becomes the time of the event
 // the runtime sees (the node uses ros::Time::now() in the callback). Every step reads the requests
-// that arrived, then updates the runtime at the host clock and publishes what its output events ask
-// for, exactly as one iteration of the node's main loop does.
+// that arrived; a step of the period then updates the runtime at the host clock and publishes what
+// its output events ask for, exactly as one iteration of the node's main loop does. A step that
+// only has requests to deliver leaves the update to the next period.
 //
 // Configuration (JSON object; the keys and defaults are those of the ROS node's private
 // parameters and config/multirotor_reference_trajectory.yaml): main_frequency (Hz, the step period
@@ -27,6 +28,12 @@
 // trajectory_timeout, min_lead_time, max_velocity, max_acceleration, max_jerk, max_snap,
 // min_specific_thrust. A key the module does not know is an error. A configure() while running
 // restarts the runtime (the runtime's setConfig resets it), so it drops the active reference.
+//
+// Threads. The runtime's state machine is bound to the thread that first updates it, and the host
+// calls an instance from any of its worker threads, a different one each time. The module gives the
+// runtime a thread of its own (module_support::OwnerThread): a step reads the requests with the
+// host API on the calling thread, has the owner thread apply them and update the runtime, and
+// writes the outputs on the calling thread again.
 
 #include <algorithm>
 #include <cmath>
@@ -34,6 +41,7 @@
 #include <exception>
 #include <memory>
 #include <module_support/json_config.hpp>
+#include <module_support/owner_thread.hpp>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -151,7 +159,13 @@ const char* stateName(uint8_t state) {
 
 class ReferenceModule {
    public:
-    ReferenceModule(const xgc2_host_api* host, void* host_ctx) : host_(host), ctx_(host_ctx) {}
+    ReferenceModule(const xgc2_host_api* host, void* host_ctx) : host_(host), ctx_(host_ctx) {
+        owner_.run([this] { runtime_ = std::make_unique<mrt::ReferenceTrajectoryRuntime>(); });
+    }
+
+    ~ReferenceModule() {
+        owner_.run([this] { runtime_.reset(); });
+    }
 
     // Runs `f`; an exception is logged and becomes the module's failure.
     template <class F>
@@ -195,14 +209,24 @@ class ReferenceModule {
     xgc2_status step(const xgc2_step_ctx* ctx) {
         if (!running_)
             return XGC2_ERR_STATE;
+        // The node's callbacks queue requests whenever they arrive and its loop updates the runtime
+        // at its own rate: a step that only has requests leaves the update to the period.
+        const bool update_due = (ctx->reasons & XGC2_STEP_TIMER) != 0;
         collectRequests();
-        for (const Request& request : requests_)
-            accept(request);
         const double now = toSeconds(ctx->now_ns);
-        runtime_.update(now);
+        const std::vector<sm::Event> outputs = owner_.run([&] {
+            for (const Request& request : requests_)
+                accept(request);
+            if (!update_due)
+                return std::vector<sm::Event>{};
+            runtime_->update(now);
+            return runtime_->stateMachine().currentOutputEvents();
+        });
+        if (!update_due)
+            return XGC2_OK;
         // The health follows the last write: degraded after a refused one, ok again after a
         // successful one.
-        for (const sm::Event& event : runtime_.stateMachine().currentOutputEvents()) {
+        for (const sm::Event& event : outputs) {
             output_failed_ = !publish(event, ctx->now_ns, now);
         }
         reportIfChanged();
@@ -221,7 +245,7 @@ class ReferenceModule {
 
     // The runtime restarts, as the ROS node's runtime does when its config is set.
     void applySettings() {
-        runtime_.setConfig(settings_.runtime);
+        owner_.run([this] { runtime_->setConfig(settings_.runtime); });
         host_->set_period_ns(ctx_, std::llround(1e9 / settings_.main_frequency_hz));
         reported_ = false;
         reportIfChanged();
@@ -247,7 +271,7 @@ class ReferenceModule {
     void post(uint32_t event_id, const char* source, const Request& request) {
         sm::Event event(event_id, sm::EventTimestamp{toSeconds(request.view.stamp_ns)});
         event.source = source;
-        const sm::Status status = runtime_.postEvent(std::move(event));
+        const sm::Status status = runtime_->postEvent(std::move(event));
         if (!status.ok()) {
             log(kLogWarn, std::string("cannot post event from ") + source + ": " + status.message);
         }
@@ -263,7 +287,7 @@ class ReferenceModule {
                     acceptSampled(request);
                     break;
                 case kReset:
-                    runtime_.reset();
+                    runtime_->reset();
                     post(mrt::event_type::RESET_REQUESTED, "reset", request);
                     break;
                 default:
@@ -281,7 +305,7 @@ class ReferenceModule {
         if (request.view.size != sizeof(xgc2_px4_reference_analytic_v1) ||
             !conv::toCore(*static_cast<const xgc2_px4_reference_analytic_v1*>(request.view.data),
                           message) ||
-            !runtime_.acceptAnalytic(message)) {
+            !runtime_->acceptAnalytic(message)) {
             log(kLogWarn, "rejected analytic reference");
             return;
         }
@@ -293,7 +317,7 @@ class ReferenceModule {
         if (request.view.size != sizeof(xgc2_px4_reference_sampled_v1) ||
             !conv::toCore(*static_cast<const xgc2_px4_reference_sampled_v1*>(request.view.data),
                           message) ||
-            !runtime_.acceptSampled(message)) {
+            !runtime_->acceptSampled(message)) {
             log(kLogWarn, "rejected sampled reference");
             return;
         }
@@ -320,18 +344,18 @@ class ReferenceModule {
     // ReferenceOutputConsumer::handle. Returns false when the output could not be written.
     bool publish(const sm::Event& event, int64_t now_ns, double now) {
         if (event.id == mrt::output_event_type::PUBLISH_STATUS) {
-            const auto status = runtime_.makeStatus(event.timestamp > 0.0 ? event.timestamp : now);
+            const auto status = runtime_->makeStatus(event.timestamp > 0.0 ? event.timestamp : now);
             return write<xgc2_px4_reference_status_v1>(
                 kStatus, now_ns, [&](auto& out) { return conv::toPayload(status, out); });
         }
         if (event.id == mrt::output_event_type::PUBLISH_ACTIVE_ANALYTIC) {
             return write<xgc2_px4_reference_analytic_v1>(kActiveAnalytic, now_ns, [&](auto& out) {
-                return conv::toPayload(runtime_.activeAnalyticMessage(), out);
+                return conv::toPayload(runtime_->activeAnalyticMessage(), out);
             });
         }
         if (event.id == mrt::output_event_type::PUBLISH_ACTIVE_SAMPLED) {
             return write<xgc2_px4_reference_sampled_v1>(kActiveSampled, now_ns, [&](auto& out) {
-                return conv::toPayload(runtime_.activeSampledMessage(), out);
+                return conv::toPayload(runtime_->activeSampledMessage(), out);
             });
         }
         return true;
@@ -339,7 +363,7 @@ class ReferenceModule {
 
     // The runtime state and whether the last step wrote all its outputs, as the instance's health.
     void reportIfChanged() {
-        const uint8_t state = runtime_.currentState();
+        const uint8_t state = runtime_->currentState();
         const int health = output_failed_ ? kHealthDegraded : kHealthOk;
         if (reported_ && state == reported_state_ && health == reported_health_)
             return;
@@ -352,7 +376,8 @@ class ReferenceModule {
     const xgc2_host_api* host_;
     void* ctx_;
     Settings settings_;
-    mrt::ReferenceTrajectoryRuntime runtime_;
+    module_support::OwnerThread owner_;  // before the runtime: it outlives it
+    std::unique_ptr<mrt::ReferenceTrajectoryRuntime> runtime_;  // built and used on owner_
     std::vector<Request> requests_;
     bool running_{false};
     bool output_failed_{false};
