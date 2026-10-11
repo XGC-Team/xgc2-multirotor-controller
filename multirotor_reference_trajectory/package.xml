@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>multirotor_reference_trajectory</name>
-  <version>1.1.0</version>
+  <version>1.2.0</version>
   <description>XGC2 reference trajectory generation messages, libraries, and publishers.</description>
 
   <maintainer email="lxk@example.com">lxk</maintainer>

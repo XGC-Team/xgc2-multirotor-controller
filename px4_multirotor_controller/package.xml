@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>px4_multirotor_controller</name>
-  <version>1.1.0</version>
+  <version>1.2.0</version>
   <description>XGC2 multirotor controller with PX4/MAVROS state-machine runtime and UAV NMPC tracking.</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
