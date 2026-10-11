@@ -50,21 +50,21 @@ extern "C" {
  * (common/state_estimate_status.h). The three *_stamp_sec fields are the message's float64 stamps.
  */
 typedef struct xgc2_px4_state_estimate_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
-  double position[3];
-  double velocity[3];
-  double orientation_xyzw[4];
-  double angular_velocity[3];
-  double linear_acceleration[3];
-  double gravity[3];
-  double accel_bias[3];
-  double filter_inertial_stamp_sec;
-  double filter_pose_stamp_sec;
-  double last_vrpn_pose_stamp_sec;
-  uint32_t flags;
-  uint8_t estimator_state;
-  uint8_t reserved[3]; /* zero */
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    double position[3];
+    double velocity[3];
+    double orientation_xyzw[4];
+    double angular_velocity[3];
+    double linear_acceleration[3];
+    double gravity[3];
+    double accel_bias[3];
+    double filter_inertial_stamp_sec;
+    double filter_pose_stamp_sec;
+    double last_vrpn_pose_stamp_sec;
+    uint32_t flags;
+    uint8_t estimator_state;
+    uint8_t reserved[3]; /* zero */
 } xgc2_px4_state_estimate_v1;
 
 /*
@@ -72,17 +72,17 @@ typedef struct xgc2_px4_state_estimate_v1 {
  * vrpn_pose (the canonical pose of the entity, topic `pose`).
  */
 typedef struct xgc2_px4_pose_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
-  double position[3];
-  double orientation_xyzw[4];
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    double position[3];
+    double orientation_xyzw[4];
 } xgc2_px4_pose_v1;
 
 /* "xgc2.px4.velocity.v1": the linear velocity of mavros/local_position/velocity_local. */
 typedef struct xgc2_px4_velocity_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
-  double linear[3];
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    double linear[3];
 } xgc2_px4_velocity_v1;
 
 /*
@@ -90,28 +90,28 @@ typedef struct xgc2_px4_velocity_v1 {
  * checks use that samples arrive and how often.
  */
 typedef struct xgc2_px4_imu_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
 } xgc2_px4_imu_v1;
 
 /* "xgc2.px4.fcu_state.v1": mavros_msgs/State. mode is NUL-terminated, e.g. "OFFBOARD". */
 typedef struct xgc2_px4_fcu_state_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
-  uint8_t connected;
-  uint8_t armed;
-  uint8_t guided;
-  uint8_t manual_input;
-  uint8_t system_status; /* MAV_STATE */
-  uint8_t reserved[3];   /* zero */
-  char mode[32];
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    uint8_t connected;
+    uint8_t armed;
+    uint8_t guided;
+    uint8_t manual_input;
+    uint8_t system_status; /* MAV_STATE */
+    uint8_t reserved[3];   /* zero */
+    char mode[32];
 } xgc2_px4_fcu_state_v1;
 
 /* "xgc2.px4.battery.v1": sensor_msgs/BatteryState.percentage, 0..1 (telemetry only). */
 typedef struct xgc2_px4_battery_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
-  double percentage;
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    double percentage;
 } xgc2_px4_battery_v1;
 
 /*
@@ -119,41 +119,41 @@ typedef struct xgc2_px4_battery_v1 {
  * their aliases, see driver/command_input.h), NUL-terminated.
  */
 typedef struct xgc2_px4_command_v1 {
-  char text[64];
+    char text[64];
 } xgc2_px4_command_v1;
 
 /*
  * "xgc2.px4.hover_thrust.v1": the hover thrust estimate of
- * hover_thrust_estimator_msgs/HoverThrustEstimate. A zero stamp means unstamped: the controller then
- * uses the time it received the sample.
+ * hover_thrust_estimator_msgs/HoverThrustEstimate. A zero stamp means unstamped: the controller
+ * then uses the time it received the sample.
  */
 typedef struct xgc2_px4_hover_thrust_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
-  double hover_thrust;
-  uint32_t flags;
-  uint32_t reserved; /* zero */
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    double hover_thrust;
+    uint32_t flags;
+    uint32_t reserved; /* zero */
 } xgc2_px4_hover_thrust_v1;
 
 /* ---------------------------------------------------------------- inputs and outputs */
 
 /*
- * "xgc2.px4.position_target.v1": mavros_msgs/PositionTarget. As an input (port alg_setpoint) it is a
- * planner's setpoint, from alg/setpoint_raw/local; as an output (port setpoint) it is the
+ * "xgc2.px4.position_target.v1": mavros_msgs/PositionTarget. As an input (port alg_setpoint) it is
+ * a planner's setpoint, from alg/setpoint_raw/local; as an output (port setpoint) it is the
  * controller's setpoint for mavros/setpoint_raw/local, stamped with the time of the control step.
  * acceleration is acceleration_or_force. type_mask and coordinate_frame are the MAVROS values.
  */
 typedef struct xgc2_px4_position_target_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
-  double position[3];
-  double velocity[3];
-  double acceleration[3];
-  double yaw;
-  double yaw_rate;
-  uint16_t type_mask;
-  uint8_t coordinate_frame;
-  uint8_t reserved[5]; /* zero */
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    double position[3];
+    double velocity[3];
+    double acceleration[3];
+    double yaw;
+    double yaw_rate;
+    uint16_t type_mask;
+    uint8_t coordinate_frame;
+    uint8_t reserved[5]; /* zero */
 } xgc2_px4_position_target_v1;
 
 /* ---------------------------------------------------------------- outputs */
@@ -164,10 +164,10 @@ typedef struct xgc2_px4_position_target_v1 {
  * limited to [0, 1], as the ROS node publishes it.
  */
 typedef struct xgc2_px4_attitude_rate_target_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
-  double body_rate[3];
-  double thrust;
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    double body_rate[3];
+    double thrust;
 } xgc2_px4_attitude_rate_target_v1;
 
 #define XGC2_PX4_FCU_REQUEST_ARM 1u  /* mavros/cmd/command, MAV_CMD_COMPONENT_ARM_DISARM (400) */
@@ -179,18 +179,18 @@ typedef struct xgc2_px4_attitude_rate_target_v1 {
  * XGC2_PX4_FCU_REQUEST_MODE: mode is the custom mode, NUL-terminated.
  */
 typedef struct xgc2_px4_fcu_request_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
-  uint32_t kind;
-  uint32_t arm;
-  char mode[32];
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    uint32_t kind;
+    uint32_t arm;
+    char mode[32];
 } xgc2_px4_fcu_request_v1;
 
 /* "xgc2.px4.controller_status.v1": the name of the controller's flight state, NUL-terminated. */
 typedef struct xgc2_px4_controller_status_v1 {
-  uint32_t stamp_sec;
-  uint32_t stamp_nsec;
-  char state[48];
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    char state[48];
 } xgc2_px4_controller_status_v1;
 
 #ifdef __cplusplus
@@ -251,7 +251,8 @@ XGC2_PX4_ASSERT(offsetof(xgc2_px4_position_target_v1, acceleration) == 56,
                 "position_target.acceleration");
 XGC2_PX4_ASSERT(offsetof(xgc2_px4_position_target_v1, yaw) == 80, "position_target.yaw");
 XGC2_PX4_ASSERT(offsetof(xgc2_px4_position_target_v1, yaw_rate) == 88, "position_target.yaw_rate");
-XGC2_PX4_ASSERT(offsetof(xgc2_px4_position_target_v1, type_mask) == 96, "position_target.type_mask");
+XGC2_PX4_ASSERT(offsetof(xgc2_px4_position_target_v1, type_mask) == 96,
+                "position_target.type_mask");
 XGC2_PX4_ASSERT(offsetof(xgc2_px4_position_target_v1, coordinate_frame) == 98,
                 "position_target.coordinate_frame");
 

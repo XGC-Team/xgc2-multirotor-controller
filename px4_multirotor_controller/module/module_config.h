@@ -14,8 +14,8 @@ namespace px4_multirotor_controller {
 namespace module {
 
 // Keys that are absent keep the values of config/uav_nmpc.yaml, which is compiled into the core.
-// Throws std::invalid_argument for a value of the wrong type, a missing world_boundary_json and a key
-// that the controller does not read.
+// Throws std::invalid_argument for a value of the wrong type, a missing world_boundary_json and a
+// key that the controller does not read.
 inline ControllerConfig readConfig(module_support::JsonConfig& json,
                                    ControllerParameters::Logger logger) {
     ControllerParameters parameters(

@@ -1,5 +1,5 @@
-// The px4_multirotor_controller module, loaded as a shared library and driven through the module ABI
-// by an in-test host and a scripted vehicle (vehicle_sim.h).
+// The px4_multirotor_controller module, loaded as a shared library and driven through the module
+// ABI by an in-test host and a scripted vehicle (vehicle_sim.h).
 
 #include <gtest/gtest.h>
 
@@ -47,7 +47,8 @@ class ControllerModuleTest : public ::testing::Test {
     }
 
     void TearDown() override {
-        if (!HasFailure() || !host_) return;
+        if (!HasFailure() || !host_)
+            return;
         for (const auto& entry : host_->logs()) {
             if (entry.first >= 2) {
                 std::fprintf(stderr, "module log [%d] %s\n", entry.first, entry.second.c_str());
@@ -94,25 +95,35 @@ TEST_F(ControllerModuleTest, DescriptorDeclaresTheAbiAndTheTypedPorts) {
     const auto in = XGC2_PORT_IN, out = XGC2_PORT_OUT;
     const auto state = XGC2_PORT_STATE, event = XGC2_PORT_EVENT;
 #define PORT(name, dir, kind, schema, type, depth, flags) \
-    {name, dir, kind, schema, sizeof(type), alignof(type), depth, flags}
+    { name, dir, kind, schema, sizeof(type), alignof(type), depth, flags }
     const Expected expected[] = {
-        PORT("state_estimate", in, event, "xgc2.px4.state_estimate.v1", xgc2_px4_state_estimate_v1, 8, 0),
+        PORT("state_estimate", in, event, "xgc2.px4.state_estimate.v1", xgc2_px4_state_estimate_v1,
+             8, 0),
         PORT("local_pose", in, event, "xgc2.px4.pose.v1", xgc2_px4_pose_v1, 8, XGC2_PORT_REQUIRED),
-        PORT("local_velocity", in, event, "xgc2.px4.velocity.v1", xgc2_px4_velocity_v1, 8, XGC2_PORT_REQUIRED),
+        PORT("local_velocity", in, event, "xgc2.px4.velocity.v1", xgc2_px4_velocity_v1, 8,
+             XGC2_PORT_REQUIRED),
         PORT("imu", in, event, "xgc2.px4.imu.v1", xgc2_px4_imu_v1, 16, XGC2_PORT_REQUIRED),
-        PORT("fcu_state", in, event, "xgc2.px4.fcu_state.v1", xgc2_px4_fcu_state_v1, 8, XGC2_PORT_REQUIRED),
+        PORT("fcu_state", in, event, "xgc2.px4.fcu_state.v1", xgc2_px4_fcu_state_v1, 8,
+             XGC2_PORT_REQUIRED),
         PORT("battery", in, event, "xgc2.px4.battery.v1", xgc2_px4_battery_v1, 4, 0),
         PORT("vrpn_pose", in, event, "xgc2.px4.pose.v1", xgc2_px4_pose_v1, 8, XGC2_PORT_REQUIRED),
         PORT("command", in, event, "xgc2.px4.command.v1", xgc2_px4_command_v1, 8, 0),
-        PORT("alg_setpoint", in, event, "xgc2.px4.position_target.v1", xgc2_px4_position_target_v1, 8, 0),
+        PORT("alg_setpoint", in, event, "xgc2.px4.position_target.v1", xgc2_px4_position_target_v1,
+             8, 0),
         PORT("hover_thrust", in, event, "xgc2.px4.hover_thrust.v1", xgc2_px4_hover_thrust_v1, 8, 0),
-        PORT("ref_active_analytic", in, state, "xgc2.px4.reference_analytic.v1", xgc2_px4_reference_analytic_v1, 0, 0),
-        PORT("ref_active_sampled", in, state, "xgc2.px4.reference_sampled.v1", xgc2_px4_reference_sampled_v1, 0, 0),
-        PORT("setpoint", out, state, "xgc2.px4.position_target.v1", xgc2_px4_position_target_v1, 0, 0),
-        PORT("attitude_rate", out, state, "xgc2.px4.attitude_rate_target.v1", xgc2_px4_attitude_rate_target_v1, 0, 0),
+        PORT("ref_active_analytic", in, state, "xgc2.px4.reference_analytic.v1",
+             xgc2_px4_reference_analytic_v1, 0, 0),
+        PORT("ref_active_sampled", in, state, "xgc2.px4.reference_sampled.v1",
+             xgc2_px4_reference_sampled_v1, 0, 0),
+        PORT("setpoint", out, state, "xgc2.px4.position_target.v1", xgc2_px4_position_target_v1, 0,
+             0),
+        PORT("attitude_rate", out, state, "xgc2.px4.attitude_rate_target.v1",
+             xgc2_px4_attitude_rate_target_v1, 0, 0),
         PORT("fcu_request", out, event, "xgc2.px4.fcu_request.v1", xgc2_px4_fcu_request_v1, 8, 0),
-        PORT("status", out, state, "xgc2.px4.controller_status.v1", xgc2_px4_controller_status_v1, 0, 0),
-        PORT("ref_request", out, event, "xgc2.px4.reference_analytic.v1", xgc2_px4_reference_analytic_v1, 4, 0),
+        PORT("status", out, state, "xgc2.px4.controller_status.v1", xgc2_px4_controller_status_v1,
+             0, 0),
+        PORT("ref_request", out, event, "xgc2.px4.reference_analytic.v1",
+             xgc2_px4_reference_analytic_v1, 4, 0),
     };
 #undef PORT
     ASSERT_EQ(desc->port_count, sizeof expected / sizeof expected[0]);
@@ -204,9 +215,11 @@ TEST_F(ControllerModuleTest, RefusesAnInvalidConfiguration) {
         {config("\"takeoff_altitude\": \"high\""), "'takeoff_altitude' must be a number"},
         {config("\"local_type_mask\": 3.5"), "'local_type_mask' must be an integer"},
         {config("\"skip_takeoff_init_disarm\": 1"), "'skip_takeoff_init_disarm' must be a boolean"},
-        {config("\"dfbc\": {\"position_natural_frequency\": [1.0, \"x\"]}"), "must be an array of numbers"},
+        {config("\"dfbc\": {\"position_natural_frequency\": [1.0, \"x\"]}"),
+         "must be an array of numbers"},
         {config("\"takeof_altitude\": 2.0"), "unknown configuration key 'takeof_altitude'"},
-        {config("\"nmpc\": {\"control_perod\": 0.01}"), "unknown configuration key 'nmpc/control_perod'"},
+        {config("\"nmpc\": {\"control_perod\": 0.01}"),
+         "unknown configuration key 'nmpc/control_perod'"},
         {"{\"world_boundary_json\": \"{}\"}", "world_boundary_json"},
     };
     for (const Bad& b : bad) {
@@ -243,15 +256,17 @@ TEST_F(ControllerModuleTest, TakeoffRequestsOffboardAndArmingAndStreamsSetpoints
     ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
     ASSERT_TRUE(reach("Hover", 20.0)) << "state " << vehicle_->state();
 
-    const std::vector<std::string> expected_states = {"SelfCheck", "Ready",          "TakeoffInit",
-                                                      "TakeoffOffboardRequest", "TakeoffArmRequest",
-                                                      "TakeoffAscending",       "Hover"};
+    const std::vector<std::string> expected_states = {
+        "SelfCheck",        "Ready", "TakeoffInit", "TakeoffOffboardRequest", "TakeoffArmRequest",
+        "TakeoffAscending", "Hover"};
     EXPECT_EQ(vehicle_->states, expected_states);
     ASSERT_GE(vehicle_->requests.size(), 2U);
     bool offboard = false, arm = false;
     for (const auto& r : vehicle_->requests) {
-        if (r.kind == XGC2_PX4_FCU_REQUEST_MODE && std::strcmp(r.mode, "OFFBOARD") == 0) offboard = true;
-        if (r.kind == XGC2_PX4_FCU_REQUEST_ARM && r.arm == 1) arm = true;
+        if (r.kind == XGC2_PX4_FCU_REQUEST_MODE && std::strcmp(r.mode, "OFFBOARD") == 0)
+            offboard = true;
+        if (r.kind == XGC2_PX4_FCU_REQUEST_ARM && r.arm == 1)
+            arm = true;
     }
     EXPECT_TRUE(offboard);
     EXPECT_TRUE(arm);
@@ -307,7 +322,7 @@ TEST_F(ControllerModuleTest, StopTearsTheControllerDownAndStartBeginsFresh) {
     EXPECT_EQ(host_->lastReportDetail(), "SelfCheck");  // no history: sensors must be seen again
     EXPECT_EQ(host_->start(), XGC2_ERR_STATE);          // already started
     EXPECT_EQ(host_->stop(), XGC2_OK);
-    EXPECT_EQ(host_->stop(), XGC2_OK);                  // stopping twice is harmless
+    EXPECT_EQ(host_->stop(), XGC2_OK);  // stopping twice is harmless
 }
 
 TEST_F(ControllerModuleTest, AFullFcuRequestQueueDegradesTheHealth) {
@@ -324,8 +339,8 @@ TEST_F(ControllerModuleTest, AFullFcuRequestQueueDegradesTheHealth) {
 }
 
 // DFBC and NMPC take the fused estimate, the hover thrust estimate and a reference trajectory. The
-// scripted vehicle hovers; the controller's reference activation request goes to the reference module
-// and its active reference comes back, as the host's channels carry them.
+// scripted vehicle hovers; the controller's reference activation request goes to the reference
+// module and its active reference comes back, as the host's channels carry them.
 class ControllerChainTest : public ControllerModuleTest {
    protected:
     void SetUp() override {
@@ -342,10 +357,12 @@ class ControllerChainTest : public ControllerModuleTest {
             const size_t end = std::min(candidates.find(':', begin), candidates.size());
             const std::string path =
                 candidates.substr(begin, end - begin) + "/libpx4_multirotor_reference_module.so";
-            if (std::ifstream(path).good()) return path;
+            if (std::ifstream(path).good())
+                return path;
             begin = end + 1;
         }
-        throw std::runtime_error("libpx4_multirotor_reference_module.so is not built in " + candidates);
+        throw std::runtime_error("libpx4_multirotor_reference_module.so is not built in " +
+                                 candidates);
     }
 
     void openChain(const std::string& backend) {

@@ -1,11 +1,11 @@
 #pragma once
 
 // A scripted vehicle around a controller module in an in-test host. It delivers the inputs the
-// entity's ROS edge would (MAVROS pose, velocity, IMU and state, the canonical pose, the fused state
-// estimate, the hover thrust estimate) at their usual rates, answers the module's flight controller
-// requests (mode and arming) and lets the vehicle follow the position setpoint upwards. With a
-// reference module attached it also carries the reference requests and the active reference between
-// the two modules, as the host's channels do.
+// entity's ROS edge would (MAVROS pose, velocity, IMU and state, the canonical pose, the fused
+// state estimate, the hover thrust estimate) at their usual rates, answers the module's flight
+// controller requests (mode and arming) and lets the vehicle follow the position setpoint upwards.
+// With a reference module attached it also carries the reference requests and the active reference
+// between the two modules, as the host's channels do.
 
 #include <cstdint>
 #include <cstring>
@@ -31,19 +31,40 @@ class Vehicle {
         controller_.setNow(now_);
     }
 
-    // The reference module the controller's ref_request goes to and whose active reference it reads.
-    void attachReference(TestHost* reference) { reference_ = reference; }
+    // The reference module the controller's ref_request goes to and whose active reference it
+    // reads.
+    void attachReference(TestHost* reference) {
+        reference_ = reference;
+    }
 
-    int64_t now() const { return now_; }
-    double seconds() const { return static_cast<double>(now_) * 1e-9; }
-    double altitude() const { return z_; }
-    const std::string& mode() const { return mode_; }
-    bool armed() const { return armed_; }
-    std::string state() const { return controller_.lastReportDetail(); }
+    int64_t now() const {
+        return now_;
+    }
+    double seconds() const {
+        return static_cast<double>(now_) * 1e-9;
+    }
+    double altitude() const {
+        return z_;
+    }
+    const std::string& mode() const {
+        return mode_;
+    }
+    bool armed() const {
+        return armed_;
+    }
+    std::string state() const {
+        return controller_.lastReportDetail();
+    }
 
-    void setSensorsOff(bool off) { sensors_off_ = off; }
-    void setHoverThrust(bool on) { hover_thrust_ = on; }
-    void setEstimate(bool on) { estimate_ = on; }
+    void setSensorsOff(bool off) {
+        sensors_off_ = off;
+    }
+    void setHoverThrust(bool on) {
+        hover_thrust_ = on;
+    }
+    void setEstimate(bool on) {
+        estimate_ = on;
+    }
 
     // The requests, setpoints and attitude-rate commands seen so far.
     std::vector<xgc2_px4_fcu_request_v1> requests;
@@ -58,30 +79,35 @@ class Vehicle {
         controller_.setNow(now_);
         ++tick_;
         deliverSensors();
-        if (controller_.step() != XGC2_OK) failed = true;
+        if (controller_.step() != XGC2_OK)
+            failed = true;
         collect();
-        if (reference_ != nullptr) stepReference();
+        if (reference_ != nullptr)
+            stepReference();
         controller_.clearOutputs();
         followSetpoint();
     }
 
     // An extra step at the current time, as the host runs after a wake().
     void wakeStep() {
-        if (controller_.step(XGC2_STEP_WAKE) != XGC2_OK) failed = true;
+        if (controller_.step(XGC2_STEP_WAKE) != XGC2_OK)
+            failed = true;
         collect();
         controller_.clearOutputs();
     }
 
     void run(double duration) {
         const int64_t count = static_cast<int64_t>(duration * 1000.0 + 0.5);
-        for (int64_t i = 0; i < count; ++i) step();
+        for (int64_t i = 0; i < count; ++i)
+            step();
     }
 
     // True when `done` became true within `limit` seconds.
     bool runUntil(const std::function<bool()>& done, double limit) {
         const int64_t count = static_cast<int64_t>(limit * 1000.0 + 0.5);
         for (int64_t i = 0; i < count; ++i) {
-            if (done()) return true;
+            if (done())
+                return true;
             step();
         }
         return done();
@@ -96,7 +122,8 @@ class Vehicle {
     }
 
     void deliverSensors() {
-        if (sensors_off_) return;
+        if (sensors_off_)
+            return;
         if (tick_ % 20 == 0) {  // 50 Hz
             xgc2_px4_pose_v1 pose{};
             stamp(now_, pose.stamp_sec, pose.stamp_nsec);
@@ -157,12 +184,15 @@ class Vehicle {
         for (const auto& s : controller_.outputs("fcu_request")) {
             const auto request = s.as<xgc2_px4_fcu_request_v1>();
             requests.push_back(request);
-            if (request.kind == XGC2_PX4_FCU_REQUEST_MODE) mode_ = request.mode;
-            if (request.kind == XGC2_PX4_FCU_REQUEST_ARM) armed_ = request.arm != 0;
+            if (request.kind == XGC2_PX4_FCU_REQUEST_MODE)
+                mode_ = request.mode;
+            if (request.kind == XGC2_PX4_FCU_REQUEST_ARM)
+                armed_ = request.arm != 0;
         }
         setpoints += controller_.outputs("setpoint").size();
         if (!controller_.outputs("setpoint").empty()) {
-            last_setpoint = controller_.outputs("setpoint").back().as<xgc2_px4_position_target_v1>();
+            last_setpoint =
+                controller_.outputs("setpoint").back().as<xgc2_px4_position_target_v1>();
         }
         for (const auto& s : controller_.outputs("attitude_rate")) {
             attitude.push_back(s.as<xgc2_px4_attitude_rate_target_v1>());
@@ -176,15 +206,17 @@ class Vehicle {
         }
     }
 
-    // The reference module runs at its own 100 Hz; its input is the controller's request, its output
-    // the controller's active reference.
+    // The reference module runs at its own 100 Hz; its input is the controller's request, its
+    // output the controller's active reference.
     void stepReference() {
         for (const auto& s : controller_.outputs("ref_request")) {
             reference_->push("analytic", s.as<xgc2_px4_reference_analytic_v1>(), s.stamp_ns);
         }
-        if (tick_ % 10 != 0) return;
+        if (tick_ % 10 != 0)
+            return;
         reference_->setNow(now_);
-        if (reference_->step() != XGC2_OK) failed = true;
+        if (reference_->step() != XGC2_OK)
+            failed = true;
         for (const auto& s : reference_->outputs("active_analytic")) {
             controller_.push("ref_active_analytic", s.as<xgc2_px4_reference_analytic_v1>(), now_);
         }
@@ -197,10 +229,12 @@ class Vehicle {
 
     // The flight controller follows the position setpoint's altitude once armed in OFFBOARD.
     void followSetpoint() {
-        if (!armed_ || mode_ != "OFFBOARD" || setpoints == 0) return;
+        if (!armed_ || mode_ != "OFFBOARD" || setpoints == 0)
+            return;
         const double target = last_setpoint.position[2];
         const double step = 1.0e-3;  // 1 m/s
-        if (z_ < target) z_ = z_ + step < target ? z_ + step : target;
+        if (z_ < target)
+            z_ = z_ + step < target ? z_ + step : target;
     }
 
     TestHost& controller_;

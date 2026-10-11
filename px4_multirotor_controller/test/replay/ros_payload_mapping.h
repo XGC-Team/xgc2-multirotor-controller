@@ -2,8 +2,8 @@
 
 // The mapping of the ROS messages the controller node subscribes to onto the payloads of the
 // px4_multirotor_controller module, as the entity's ROS edge makes it: one function per input port.
-// The module tests use it to feed the module the messages a recording or a scripted flight holds; the
-// README of the package lists the same mapping for the edge module.
+// The module tests use it to feed the module the messages a recording or a scripted flight holds;
+// the README of the package lists the same mapping for the edge module.
 //
 // Stamps are the message header stamps (sec, nsec) in the host clock domain; the sample's own
 // stamp_ns, which the caller gives to push(), is the time the message was received.
@@ -36,7 +36,8 @@ inline void stamp(const ros::Time& t, uint32_t& sec, uint32_t& nsec) {
 
 template <size_t N>
 void copyText(const std::string& text, char (&field)[N], const char* what) {
-    if (text.size() >= N) throw std::length_error(std::string(what) + " does not fit its payload");
+    if (text.size() >= N)
+        throw std::length_error(std::string(what) + " does not fit its payload");
     std::memset(field, 0, N);
     std::memcpy(field, text.data(), text.size());
 }

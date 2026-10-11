@@ -1,16 +1,18 @@
-// The px4_multirotor_controller module against the ROS node's behavior (replay/controller_node_path.h)
-// on the same messages: the recorded software-plant flights (test/replay/data) and a scripted flight
-// that reaches the DFBC and NMPC tracking the recordings do not.
+// The px4_multirotor_controller module against the ROS node's behavior
+// (replay/controller_node_path.h) on the same messages: the recorded software-plant flights
+// (test/replay/data) and a scripted flight that reaches the DFBC and NMPC tracking the recordings
+// do not.
 //
 // Each 1 ms tick delivers the messages received since the previous tick to the node path (the
-// callbacks of ros::spinOnce()) and, mapped to payloads as the ROS edge does (ros_payload_mapping.h),
-// to the module's ports with their receipt time, then updates both at the same nanosecond time.
-// Everything the node's output consumers would send must come out of the module's ports, in the same
-// order and bit for bit, and both must be in the same flight state after every tick.
+// callbacks of ros::spinOnce()) and, mapped to payloads as the ROS edge does
+// (ros_payload_mapping.h), to the module's ports with their receipt time, then updates both at the
+// same nanosecond time. Everything the node's output consumers would send must come out of the
+// module's ports, in the same order and bit for bit, and both must be in the same flight state
+// after every tick.
 //
-// The NMPC request is solved inline by the node path and on the solver's worker thread by the module;
-// the test waits for the module's wake after a tick that requested a solve, so the result arrives at
-// the next update on both sides.
+// The NMPC request is solved inline by the node path and on the solver's worker thread by the
+// module; the test waits for the module's wake after a tick that requested a solve, so the result
+// arrives at the next update on both sides.
 
 #include <gtest/gtest.h>
 
@@ -48,45 +50,53 @@ void deliver(TestHost& host, const Record& r) {
     using namespace controller_replay;
     switch (r.kind) {
         case kEstimate:
-            ASSERT_TRUE(host.push("state_estimate",
-                                  edge::map(decode<rigid_state_estimator_msgs::RigidStateEstimate>(r.data)),
-                                  receipt));
+            ASSERT_TRUE(
+                host.push("state_estimate",
+                          edge::map(decode<rigid_state_estimator_msgs::RigidStateEstimate>(r.data)),
+                          receipt));
             break;
         case kLocalPose:
-            ASSERT_TRUE(host.push("local_pose", edge::map(decode<geometry_msgs::PoseStamped>(r.data)), receipt));
+            ASSERT_TRUE(host.push("local_pose",
+                                  edge::map(decode<geometry_msgs::PoseStamped>(r.data)), receipt));
             break;
         case kLocalVelocity:
-            ASSERT_TRUE(host.push("local_velocity", edge::map(decode<geometry_msgs::TwistStamped>(r.data)),
-                                  receipt));
+            ASSERT_TRUE(host.push("local_velocity",
+                                  edge::map(decode<geometry_msgs::TwistStamped>(r.data)), receipt));
             break;
         case kImu:
-            ASSERT_TRUE(host.push("imu", edge::imuSample(decode<sensor_msgs::Imu>(r.data).header.stamp), receipt));
+            ASSERT_TRUE(host.push(
+                "imu", edge::imuSample(decode<sensor_msgs::Imu>(r.data).header.stamp), receipt));
             break;
         case kFcuState:
-            ASSERT_TRUE(host.push("fcu_state", edge::map(decode<mavros_msgs::State>(r.data)), receipt));
+            ASSERT_TRUE(
+                host.push("fcu_state", edge::map(decode<mavros_msgs::State>(r.data)), receipt));
             break;
         case kBattery:
-            ASSERT_TRUE(host.push("battery", edge::map(decode<sensor_msgs::BatteryState>(r.data)), receipt));
+            ASSERT_TRUE(host.push("battery", edge::map(decode<sensor_msgs::BatteryState>(r.data)),
+                                  receipt));
             break;
         case kVrpnPose:
-            ASSERT_TRUE(host.push("vrpn_pose", edge::map(decode<geometry_msgs::PoseStamped>(r.data)), receipt));
+            ASSERT_TRUE(host.push("vrpn_pose",
+                                  edge::map(decode<geometry_msgs::PoseStamped>(r.data)), receipt));
             break;
         case kCommand:
             ASSERT_TRUE(host.push("command", edge::map(decode<std_msgs::String>(r.data)), receipt));
             break;
         case kAlgSetpoint:
-            ASSERT_TRUE(host.push("alg_setpoint", edge::map(decode<mavros_msgs::PositionTarget>(r.data)),
-                                  receipt));
+            ASSERT_TRUE(host.push("alg_setpoint",
+                                  edge::map(decode<mavros_msgs::PositionTarget>(r.data)), receipt));
             break;
         case kHoverThrust:
-            ASSERT_TRUE(host.push("hover_thrust",
-                                  edge::map(decode<hover_thrust_estimator_msgs::HoverThrustEstimate>(r.data)),
-                                  receipt));
+            ASSERT_TRUE(host.push(
+                "hover_thrust",
+                edge::map(decode<hover_thrust_estimator_msgs::HoverThrustEstimate>(r.data)),
+                receipt));
             break;
         case kActiveAnalytic:
-            ASSERT_TRUE(host.push("ref_active_analytic",
-                                  edge::map(decode<multirotor_reference_trajectory_msgs::AnalyticReference>(r.data)),
-                                  receipt));
+            ASSERT_TRUE(host.push(
+                "ref_active_analytic",
+                edge::map(decode<multirotor_reference_trajectory_msgs::AnalyticReference>(r.data)),
+                receipt));
             break;
         case kActiveSampled: {
             const auto payload =
@@ -152,7 +162,8 @@ Expected expectedOutputs(const std::vector<OutputEvent>& events, const pmc::Time
             }
             case pmc::output_event_type::REQUEST_ARMING: {
                 const auto it = o.event.payload.find("arm");
-                if (it == o.event.payload.end() || !std::holds_alternative<bool>(it->second)) break;
+                if (it == o.event.payload.end() || !std::holds_alternative<bool>(it->second))
+                    break;
                 xgc2_px4_fcu_request_v1 p;
                 std::memset(&p, 0, sizeof p);
                 stampOf(now, p.stamp_sec, p.stamp_nsec);
@@ -163,7 +174,8 @@ Expected expectedOutputs(const std::vector<OutputEvent>& events, const pmc::Time
             }
             case pmc::output_event_type::REQUEST_MODE: {
                 const auto it = o.event.payload.find("mode");
-                if (it == o.event.payload.end() || !std::holds_alternative<std::string>(it->second)) break;
+                if (it == o.event.payload.end() || !std::holds_alternative<std::string>(it->second))
+                    break;
                 xgc2_px4_fcu_request_v1 p;
                 std::memset(&p, 0, sizeof p);
                 stampOf(now, p.stamp_sec, p.stamp_nsec);
@@ -205,30 +217,34 @@ std::string describe(const xgc2_px4_attitude_rate_target_v1& a) {
     return text;
 }
 
-bool sameActivation(const pmc::reference::AnalyticReference& a, const pmc::reference::AnalyticReference& b) {
+bool sameActivation(const pmc::reference::AnalyticReference& a,
+                    const pmc::reference::AnalyticReference& b) {
     if (a.header.stamp != b.header.stamp || a.request_id != b.request_id ||
         a.trajectory_id != b.trajectory_id || a.revision != b.revision ||
         a.analytic_type != b.analytic_type || a.flags != b.flags || a.start_time != b.start_time ||
         !sameBits(a.duration, b.duration) || a.params.size() != b.params.size()) {
         return false;
     }
-    const double pa[] = {a.origin.position.x, a.origin.position.y, a.origin.position.z,
+    const double pa[] = {a.origin.position.x,    a.origin.position.y,    a.origin.position.z,
                          a.origin.orientation.x, a.origin.orientation.y, a.origin.orientation.z,
                          a.origin.orientation.w};
-    const double pb[] = {b.origin.position.x, b.origin.position.y, b.origin.position.z,
+    const double pb[] = {b.origin.position.x,    b.origin.position.y,    b.origin.position.z,
                          b.origin.orientation.x, b.origin.orientation.y, b.origin.orientation.z,
                          b.origin.orientation.w};
     for (int i = 0; i < 7; ++i) {
-        if (!sameBits(pa[i], pb[i])) return false;
+        if (!sameBits(pa[i], pb[i]))
+            return false;
     }
     for (size_t i = 0; i < a.params.size(); ++i) {
-        if (!sameBits(a.params[i], b.params[i])) return false;
+        if (!sameBits(a.params[i], b.params[i]))
+            return false;
     }
     return true;
 }
 
 struct Totals {
-    size_t ticks{0}, setpoints{0}, attitudes{0}, requests{0}, statuses{0}, activations{0}, solves{0};
+    size_t ticks{0}, setpoints{0}, attitudes{0}, requests{0}, statuses{0}, activations{0},
+        solves{0};
     std::vector<std::string> states;  // the flight states in the order they were entered
 };
 
@@ -248,11 +264,13 @@ void replay(const std::vector<Record>& records, const std::string& module_config
     size_t next = 0;
     for (uint64_t k = 0;; ++k) {
         const uint64_t tick_ns = t0_ns + k * kTickNs;
-        if (tick_ns > t_end_ns) break;
+        if (tick_ns > t_end_ns)
+            break;
         while (next < records.size() && records[next].t_ns <= tick_ns) {
             node.receive(records[next]);
             deliver(host, records[next]);
-            if (::testing::Test::HasFatalFailure()) return;
+            if (::testing::Test::HasFatalFailure())
+                return;
             ++next;
         }
         const pmc::Time now = pmc::Time().fromNSec(tick_ns);
@@ -270,32 +288,38 @@ void replay(const std::vector<Record>& records, const std::string& module_config
         const auto setpoints = host.outputsAs<xgc2_px4_position_target_v1>("setpoint");
         ASSERT_EQ(setpoints.size(), want.setpoints.size()) << "setpoints at tick " << k;
         for (size_t i = 0; i < setpoints.size(); ++i) {
-            ASSERT_TRUE(sameBytes(setpoints[i], want.setpoints[i])) << "setpoint " << i << " at tick " << k;
+            ASSERT_TRUE(sameBytes(setpoints[i], want.setpoints[i]))
+                << "setpoint " << i << " at tick " << k;
         }
         const auto attitudes = host.outputsAs<xgc2_px4_attitude_rate_target_v1>("attitude_rate");
         ASSERT_EQ(attitudes.size(), want.attitudes.size()) << "attitude rates at tick " << k;
         for (size_t i = 0; i < attitudes.size(); ++i) {
             ASSERT_TRUE(sameBytes(attitudes[i], want.attitudes[i]))
-                << "attitude rate " << i << " at tick " << k << "\nmodule: " << describe(attitudes[i])
+                << "attitude rate " << i << " at tick " << k
+                << "\nmodule: " << describe(attitudes[i])
                 << "\nnode:   " << describe(want.attitudes[i]);
         }
         const auto requests = host.outputsAs<xgc2_px4_fcu_request_v1>("fcu_request");
         ASSERT_EQ(requests.size(), want.requests.size()) << "fcu requests at tick " << k;
         for (size_t i = 0; i < requests.size(); ++i) {
-            ASSERT_TRUE(sameBytes(requests[i], want.requests[i])) << "fcu request " << i << " at tick " << k;
+            ASSERT_TRUE(sameBytes(requests[i], want.requests[i]))
+                << "fcu request " << i << " at tick " << k;
         }
         const auto statuses = host.outputsAs<xgc2_px4_controller_status_v1>("status");
         ASSERT_EQ(statuses.size(), want.statuses.size()) << "statuses at tick " << k;
         for (size_t i = 0; i < statuses.size(); ++i) {
-            ASSERT_STREQ(statuses[i].state, want.statuses[i].c_str()) << "status " << i << " at tick " << k;
+            ASSERT_STREQ(statuses[i].state, want.statuses[i].c_str())
+                << "status " << i << " at tick " << k;
         }
         const auto activations = host.outputsAs<xgc2_px4_reference_analytic_v1>("ref_request");
-        ASSERT_EQ(activations.size(), want.activations.size()) << "activation requests at tick " << k;
+        ASSERT_EQ(activations.size(), want.activations.size())
+            << "activation requests at tick " << k;
         for (size_t i = 0; i < activations.size(); ++i) {
             pmc::reference::AnalyticReference got;
             ASSERT_TRUE(conv::toCore(activations[i], got));
             ASSERT_STREQ(activations[i].header.frame_id, "map");
-            ASSERT_TRUE(sameActivation(got, want.activations[i])) << "activation " << i << " at tick " << k;
+            ASSERT_TRUE(sameActivation(got, want.activations[i]))
+                << "activation " << i << " at tick " << k;
         }
         ASSERT_EQ(host.lastReportDetail(), node.state()) << "flight state at tick " << k;
 
@@ -306,7 +330,8 @@ void replay(const std::vector<Record>& records, const std::string& module_config
         totals.activations += activations.size();
         totals.solves += want.solves;
         ++totals.ticks;
-        if (totals.states.empty() || totals.states.back() != node.state()) totals.states.push_back(node.state());
+        if (totals.states.empty() || totals.states.back() != node.state())
+            totals.states.push_back(node.state());
         host.clearOutputs();
     }
     ASSERT_EQ(next, records.size());
@@ -334,9 +359,16 @@ TEST(ControllerModuleParity, RecordedPx4LocalFlightTakeoffHoverTrackingAndLandin
     replay(controller_replay::readStream(recording("px4_local")), recordedConfig("px4_local"),
            recordedOracle(pmc::TrackingBackend::PX4_LOCAL), t);
     // Guard against a vacuous comparison: the recording is a whole flight.
-    const std::vector<std::string> flight = {"SelfCheck",    "Ready",  "TakeoffInit", "TakeoffOffboardRequest",
-                                             "TakeoffArmRequest", "TakeoffAscending", "Hover", "Custom1",
-                                             "Hover",        "Landing"};
+    const std::vector<std::string> flight = {"SelfCheck",
+                                             "Ready",
+                                             "TakeoffInit",
+                                             "TakeoffOffboardRequest",
+                                             "TakeoffArmRequest",
+                                             "TakeoffAscending",
+                                             "Hover",
+                                             "Custom1",
+                                             "Hover",
+                                             "Landing"};
     EXPECT_EQ(t.states, flight);
     EXPECT_GT(t.setpoints, 700U);
     EXPECT_GE(t.requests, 5U);
@@ -365,8 +397,9 @@ TEST(ControllerModuleParity, RecordedNmpcFlightWithEstimateHoverThrustAndReferen
 // The scripted flight reaches Custom1: the module must request the reference exactly as the node
 // does, and track it with attitude-rate commands that equal the node's.
 std::string scriptedConfig(const char* backend) {
-    return std::string("{\"world_boundary_json\": \"null\", \"skip_takeoff_init_disarm\": true, "
-                       "\"takeoff_altitude\": 1.5, \"tracking_backend\": \"") +
+    return std::string(
+               "{\"world_boundary_json\": \"null\", \"skip_takeoff_init_disarm\": true, "
+               "\"takeoff_altitude\": 1.5, \"tracking_backend\": \"") +
            backend + "\"}";
 }
 

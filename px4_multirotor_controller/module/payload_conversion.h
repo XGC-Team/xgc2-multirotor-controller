@@ -1,9 +1,9 @@
 #pragma once
 
 // Conversions between the reference payloads (multirotor_reference_trajectory/payloads.h) and the
-// plain reference types of the controller's trajectory cache (uav/reference_types.h). The module and
-// its tests include this; nothing else does. Times keep their sec/nsec and doubles are copied, as
-// ros_reference_conversion.h does for the ROS messages.
+// plain reference types of the controller's trajectory cache (uav/reference_types.h). The module
+// and its tests include this; nothing else does. Times keep their sec/nsec and doubles are copied,
+// as ros_reference_conversion.h does for the ROS messages.
 
 #include <algorithm>
 #include <cstring>
@@ -18,7 +18,8 @@ namespace module {
 // False when the payload's length exceeds its capacity. Throws std::runtime_error when a time is
 // out of the range of ROS time.
 inline bool toCore(const xgc2_px4_reference_analytic_v1& in, reference::AnalyticReference& out) {
-    if (in.params_len > XGC2_PX4_REFERENCE_MAX_PARAMS) return false;
+    if (in.params_len > XGC2_PX4_REFERENCE_MAX_PARAMS)
+        return false;
     out.header.stamp = Time(in.header.stamp_sec, in.header.stamp_nsec);
     out.request_id = in.request_id;
     out.trajectory_id = in.trajectory_id;
@@ -37,7 +38,8 @@ inline bool toCore(const xgc2_px4_reference_analytic_v1& in, reference::Analytic
 // False when the payload's length exceeds its capacity. Throws std::runtime_error when a time is
 // out of the range of ROS time.
 inline bool toCore(const xgc2_px4_reference_sampled_v1& in, reference::SampledReference& out) {
-    if (in.points_len > XGC2_PX4_REFERENCE_MAX_POINTS) return false;
+    if (in.points_len > XGC2_PX4_REFERENCE_MAX_POINTS)
+        return false;
     out.header.stamp = Time(in.header.stamp_sec, in.header.stamp_nsec);
     out.trajectory_id = in.trajectory_id;
     out.revision = in.revision;

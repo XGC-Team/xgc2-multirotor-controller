@@ -8,8 +8,8 @@
 // The receive statistics follow ros1_utils::TopicStatsManager, which the node used before
 // SensorStatistics (a 0.1 s timer with the 2.5 s timeout), and the NMPC request is solved inline,
 // as NmpcOutputConsumer's worker solves it; the result arrives at the next update, as if the worker
-// had finished at once. Both are independent of the module's ControllerDriver on purpose: the module
-// must reproduce them.
+// had finished at once. Both are independent of the module's ControllerDriver on purpose: the
+// module must reproduce them.
 
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TwistStamped.h>
@@ -155,7 +155,8 @@ class NodePath {
     }
 
     // t0: the time the statistics start at (the node's first loop iteration).
-    NodePath(const pmc::ControllerConfig& config, double t0) : controller_(sensor_), next_stats_(t0 + 0.1) {
+    NodePath(const pmc::ControllerConfig& config, double t0)
+        : controller_(sensor_), next_stats_(t0 + 0.1) {
         controller_.setConfig(config);
         nmpc_backend_.configure(controller_.getConfig());
         tracks_ = {
@@ -228,7 +229,8 @@ class NodePath {
                 sensor_.local_qy = m.pose.orientation.y;
                 sensor_.local_qz = m.pose.orientation.z;
                 sensor_.local_qw = m.pose.orientation.w;
-                post(pmc::event_type::INPUT_LOCAL_POSITION_UPDATED, now, "mavros/local_position/pose");
+                post(pmc::event_type::INPUT_LOCAL_POSITION_UPDATED, now,
+                     "mavros/local_position/pose");
                 break;
             }
             case kLocalVelocity: {
@@ -288,17 +290,20 @@ class NodePath {
                 pmc::PositionTargetIngress ingress;
                 ingress.position = Eigen::Vector3d(m.position.x, m.position.y, m.position.z);
                 ingress.velocity = Eigen::Vector3d(m.velocity.x, m.velocity.y, m.velocity.z);
-                ingress.acceleration = Eigen::Vector3d(m.acceleration_or_force.x, m.acceleration_or_force.y,
-                                                       m.acceleration_or_force.z);
+                ingress.acceleration =
+                    Eigen::Vector3d(m.acceleration_or_force.x, m.acceleration_or_force.y,
+                                    m.acceleration_or_force.z);
                 ingress.yaw = m.yaw;
                 ingress.yaw_rate = m.yaw_rate;
                 ingress.type_mask = m.type_mask;
                 ingress.coordinate_frame = m.coordinate_frame;
-                ingress.header_stamp = m.header.stamp.isZero() ? pmc::Time() : pmc::toCoreTime(m.header.stamp);
+                ingress.header_stamp =
+                    m.header.stamp.isZero() ? pmc::Time() : pmc::toCoreTime(m.header.stamp);
                 ingress.receipt_time = receipt;
                 const pmc::MpcTrajectoryState traj =
                     pmc::ingestPositionTarget(ingress, cfg.tracking_backend, cfg.px4_local_lift);
-                if (pmc::usesStageEffectiveTime(cfg.tracking_backend, cfg.px4_local_lift) && !traj.is_valid)
+                if (pmc::usesStageEffectiveTime(cfg.tracking_backend, cfg.px4_local_lift) &&
+                    !traj.is_valid)
                     break;
                 pmc::cacheTrajectorySample(controller_.mpcTrajectoryBuffer(), traj, receipt, cfg);
                 post(pmc::event_type::INPUT_MPC_TRAJECTORY_UPDATED, now, "alg/setpoint_raw/local");
@@ -306,16 +311,19 @@ class NodePath {
             }
             case kHoverThrust: {  // TrajectoryInputProducer::hoverThrustCallback
                 const auto m = decode<hover_thrust_estimator_msgs::HoverThrustEstimate>(r.data);
-                if (!std::isfinite(m.hover_thrust) || m.hover_thrust <= 0.0 || m.hover_thrust >= 1.0) {
+                if (!std::isfinite(m.hover_thrust) || m.hover_thrust <= 0.0 ||
+                    m.hover_thrust >= 1.0) {
                     sensor_.hover_thrust_estimate_available = false;
                     sensor_.hover_thrust_estimate_flags = m.flags;
                     break;
                 }
                 sensor_.hover_thrust_estimate = m.hover_thrust;
-                sensor_.hover_thrust_estimate_stamp = (m.header.stamp.isZero() ? receipt.toSec() : m.header.stamp.toSec());
+                sensor_.hover_thrust_estimate_stamp =
+                    (m.header.stamp.isZero() ? receipt.toSec() : m.header.stamp.toSec());
                 sensor_.hover_thrust_estimate_available = true;
                 sensor_.hover_thrust_estimate_flags = m.flags;
-                post(pmc::event_type::INPUT_HOVER_THRUST_UPDATED, now, "hover_thrust/estimate_state");
+                post(pmc::event_type::INPUT_HOVER_THRUST_UPDATED, now,
+                     "hover_thrust/estimate_state");
                 break;
             }
             case kActiveAnalytic:
@@ -326,7 +334,8 @@ class NodePath {
                 if (r.kind == kActiveAnalytic) {
                     accepted = cache.updateAnalytic(
                         pmc::toCoreReference(
-                            decode<multirotor_reference_trajectory_msgs::AnalyticReference>(r.data)),
+                            decode<multirotor_reference_trajectory_msgs::AnalyticReference>(
+                                r.data)),
                         receipt);
                     source = "alg/multirotor_reference_trajectory/active/analytic";
                 } else {
@@ -363,11 +372,13 @@ class NodePath {
                     out.attitude = controller_.getAttitudeRateTarget();
                     break;
                 case pmc::output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION:
-                    out.activation = activation_.make(e.timestamp > 0.0 ? e.timestamp : t,
-                                                      controller_.getSensorData(), controller_.getConfig());
+                    out.activation =
+                        activation_.make(e.timestamp > 0.0 ? e.timestamp : t,
+                                         controller_.getSensorData(), controller_.getConfig());
                     break;
                 case pmc::output_event_type::PUBLISH_CONTROLLER_STATUS:
-                    out.status = controller_.getStateMachine().currentStateName(pmc::region_type::CONTROL);
+                    out.status =
+                        controller_.getStateMachine().currentStateName(pmc::region_type::CONTROL);
                     if (out.status.empty())
                         out.status = "Unknown";
                     break;
@@ -387,7 +398,9 @@ class NodePath {
     std::string state() {
         return controller_.getStateMachine().currentStateName(pmc::region_type::CONTROL);
     }
-    pmc::DroneController& controller() { return controller_; }
+    pmc::DroneController& controller() {
+        return controller_;
+    }
 
    private:
     // ros1_utils::TopicStatsManager, reduced to what the core reads.

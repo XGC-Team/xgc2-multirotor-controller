@@ -75,8 +75,9 @@ void writeEvent(FILE* out, uint64_t k, const OutputEvent& o) {
     }
     if (e.id == pmc::output_event_type::PUBLISH_SETPOINT) {
         const auto& s = o.setpoint;
-        writeDoubles(out, "sp", {s.x, s.y, s.z, s.vx, s.vy, s.vz, s.ax, s.ay, s.az, s.qx, s.qy, s.qz,
-                                 s.qw, s.yaw_rate});
+        writeDoubles(out, "sp",
+                     {s.x, s.y, s.z, s.vx, s.vy, s.vz, s.ax, s.ay, s.az, s.qx, s.qy, s.qz, s.qw,
+                      s.yaw_rate});
         std::fprintf(out, " mask %u", static_cast<unsigned>(s.type_mask));
     }
     if (e.id == pmc::output_event_type::PUBLISH_ATTITUDE_RATE_TARGET) {
@@ -86,7 +87,8 @@ void writeEvent(FILE* out, uint64_t k, const OutputEvent& o) {
     if (e.id == pmc::output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION) {
         const auto& m = o.activation;
         std::fprintf(out, " activation %u.%09u req %u id %u rev %u type %u", m.header.stamp.sec,
-                     m.header.stamp.nsec, m.request_id, m.trajectory_id, m.revision, m.analytic_type);
+                     m.header.stamp.nsec, m.request_id, m.trajectory_id, m.revision,
+                     m.analytic_type);
         std::fprintf(out, " start %u.%09u", m.start_time.sec, m.start_time.nsec);
         writeDoubles(out, "o",
                      {m.duration, m.origin.position.x, m.origin.position.y, m.origin.position.z,
@@ -169,6 +171,7 @@ int main(int argc, char** argv) {
         }
     }
     std::fclose(out);
-    std::fprintf(stderr, "records %zu, output events %" PRIu64 "\n", records.size(), events_written);
+    std::fprintf(stderr, "records %zu, output events %" PRIu64 "\n", records.size(),
+                 events_written);
     return 0;
 }
