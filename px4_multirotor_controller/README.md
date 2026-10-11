@@ -63,10 +63,10 @@ A layout never changes; a different layout gets a new schema id.
   consumers do. A step that has only samples to deliver (the host also steps on input commits) applies
   them and leaves the update to the next period, like the node's callbacks between two iterations of
   its loop; a step of a wake updates at once.
-- **Threads.** The host calls an instance from any of its worker threads, a different one each time,
-  while the state machine library binds a machine to the thread that first updates it. The module
-  builds, updates and destroys the controller on a thread of its own (`module_support::OwnerThread`);
-  the calling thread reads the inputs and writes the outputs with the host API and waits meanwhile.
+- **Threads.** The module relies on the host's default `affinity = "sticky"`: all lifecycle calls
+  and steps run on one home worker per instance. That worker builds, updates and destroys the
+  controller, whose state machine binds to the thread that first updates it, and reads the inputs
+  and writes the outputs with the host API. The NMPC solver retains its separate worker.
 - **Sensor inputs are event ports.** The controller's receive statistics and its frame counters are part
   of its safety logic and count every message; a state port would merge a burst of two messages within
   one step. The active reference is a state port: only the newest one counts.
@@ -129,6 +129,8 @@ any number. The reference module's `analytic` port is an event channel on purpos
 planner and the controller's `ref_request` can both write it.
 
 ```toml
+entity = "px4_multirotor"
+
 [[module]]
 name = "reference"
 path = "/opt/ros/noetic/lib/libpx4_multirotor_reference_module.so"
@@ -139,6 +141,7 @@ path = "/opt/ros/noetic/lib/libpx4_multirotor_controller_module.so"
 [[instance]]
 name = "reference"
 module = "reference"
+affinity = "sticky"
 [instance.bind]
 analytic = "ref.request.analytic"
 sampled = "ref.request.sampled"
@@ -150,6 +153,7 @@ active_sampled = "ref.active.sampled"
 [[instance]]
 name = "controller"
 module = "controller"
+affinity = "sticky"
 [instance.config]
 world_boundary_json = "null"
 [instance.bind]
@@ -251,10 +255,10 @@ catkin test px4_multirotor_controller
 | Test | What it checks |
 |---|---|
 | `controller_payloads_layout_c`, `controller_payloads_api_cpp` | The payload headers compile as C11 and C++ and the layout is the one the `static_assert`s state. |
-| `controller_module_test` | The module with an in-test host (`module_support/include/module_support/test_host.hpp`): the descriptor, the configuration (valid and invalid), start/period, the takeoff sequence on worker threads that change at every call, commands, a step with only samples, live `configure`, `stop`/`start`, a full request queue, and closed loops with a scripted vehicle and the reference module for DFBC and NMPC, including `wake()` from the solver thread and none after `stop()`. |
+| `controller_module_test` | The module with an in-test host (`module_support/include/module_support/test_host.hpp`): the descriptor, the configuration (valid and invalid), start/period, the takeoff sequence on one fixed home worker throughout the lifecycle, commands, a step with only samples, live `configure`, `stop`/`start`, a full request queue, and closed loops with a scripted vehicle and the reference module on separate home workers for DFBC and NMPC, including `wake()` from the solver thread and none after `stop()`. |
 | `controller_module_parity_test` | The module against the ROS node's behavior without ROS (`test/replay/controller_node_path.h`: the input producers' handling of a message and one iteration of the control loop, with the NMPC solved inline). Both get the same recorded messages and integer-nanosecond ticks; every setpoint, attitude-rate command, flight controller request, status and reference request must be equal bit for bit after every tick, and the flight states must agree. Inputs: three recorded software-plant flights (`px4_local`, `dfbc`, `nmpc`, `test/replay/data`) and a scripted flight that reaches DFBC and NMPC tracking (`test/replay/scripted_flight.h`). |
 | `controller_transport_parity` (rostest) | The real `SensorInputProducer` on a private ROS master against the module: the messages arrive through ROS topics on one side and as mapped payloads on the other (the sensors speak twice, then fall silent); both must show the same flight state, receive statistics and heartbeat, and leave `Ready` for the sensor timeout at the same tick. |
-| `chain_in_module_host_nmpc`, `chain_in_module_host_dfbc` (opt-in) | The reference module, the controller module and a scripted vehicle (`test/host/scripted_vehicle.cpp`, in place of the MAVROS edge) in the real `xgc2-module-host`, flown through takeoff, hover, `custom1` and `land` (`test/host/run_chain.py`). They check, from the host's health report, what only the real host shows: all instances stay healthy, the controller asks the reference module once and gets its active reference, and every NMPC solve wakes the host and is answered with an attitude-rate command. They need the host binary, which another repository builds: configure with `-DXGC2_MODULE_HOST=/path/to/xgc2-module-host` and run `ctest -R chain_in_module_host`. |
+| `chain_in_module_host_nmpc`, `chain_in_module_host_dfbc` (opt-in) | The reference module, the controller module and a scripted vehicle (`test/host/scripted_vehicle.cpp`, in place of the MAVROS edge) in the real `xgc2-module-host`, flown through takeoff, hover, `custom1` and `land` (`test/host/run_chain.py`). They check, from the host's health report, what only the real host shows: all instances stay healthy with default sticky affinity and zero worker moves, the controller asks the reference module once and gets its active reference, and every NMPC solve wakes the host and is answered with an attitude-rate command. They need the host binary, which another repository builds: configure with `-DXGC2_MODULE_HOST=/path/to/xgc2-module-host` and run `ctest -R chain_in_module_host`. |
 | the existing core and node tests | `controller_driver_test`, the state machine, strategies, world boundary and the Python tests of `.github/workflows/ci.yml` are unchanged. |
 
 The fixtures in `test/replay/data` are recorded software-plant flights converted with
