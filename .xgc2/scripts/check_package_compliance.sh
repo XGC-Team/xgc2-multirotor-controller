@@ -40,6 +40,7 @@ required_files=(
   .xgc2/scripts/check_core_libraries.sh
   .xgc2/scripts/check_cpp_quality.sh
   .xgc2/scripts/check_installed_packages.sh
+  .xgc2/scripts/check_module_package_payload.sh
   .xgc2/scripts/check_package_compliance.sh
   .xgc2/scripts/check_version_bump.sh
   .xgc2/scripts/install_published_products.sh
@@ -54,6 +55,12 @@ required_files=(
   multirotor_reference_trajectory/package.xml
   multirotor_reference_trajectory/include/multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h
   multirotor_reference_trajectory/launch/uav_multirotor_reference_trajectory.launch
+  multirotor_reference_trajectory/include/multirotor_reference_trajectory/payloads.h
+  multirotor_reference_trajectory/module/reference_module.cpp
+  px4_multirotor_controller/include/px4_multirotor_controller/payloads.h
+  px4_multirotor_controller/module/controller_module.cpp
+  module_support/include/xgc2/module.h
+  module_support/include/module_support/owner_thread.hpp
 )
 
 for file in "${required_files[@]}"; do
@@ -104,5 +111,20 @@ if grep -R --exclude='check_package_compliance.sh' \
   echo "Deprecated reference trajectory interface found." >&2
   exit 1
 fi
+
+# The modules are the product's in-process interface. The retired plugin adapters, their wire
+# packages and the libraries they needed (the Runtime SDK, the robotics interface records, the
+# estimators' wire packages) must not come back.
+if grep -R --exclude='check_package_compliance.sh' --exclude='check_module_package_payload.sh' \
+  --exclude='check_installed_packages.sh' \
+  -E "XgcRuntimeSDK|XgcRoboticsInterfaces|xgc-robotics-interfaces|robotics-interfaces|runtime-sdk|xgc_rt_plugin|HoverThrustNativeWire|RigidStateNativeWire|ReferenceTrajectoryNative|libctl_px4|libref_trajectory|reference_wire" \
+  .github .xgc2 README.md px4_multirotor_controller multirotor_reference_trajectory module_support >/dev/null; then
+  echo "Retired plugin adapter, wire package or robotics-interfaces dependency found." >&2
+  exit 1
+fi
+
+grep -q "xgc2_module_entry" module_support/exports.map
+grep -q "libpx4_multirotor_reference_module.so" .xgc2/product.yml
+grep -q "libpx4_multirotor_controller_module.so" .xgc2/product.yml
 
 echo "Package compliance checks passed."

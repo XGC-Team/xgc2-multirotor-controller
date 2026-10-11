@@ -7,7 +7,7 @@
 #include "px4_multirotor_controller/drone_controller.h"
 #include "px4_multirotor_controller/uav/nmpc_tracking_backend.h"
 namespace px4_multirotor_controller {
-// The original ROS NMPC dispatcher, shared by both transport adapters.
+// The original ROS NMPC dispatcher, shared by the ROS node and the module.
 // Snapshot on the owner thread; one worker, one pending request, reject busy.
 class NmpcExecution {
 public:

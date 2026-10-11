@@ -10,20 +10,16 @@
 #include <state_machine/state_machine.hpp>
 
 #include "px4_multirotor_controller/common/types.h"
-#include "px4_multirotor_controller/uav/active_trajectory_cache.h"
+#include "px4_multirotor_controller/drone_controller.h"
 
 namespace px4_multirotor_controller {
 
 class TrajectoryInputProducer {
    public:
     using EventSink = std::function<::state_machine::Status(::state_machine::Event)>;
-    using TrajectorySink = std::function<void(const MpcTrajectoryState&)>;
-    using ConfigProvider = std::function<ControllerConfig()>;
 
-    TrajectoryInputProducer(ros::NodeHandle& nh, SensorData& sensor_data,
-                            ActiveTrajectoryCache& active_trajectory_cache,
-                            ConfigProvider config_provider, EventSink event_sink,
-                            TrajectorySink trajectory_sink, uint32_t queue_size);
+    TrajectoryInputProducer(ros::NodeHandle& nh, DroneController& controller,
+                            SensorData& sensor_data, EventSink event_sink, uint32_t queue_size);
 
    private:
     void algSetpointCallback(const mavros_msgs::PositionTarget::ConstPtr& msg);
@@ -34,11 +30,9 @@ class TrajectoryInputProducer {
     void hoverThrustCallback(const hover_thrust_estimator_msgs::HoverThrustEstimate::ConstPtr& msg);
     void postInputEvent(::state_machine::EventId event_id, const char* source);
 
+    DroneController& controller_;
     SensorData& sensor_data_;
-    ActiveTrajectoryCache& active_trajectory_cache_;
-    ConfigProvider config_provider_;
     EventSink event_sink_;
-    TrajectorySink trajectory_sink_;
     ros::Subscriber alg_setpoint_sub_;
     ros::Subscriber active_analytic_sub_;
     ros::Subscriber active_sampled_sub_;

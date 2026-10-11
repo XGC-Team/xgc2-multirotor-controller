@@ -1,6 +1,7 @@
 #pragma once
 #include <optional>
 #include <string>
+#include <state_machine/state_machine.hpp>
 #include <unordered_map>
 #include "px4_multirotor_controller/common/types.h"
 namespace px4_multirotor_controller {

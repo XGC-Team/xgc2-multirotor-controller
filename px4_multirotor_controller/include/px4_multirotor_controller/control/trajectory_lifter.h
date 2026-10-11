@@ -178,7 +178,7 @@ inline bool usesStageEffectiveTime(TrackingBackend backend, Px4LocalLiftMode lif
             lift_mode == Px4LocalLiftMode::ZeroOrderHold);
 }
 
-// One ingress for the ROS producer and ctl-px4.
+// One ingress for the ROS producer and the module (driver/trajectory_ingress.h).
 struct PositionTargetIngress {
     Eigen::Vector3d position{Eigen::Vector3d::Zero()};
     Eigen::Vector3d velocity{Eigen::Vector3d::Zero()};

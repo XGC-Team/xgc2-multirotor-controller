@@ -42,10 +42,12 @@ test -f "/opt/ros/${ROS_DISTRO}/include/px4_multirotor_controller/uav/state_mach
 test -x "/opt/ros/${ROS_DISTRO}/lib/px4_multirotor_controller/px4_multirotor_controller_node"
 test -f "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so"
 test -f "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_core.so"
-for native_library in libctl_px4.so libref_trajectory.so; do
-  test -f "/opt/ros/${ROS_DISTRO}/lib/${native_library}"
-  file -b "/opt/ros/${ROS_DISTRO}/lib/${native_library}" | grep -q '^ELF'
-  ldd "/opt/ros/${ROS_DISTRO}/lib/${native_library}" | awk '/not found/ {missing=1} END {exit missing ? 1 : 0}'
+for module_library in libpx4_multirotor_reference_module.so libpx4_multirotor_controller_module.so; do
+  module_path="/opt/ros/${ROS_DISTRO}/lib/${module_library}"
+  test -f "${module_path}"
+  file -b "${module_path}" | grep -q '^ELF'
+  ldd "${module_path}" | awk '/not found/ {missing=1} END {exit missing ? 1 : 0}'
+  nm -D --defined-only "${module_path}" | awk '$3 == "xgc2_module_entry" {found=1} END {exit !found}'
 done
 test -f "/opt/ros/${ROS_DISTRO}/lib/libmultirotor_reference_trajectory_core.so"
 roslaunch --files multirotor_reference_trajectory uav_multirotor_reference_trajectory.launch >/tmp/xgc2-multirotor-reference-files.txt
@@ -64,20 +66,31 @@ done < <(find "/opt/ros/${ROS_DISTRO}/lib/px4_multirotor_controller" \
   "/opt/ros/${ROS_DISTRO}/lib/multirotor_reference_trajectory" \
   "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_uav_nmpc_runtime.so" \
   "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_core.so" \
-  "/opt/ros/${ROS_DISTRO}/lib/libmultirotor_reference_trajectory_core.so" -type f 2>/dev/null | sort -u)
+  "/opt/ros/${ROS_DISTRO}/lib/libmultirotor_reference_trajectory_core.so" \
+  "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_reference_module.so" \
+  "/opt/ros/${ROS_DISTRO}/lib/libpx4_multirotor_controller_module.so" -type f 2>/dev/null | sort -u)
 
 echo "Installed package check passed"
 
 test ! -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/WaypointReferenceRequest.h"
 test ! -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/ActivePolynomialReference.h"
 
-WIRE_PATHS=(
-  "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory/reference_wire.hpp"
-  "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory/reference_wire_v1.h"
-  "/opt/ros/${ROS_DISTRO}/share/cmake/ReferenceTrajectoryNative/ReferenceTrajectoryNativeConfig.cmake"
-  "/opt/ros/${ROS_DISTRO}/share/cmake/ReferenceTrajectoryNative/ReferenceTrajectoryNativeTargets.cmake"
-)
-for path in "${WIRE_PATHS[@]}"; do
+# The payloads the modules exchange are public headers of the two packages.
+for path in \
+  "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory/payloads.h" \
+  "/opt/ros/${ROS_DISTRO}/include/px4_multirotor_controller/payloads.h"
+do
   test -f "${path}"
   dpkg-query -S "${path}" | grep -Fxq "ros-${ROS_DISTRO}-xgc2-multirotor-controller: ${path}"
+done
+
+# The retired wire packages and native adapters are gone.
+for path in \
+  "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory/reference_wire.hpp" \
+  "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory/reference_wire_v1.h" \
+  "/opt/ros/${ROS_DISTRO}/share/cmake/ReferenceTrajectoryNative" \
+  "/opt/ros/${ROS_DISTRO}/lib/libctl_px4.so" \
+  "/opt/ros/${ROS_DISTRO}/lib/libref_trajectory.so"
+do
+  test ! -e "${path}"
 done
