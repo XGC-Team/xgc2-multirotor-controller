@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+test -f /usr/share/xgc2/process-definitions/xgc2-px4-multirotor-controller-ros1.json
+
 ROS_DISTRO="${ROS_DISTRO:-noetic}"
 set +u
 # shellcheck source=/dev/null

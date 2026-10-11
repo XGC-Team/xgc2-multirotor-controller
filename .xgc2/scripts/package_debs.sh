@@ -119,6 +119,9 @@ for module_library in "${MODULE_LIBRARIES[@]}"; do
 done
 copy_path "${PREFIX_ROOT}/lib/libmultirotor_reference_trajectory_core.so" "${pkg_root}"
 
+install -D -m 0644 "${REPO_ROOT}/process-definitions/xgc2-px4-multirotor-controller-ros1.json" \
+  "${pkg_root}/usr/share/xgc2/process-definitions/xgc2-px4-multirotor-controller-ros1.json"
+
 mkdir -p "${pkg_root}/DEBIAN" "${pkg_root}/usr/share/doc/${PACKAGE}"
 cat > "${pkg_root}/DEBIAN/control" <<EOF
 Package: ${PACKAGE}
