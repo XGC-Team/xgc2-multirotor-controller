@@ -9,9 +9,10 @@ namespace px4_multirotor_controller {
 enum class SensorStream : unsigned { Estimate, LocalPose, LocalVelocity, Imu, State, Battery, Pose, Count };
 
 // The controller's original TopicStatsManager policy, without ROS subscriptions
-// or timers. Both adapters hand it receipt times and advance its same 10 Hz
-// statistics / 1 Hz heartbeat clock. The 10-sample window and 2.5 s timeout
-// deliberately retain the ROS policy, including a single-message heartbeat.
+// or timers. The ROS node and the xgc2-module module both hand it receipt times
+// and advance its same 10 Hz statistics / 1 Hz heartbeat clock. The 10-sample
+// window and 2.5 s timeout deliberately retain the ROS policy, including a
+// single-message heartbeat.
 class SensorStatistics {
 public:
     explicit SensorStatistics(SensorData& sensor);

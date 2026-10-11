@@ -21,22 +21,18 @@ TEST(ControllerStatistics, OriginalWindowJitterAndSingleMessageHeartbeat) {
     EXPECT_NEAR(data.local_pos_stats.dt_max, 0.02, 1e-9);
     EXPECT_GT(data.local_pos_stats.jitter, 0.0); // original first dt is zero
 }
-TEST(ControllerConfiguration, SamePolicyForRosAndNativeValuesAndOwningProfile) {
+TEST(ControllerConfiguration, OwningProfileValuesAndValidation) {
     auto getter = [](const std::string& key, ControllerParameterValue& value) {
         if (key == "world_boundary_json") { value = std::string("null"); return true; }
         if (key == "tracking_backend") { value = std::string("dfbc"); return true; }
         if (key == "nmpc/control_period") { value = -1.0; return true; }
         return false;
     };
-    auto ros = readControllerConfig(ControllerParameters(getter));
-    auto native = readControllerConfig(ControllerParameters(getter));
-    EXPECT_EQ(ros.tracking_backend, native.tracking_backend);
-    EXPECT_EQ(ros.tracking_backend, TrackingBackend::DFBC);
-    EXPECT_DOUBLE_EQ(ros.takeoff_altitude, 2.3); // owning YAML, not C++ default
-    EXPECT_DOUBLE_EQ(ros.nmpc.control_period, 0.01); // unchanged validation
-    EXPECT_EQ(ros.local_type_mask, native.local_type_mask);
-    EXPECT_TRUE(ros.dfbc.acceleration_correction_enabled);
-    EXPECT_DOUBLE_EQ(ros.safety.position_jump_threshold, native.safety.position_jump_threshold);
+    auto config = readControllerConfig(ControllerParameters(getter));
+    EXPECT_EQ(config.tracking_backend, TrackingBackend::DFBC);
+    EXPECT_DOUBLE_EQ(config.takeoff_altitude, 2.3); // owning YAML, not C++ default
+    EXPECT_DOUBLE_EQ(config.nmpc.control_period, 0.01); // unchanged validation
+    EXPECT_TRUE(config.dfbc.acceleration_correction_enabled);
 }
 TEST(NmpcGeneration, InvalidatedAndUnissuedResultsCannotPoisonNextScope) {
     NmpcResultBuffer buffer;
