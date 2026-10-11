@@ -228,7 +228,9 @@ def main():
         for name, instance in instances.items():
             if instance["state"] != "running" or instance["health"] != "ok":
                 problems.append("%s: state %s, health %s" % (name, instance["state"], instance["health"]))
-            for counter in ("step_errors", "misuse", "overruns"):
+            if instance["affinity"] != "sticky":
+                problems.append("%s: affinity %s, expected sticky" % (name, instance["affinity"]))
+            for counter in ("step_errors", "misuse", "overruns", "worker_moves"):
                 if instance[counter] != 0:
                     problems.append("%s: %s = %s" % (name, counter, instance[counter]))
         if instances["reference"]["reported"]["detail"] != "Active":

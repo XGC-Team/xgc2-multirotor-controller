@@ -336,6 +336,9 @@ void replay(const std::vector<Record>& records, const std::string& module_config
     }
     ASSERT_EQ(next, records.size());
     EXPECT_FALSE(host.logged(3, "refused"));  // no input or output failed
+    ASSERT_EQ(host.stop(), XGC2_OK);
+    host.destroy();
+    EXPECT_EQ(host.workerThreadsUsed(), 1U);
 }
 
 std::string recording(const char* name) {

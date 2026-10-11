@@ -29,11 +29,9 @@
 // min_specific_thrust. A key the module does not know is an error. A configure() while running
 // restarts the runtime (the runtime's setConfig resets it), so it drops the active reference.
 //
-// Threads. The runtime's state machine is bound to the thread that first updates it, and the host
-// calls an instance from any of its worker threads, a different one each time. The module gives the
-// runtime a thread of its own (module_support::OwnerThread): a step reads the requests with the
-// host API on the calling thread, has the owner thread apply them and update the runtime, and
-// writes the outputs on the calling thread again.
+// Threads. The runtime's state machine is bound to the thread that first updates it. The module
+// relies on the host's default sticky per-instance affinity: lifecycle calls and steps build,
+// update and destroy the runtime on the same home worker.
 
 #include <algorithm>
 #include <cmath>
@@ -41,7 +39,6 @@
 #include <exception>
 #include <memory>
 #include <module_support/json_config.hpp>
-#include <module_support/owner_thread.hpp>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -159,13 +156,10 @@ const char* stateName(uint8_t state) {
 
 class ReferenceModule {
    public:
-    ReferenceModule(const xgc2_host_api* host, void* host_ctx) : host_(host), ctx_(host_ctx) {
-        owner_.run([this] { runtime_ = std::make_unique<mrt::ReferenceTrajectoryRuntime>(); });
-    }
-
-    ~ReferenceModule() {
-        owner_.run([this] { runtime_.reset(); });
-    }
+    ReferenceModule(const xgc2_host_api* host, void* host_ctx)
+        : host_(host),
+          ctx_(host_ctx),
+          runtime_(std::make_unique<mrt::ReferenceTrajectoryRuntime>()) {}
 
     // Runs `f`; an exception is logged and becomes the module's failure.
     template <class F>
@@ -214,16 +208,12 @@ class ReferenceModule {
         const bool update_due = (ctx->reasons & XGC2_STEP_TIMER) != 0;
         collectRequests();
         const double now = toSeconds(ctx->now_ns);
-        const std::vector<sm::Event> outputs = owner_.run([&] {
-            for (const Request& request : requests_)
-                accept(request);
-            if (!update_due)
-                return std::vector<sm::Event>{};
-            runtime_->update(now);
-            return runtime_->stateMachine().currentOutputEvents();
-        });
+        for (const Request& request : requests_)
+            accept(request);
         if (!update_due)
             return XGC2_OK;
+        runtime_->update(now);
+        const std::vector<sm::Event> outputs = runtime_->stateMachine().currentOutputEvents();
         // The health follows the last write: degraded after a refused one, ok again after a
         // successful one.
         for (const sm::Event& event : outputs) {
@@ -245,7 +235,7 @@ class ReferenceModule {
 
     // The runtime restarts, as the ROS node's runtime does when its config is set.
     void applySettings() {
-        owner_.run([this] { runtime_->setConfig(settings_.runtime); });
+        runtime_->setConfig(settings_.runtime);
         host_->set_period_ns(ctx_, std::llround(1e9 / settings_.main_frequency_hz));
         reported_ = false;
         reportIfChanged();
@@ -376,8 +366,7 @@ class ReferenceModule {
     const xgc2_host_api* host_;
     void* ctx_;
     Settings settings_;
-    module_support::OwnerThread owner_;  // before the runtime: it outlives it
-    std::unique_ptr<mrt::ReferenceTrajectoryRuntime> runtime_;  // built and used on owner_
+    std::unique_ptr<mrt::ReferenceTrajectoryRuntime> runtime_;
     std::vector<Request> requests_;
     bool running_{false};
     bool output_failed_{false};

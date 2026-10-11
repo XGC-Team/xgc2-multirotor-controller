@@ -47,6 +47,13 @@ class ControllerModuleTest : public ::testing::Test {
     }
 
     void TearDown() override {
+        if (host_) {
+            if (host_->instance() != nullptr) {
+                EXPECT_EQ(host_->stop(), XGC2_OK);
+                host_->destroy();
+            }
+            EXPECT_EQ(host_->workerThreadsUsed(), 1U);
+        }
         if (!HasFailure() || !host_)
             return;
         for (const auto& entry : host_->logs()) {
@@ -262,16 +269,23 @@ TEST_F(ControllerModuleTest, AStepWithOnlyInputsDeliversThemAndLeavesTheUpdateTo
     EXPECT_EQ(host_->lastReportDetail(), "TakeoffInit");
 }
 
-TEST_F(ControllerModuleTest, StepsOnDifferentWorkerThreadsDriveTheSameController) {
-    // The in-test host calls the module on a different worker thread each time, as the host's pool
-    // may; the controller's state machine accepts updates from one thread only.
+TEST_F(ControllerModuleTest, LifecycleAndStepsUseTheSameHomeWorker) {
+    // The controller's state machine accepts updates from one thread only, as guaranteed by sticky
+    // per-instance affinity throughout the lifecycle, including stop/start.
     open(config(kFlightConfig));
+    EXPECT_NE(host_->homeWorkerThread(), std::this_thread::get_id());
+    ASSERT_EQ(host_->configure(config(kFlightConfig)), XGC2_OK);
     ASSERT_TRUE(reach("Ready", 3.0));
     xgc2_px4_command_v1 command{};
     std::strcpy(command.text, "takeoff");
     ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
     ASSERT_TRUE(reach("Hover", 20.0)) << "state " << vehicle_->state();
-    EXPECT_GT(host_->workerThreadsUsed(), 1U);
+    ASSERT_EQ(host_->stop(), XGC2_OK);
+    ASSERT_EQ(host_->start(), XGC2_OK);
+    ASSERT_TRUE(reach("Ready", 3.0));
+    ASSERT_EQ(host_->stop(), XGC2_OK);
+    host_->destroy();
+    EXPECT_EQ(host_->workerThreadsUsed(), 1U);
 }
 
 TEST_F(ControllerModuleTest, TakeoffRequestsOffboardAndArmingAndStreamsSetpoints) {
@@ -374,6 +388,15 @@ class ControllerChainTest : public ControllerModuleTest {
         reference_library_ = std::make_unique<ModuleLibrary>(referenceModulePath());
     }
 
+    void TearDown() override {
+        ControllerModuleTest::TearDown();
+        if (reference_) {
+            EXPECT_EQ(reference_->stop(), XGC2_OK);
+            reference_->destroy();
+            EXPECT_EQ(reference_->workerThreadsUsed(), 1U);
+        }
+    }
+
     // The reference module is built by the other package of this repository: look for it in the
     // devel space (the merged one of catkin build, the single one of catkin_make).
     static std::string referenceModulePath() {
@@ -397,6 +420,7 @@ class ControllerChainTest : public ControllerModuleTest {
         reference_->setNow(vehicle_sim::kStart);
         ASSERT_EQ(reference_->create("{}"), XGC2_OK);
         ASSERT_EQ(reference_->start(), XGC2_OK);
+        EXPECT_NE(host_->homeWorkerThread(), reference_->homeWorkerThread());
         vehicle_->attachReference(reference_.get());
     }
 
@@ -452,6 +476,7 @@ TEST_F(ControllerChainTest, NmpcResultWakesTheHostAndIsConsumedWithoutWaitingFor
     }
     ASSERT_TRUE(woken) << "state " << vehicle_->state();
     EXPECT_NE(host_->lastWakeThread(), std::this_thread::get_id());
+    EXPECT_NE(host_->lastWakeThread(), host_->homeWorkerThread());
 
     // The extra step runs at the same clock time (no period elapsed) and publishes the command.
     const size_t before = vehicle_->attitude.size();

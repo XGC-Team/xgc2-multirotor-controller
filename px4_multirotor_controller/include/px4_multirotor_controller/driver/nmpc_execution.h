@@ -8,7 +8,7 @@
 #include "px4_multirotor_controller/uav/nmpc_tracking_backend.h"
 namespace px4_multirotor_controller {
 // The original ROS NMPC dispatcher, shared by the ROS node and the module.
-// Snapshot on the owner thread; one worker, one pending request, reject busy.
+// Snapshot on the controller update thread; one solver worker, one pending request, reject busy.
 class NmpcExecution {
 public:
  using EventSink = std::function<::state_machine::Status(::state_machine::Event)>;

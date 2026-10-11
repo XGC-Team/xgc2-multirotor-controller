@@ -30,6 +30,13 @@ class ReferenceModuleTest : public ::testing::Test {
     }
 
     void TearDown() override {
+        if (host_) {
+            if (host_->instance() != nullptr) {
+                EXPECT_EQ(host_->stop(), XGC2_OK);
+                host_->destroy();
+            }
+            EXPECT_EQ(host_->workerThreadsUsed(), 1U);
+        }
         if (!HasFailure() || !host_)
             return;
         for (const auto& entry : host_->logs()) {
@@ -244,15 +251,23 @@ TEST_F(ReferenceModuleTest, AStepWithOnlyRequestsDeliversThemAndLeavesTheUpdateT
     EXPECT_EQ(host_->outputs("status").size(), 1U);
 }
 
-TEST_F(ReferenceModuleTest, StepsOnDifferentWorkerThreadsDriveTheSameRuntime) {
-    // The in-test host calls the module on a different worker thread each time, as the host's pool
-    // may; the runtime's state machine accepts updates from one thread only.
+TEST_F(ReferenceModuleTest, LifecycleAndStepsUseTheSameHomeWorker) {
+    // The runtime's state machine accepts updates from one thread only, as guaranteed by sticky
+    // per-instance affinity throughout the lifecycle, including stop/start.
     open();
+    EXPECT_NE(host_->homeWorkerThread(), std::this_thread::get_id());
+    ASSERT_EQ(host_->configure("{}"), XGC2_OK);
     run(5);
     pushAnalytic(analytic(mrt::reference::AnalyticReference::ANALYTIC_HOLD, {}, 30.0));
     run(15);
     EXPECT_EQ(host_->lastReportDetail(), "Active");
-    EXPECT_GT(host_->workerThreadsUsed(), 1U);
+    ASSERT_EQ(host_->stop(), XGC2_OK);
+    ASSERT_EQ(host_->start(), XGC2_OK);
+    run(5);
+    EXPECT_EQ(host_->lastReportDetail(), "Ready");
+    ASSERT_EQ(host_->stop(), XGC2_OK);
+    host_->destroy();
+    EXPECT_EQ(host_->workerThreadsUsed(), 1U);
 }
 
 TEST_F(ReferenceModuleTest, ActiveReferenceIsPublishedAtTheConfiguredRate) {

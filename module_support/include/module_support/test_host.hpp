@@ -9,9 +9,8 @@
 //  - an output returns NULL from write_begin once its test-set capacity is used up (limitOutput),
 //    as a full event queue does;
 //  - wake() may be called from any thread; waitWake() lets the test wait for it;
-//  - create, configure, start, step, stop and destroy are called one at a time, but each on the
-//    next of three worker threads in rotation, as the host's worker pool may run an instance:
-//    a module must not rely on being called from the same thread twice.
+//  - create, configure, start, step, stop and destroy run on one fixed home worker, following the
+//    host's default sticky per-instance affinity; different instances have different workers.
 #pragma once
 
 #include <dlfcn.h>
@@ -22,6 +21,8 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -31,7 +32,6 @@
 #include <utility>
 #include <vector>
 
-#include "module_support/owner_thread.hpp"
 #include "xgc2/module.h"
 
 namespace module_support {
@@ -100,9 +100,16 @@ class TestHost {
             if (desc->ports[i].direction == XGC2_PORT_IN)
                 ports_[i].input_index = input_index++;
         }
+        worker_ = std::thread([this] { workerLoop(); });
     }
     ~TestHost() {
         destroy();
+        {
+            std::lock_guard<std::mutex> lock(worker_mutex_);
+            worker_stopped_ = true;
+        }
+        worker_cv_.notify_one();
+        worker_.join();
     }
     TestHost(const TestHost&) = delete;
     TestHost& operator=(const TestHost&) = delete;
@@ -261,6 +268,9 @@ class TestHost {
     size_t workerThreadsUsed() const {
         return worker_ids_.size();
     }
+    std::thread::id homeWorkerThread() const {
+        return worker_.get_id();
+    }
     std::vector<std::pair<int, std::string>> logs() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return logs_;
@@ -404,21 +414,35 @@ class TestHost {
         h.reports_.emplace_back(health, detail == nullptr ? "" : detail);
     }
 
-    // Runs a module call on the next worker thread in rotation and waits for it.
+    // Runs a module call on this instance's home worker and waits for it.
     template <class F>
     auto onWorker(F&& call) -> decltype(call()) {
-        if (workers_.empty()) {
-            for (int i = 0; i < kWorkerCount; ++i)
-                workers_.push_back(std::make_unique<OwnerThread>());
+        auto task = std::make_shared<std::packaged_task<decltype(call())()>>(std::forward<F>(call));
+        auto result = task->get_future();
+        {
+            std::lock_guard<std::mutex> lock(worker_mutex_);
+            worker_call_ = [this, task] {
+                worker_ids_.insert(std::this_thread::get_id());
+                (*task)();
+            };
         }
-        OwnerThread& worker = *workers_[next_worker_++ % workers_.size()];
-        return worker.run([&]() -> decltype(call()) {
-            worker_ids_.insert(std::this_thread::get_id());
-            return call();
-        });
+        worker_cv_.notify_one();
+        return result.get();
     }
 
-    static constexpr int kWorkerCount = 3;
+    void workerLoop() {
+        std::unique_lock<std::mutex> lock(worker_mutex_);
+        for (;;) {
+            worker_cv_.wait(lock, [&] { return worker_stopped_ || worker_call_; });
+            if (worker_stopped_)
+                return;
+            std::function<void()> call;
+            call.swap(worker_call_);
+            lock.unlock();
+            call();
+            lock.lock();
+        }
+    }
 
     const xgc2_module_desc* desc_;
     xgc2_host_api api_{};
@@ -436,8 +460,11 @@ class TestHost {
     std::thread::id wake_thread_;
     std::vector<std::pair<int, std::string>> logs_;
     std::vector<std::pair<int, std::string>> reports_;
-    std::vector<std::unique_ptr<OwnerThread>> workers_;
-    size_t next_worker_{0};
+    std::thread worker_;
+    std::mutex worker_mutex_;
+    std::condition_variable worker_cv_;
+    std::function<void()> worker_call_;
+    bool worker_stopped_{false};
     std::set<std::thread::id> worker_ids_;
 };
 

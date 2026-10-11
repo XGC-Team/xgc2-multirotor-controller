@@ -14,8 +14,7 @@ namespace px4_multirotor_controller {
 // replayed time exactly and stay identical to wall time on hardware, where
 // update() receives the current ROS time. The value is per thread and is set
 // at the start of every update(), so it is valid on the thread that updates
-// the controller (the ROS node's loop thread, or the owner thread of the
-// module).
+// the controller (the ROS node's loop thread, or the module's home host worker).
 struct ControllerClock {
     using rep = double;
     using period = std::ratio<1>;

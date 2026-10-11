@@ -132,6 +132,9 @@ TEST(ReferenceModuleParity, PublishesWhatTheRosNodeCorePublishes) {
     EXPECT_GT(sampleds, 5U);
     EXPECT_TRUE(
         host.logged(2, "rejected sampled reference"));  // the scripted invalid sampled request
+    ASSERT_EQ(host.stop(), XGC2_OK);
+    host.destroy();
+    EXPECT_EQ(host.workerThreadsUsed(), 1U);
 }
 
 }  // namespace

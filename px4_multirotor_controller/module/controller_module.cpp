@@ -51,11 +51,10 @@
 //
 // start() builds the controller afresh; stop() tears it down (the solver thread is joined).
 //
-// Threads. The controller's state machine is bound to the thread that first updates it, and the
-// host calls an instance from any of its worker threads, a different one each time. The module
-// gives the controller a thread of its own (module_support::OwnerThread) that builds it, applies
-// the inputs, updates it and destroys it; the calling thread reads the inputs and writes the
-// outputs with the host API and waits meanwhile, so the two never work at the same time.
+// Threads. The controller's state machine is bound to the thread that first updates it. The module
+// relies on the host's default sticky per-instance affinity: lifecycle calls and steps build,
+// update and destroy the controller on the same home worker. The solver only posts results and
+// wakes the host from its own worker.
 
 #include <algorithm>
 #include <atomic>
@@ -67,7 +66,6 @@
 #include <functional>
 #include <memory>
 #include <module_support/json_config.hpp>
-#include <module_support/owner_thread.hpp>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -195,7 +193,7 @@ constexpr int64_t kControlPeriodNs = 1000000;  // the node's hard-coded 1 kHz lo
 class ControllerModule;
 
 // The core logs through one process-wide sink without a context. The module routes a line to the
-// host of the instance whose call or owner thread task is running on this thread; the solver thread
+// host of the instance whose call is running on this thread; the solver thread
 // has none and falls back to stderr, like the core's default sink.
 thread_local const ControllerModule* t_running = nullptr;
 std::atomic<int> g_instances{0};
@@ -273,11 +271,8 @@ class ControllerModule {
     xgc2_status start() {
         if (runtime_)
             return XGC2_ERR_STATE;
-        owner_.run([this] {
-            LogScope scope(this);
-            runtime_ = std::make_unique<Runtime>(config_, [this] { host_->wake(ctx_); });
-            runtime_->driver.start(time(host_->now_ns(ctx_)));
-        });
+        runtime_ = std::make_unique<Runtime>(config_, [this] { host_->wake(ctx_); });
+        runtime_->driver.start(time(host_->now_ns(ctx_)));
         host_->set_period_ns(ctx_, kControlPeriodNs);
         reported_ = false;
         reportIfChanged();
@@ -287,11 +282,9 @@ class ControllerModule {
     xgc2_status stop() {
         if (runtime_) {
             // Joins the solver thread: no wake() is called after this returns.
-            owner_.run([this] {
-                LogScope scope(this);
-                runtime_->driver.stop();
-                runtime_.reset();
-            });
+            LogScope scope(this);
+            runtime_->driver.stop();
+            runtime_.reset();
         }
         return XGC2_OK;
     }
@@ -308,23 +301,19 @@ class ControllerModule {
         // the period, or to the wake of a finished solve.
         const bool update_due = (ctx->reasons & (XGC2_STEP_TIMER | XGC2_STEP_WAKE)) != 0;
         collectInputs(ctx);
-        const std::vector<sm::Event> outputs = owner_.run([&] {
-            LogScope scope(this);
-            for (const Input& input : inputs_) {
-                try {
-                    apply(rt, input);
-                } catch (const std::exception& e) {
-                    log(kLogError,
-                        std::string("input ") + kPorts[input.port].name + " refused: " + e.what());
-                }
+        for (const Input& input : inputs_) {
+            try {
+                apply(rt, input);
+            } catch (const std::exception& e) {
+                log(kLogError,
+                    std::string("input ") + kPorts[input.port].name + " refused: " + e.what());
             }
-            if (!update_due)
-                return std::vector<sm::Event>{};
-            rt.driver.update(now);
-            return rt.driver.controller().getStateMachine().currentOutputEvents();
-        });
+        }
         if (!update_due)
             return XGC2_OK;
+        rt.driver.update(now);
+        const std::vector<sm::Event> outputs =
+            rt.driver.controller().getStateMachine().currentOutputEvents();
         wrote_ = write_failed_ = false;
         for (const sm::Event& event : outputs) {
             try {
@@ -754,7 +743,6 @@ class ControllerModule {
     const xgc2_host_api* host_;
     void* ctx_;
     pmc::ControllerConfig config_;
-    module_support::OwnerThread owner_;  // builds, updates and destroys the runtime
     std::unique_ptr<Runtime> runtime_;
     std::vector<Input> inputs_;
     uint64_t post_failures_{0};
