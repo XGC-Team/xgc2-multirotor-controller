@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -196,6 +197,14 @@ bool sameBits(double a, double b) {
     return std::memcmp(&a, &b, sizeof a) == 0;
 }
 
+// The fields of an attitude-rate command as exact hexadecimal doubles, for a failure message.
+std::string describe(const xgc2_px4_attitude_rate_target_v1& a) {
+    char text[256];
+    std::snprintf(text, sizeof text, "stamp %u.%09u rate %a %a %a thrust %a", a.stamp_sec,
+                  a.stamp_nsec, a.body_rate[0], a.body_rate[1], a.body_rate[2], a.thrust);
+    return text;
+}
+
 bool sameActivation(const pmc::reference::AnalyticReference& a, const pmc::reference::AnalyticReference& b) {
     if (a.header.stamp != b.header.stamp || a.request_id != b.request_id ||
         a.trajectory_id != b.trajectory_id || a.revision != b.revision ||
@@ -266,7 +275,9 @@ void replay(const std::vector<Record>& records, const std::string& module_config
         const auto attitudes = host.outputsAs<xgc2_px4_attitude_rate_target_v1>("attitude_rate");
         ASSERT_EQ(attitudes.size(), want.attitudes.size()) << "attitude rates at tick " << k;
         for (size_t i = 0; i < attitudes.size(); ++i) {
-            ASSERT_TRUE(sameBytes(attitudes[i], want.attitudes[i])) << "attitude rate " << i << " at tick " << k;
+            ASSERT_TRUE(sameBytes(attitudes[i], want.attitudes[i]))
+                << "attitude rate " << i << " at tick " << k << "\nmodule: " << describe(attitudes[i])
+                << "\nnode:   " << describe(want.attitudes[i]);
         }
         const auto requests = host.outputsAs<xgc2_px4_fcu_request_v1>("fcu_request");
         ASSERT_EQ(requests.size(), want.requests.size()) << "fcu requests at tick " << k;

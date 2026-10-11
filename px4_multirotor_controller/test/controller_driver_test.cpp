@@ -109,6 +109,40 @@ TEST(NmpcExecution, ConfigSnapshotBusyLateCompletionStopAndRestart) {
     execution.stop();
 }
 
+// The module's host wakes its owner on the result event, so the owner may request the next solve as
+// soon as the event is posted: the worker must be idle by then, not still finishing the last one.
+TEST(NmpcExecution, WorkerIsIdleWhenItsResultEventIsPosted) {
+    SensorData data; DroneController controller(data); ControllerConfig config; controller.setConfig(config);
+    reference::AnalyticReference ref; ref.start_time = ref.header.stamp = Time(100.0);
+    ref.duration = 60.0; ref.analytic_type = reference::AnalyticReference::ANALYTIC_HOLD;
+    ref.origin.position.z = 1.0; ref.origin.orientation.w = 1.0;
+    ASSERT_TRUE(controller.activeTrajectoryCache().updateAnalytic(ref, Time(100.0)));
+    std::atomic<unsigned> computes{0}, announcements{0};
+    NmpcExecution* owner = nullptr;
+    auto make_request = [&] {
+        auto& buffer = controller.nmpcResultBuffer();
+        ::state_machine::Event event(output_event_type::REQUEST_NMPC_SOLVE, ::state_machine::EventTimestamp{100.01});
+        event.correlation_id = buffer.reserveRequestSequence();
+        event.payload["control_generation"] = static_cast<int64_t>(buffer.activeGeneration());
+        return event;
+    };
+    NmpcExecution execution(controller, [] { return Time(100.01); },
+        [&](::state_machine::Event) {
+            if (++announcements == 1) owner->handle(make_request());  // the owner runs again at once
+            return ::state_machine::Status{};
+        },
+        [&](const NmpcExecution::Request&) {
+            ++computes; NmpcSolveResult result; result.success = true; return result;
+        });
+    owner = &execution;
+    execution.start(); controller.nmpcResultBuffer().beginGeneration();
+    ASSERT_TRUE(execution.handle(make_request()));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (computes.load() < 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+    EXPECT_EQ(computes.load(), 2U); // accepted and solved, not rejected as busy
+    execution.stop();
+}
+
 TEST(NmpcResultFreshness, FutureDuplicateMalformedAndDisabledTimeoutPolicy) {
     NmpcResultBuffer buffer; const auto generation = buffer.beginGeneration();
     NmpcSolveResult result; result.control_generation = generation;

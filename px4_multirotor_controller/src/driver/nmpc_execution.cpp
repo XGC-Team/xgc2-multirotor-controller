@@ -99,10 +99,13 @@ void NmpcExecution::workerLoop() {
         result.sequence = request.sequence;
         result.control_generation = request.generation;
         result.stamp = request.now;
-        if (controller_.nmpcResultBuffer().store(result)) {
+        const bool stored = controller_.nmpcResultBuffer().store(result);
+        // The worker is idle before its owner hears of the result: the owner may be woken by the
+        // result event and request the next solve at once, and must not find the worker busy.
+        { std::lock_guard<std::mutex> lock(mutex_); busy_ = false; }
+        if (stored) {
             postResultEvent(request.sequence, request.generation, result.success);
         }
-        { std::lock_guard<std::mutex> lock(mutex_); busy_ = false; }
     }
 }
 
