@@ -699,4 +699,28 @@ if(CATKIN_ENABLE_TESTING)
     target_link_libraries(controller_module_parity_test px4_multirotor_controller_core
                           ${catkin_LIBRARIES} z dl pthread)
   endif()
+
+  # The reference module, the controller module and a scripted vehicle in the real module host
+  # (test/host/run_chain.py). It needs the host binary, which another repository builds: opt in with
+  # -DXGC2_MODULE_HOST=/path/to/xgc2-module-host and run `ctest -R chain_in_module_host`.
+  set(XGC2_MODULE_HOST "" CACHE FILEPATH "xgc2-module-host binary for the chain tests in the real host")
+  if(XGC2_MODULE_HOST)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_library(px4_scripted_vehicle MODULE test/host/scripted_vehicle.cpp)
+    set_target_properties(px4_scripted_vehicle PROPERTIES
+      INCLUDE_DIRECTORIES "" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+    target_include_directories(px4_scripted_vehicle BEFORE PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include ${MODULE_SUPPORT_INCLUDE_DIR})
+    target_compile_features(px4_scripted_vehicle PRIVATE cxx_std_17)
+    foreach(backend nmpc dfbc)
+      add_test(NAME chain_in_module_host_${backend}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/host/run_chain.py
+          --host ${XGC2_MODULE_HOST}
+          --controller $<TARGET_FILE:${PROJECT_NAME}_module>
+          --reference-dirs "${CATKIN_DEVEL_PREFIX}/lib:${CATKIN_DEVEL_PREFIX}/../../lib"
+          --vehicle $<TARGET_FILE:px4_scripted_vehicle>
+          --backend ${backend})
+      set_tests_properties(chain_in_module_host_${backend} PROPERTIES TIMEOUT 120)
+    endforeach()
+  endif()
 endif()
