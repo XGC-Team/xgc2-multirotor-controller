@@ -4,6 +4,7 @@
 #include "px4_multirotor_controller/common/controller_clock.h"
 
 
+#include <chrono>
 #include <stdexcept>
 
 #include "px4_multirotor_controller/common/sensor_checks.h"
@@ -23,6 +24,24 @@
 
 namespace px4_multirotor_controller {
 
+namespace {
+
+// State elapsed guards and ControllerTimer must share this instance's update time.
+class ControllerStateMachineClock final : public ::state_machine::Clock {
+   public:
+    explicit ControllerStateMachineClock(const double& current_time) : current_time_(current_time) {}
+
+    ::state_machine::TimePoint now() const override {
+        return ::state_machine::TimePoint(std::chrono::duration_cast<::state_machine::Duration>(
+            std::chrono::duration<double>(current_time_)));
+    }
+
+   private:
+    const double& current_time_;
+};
+
+}  // namespace
+
 using namespace event_type;  // 简化事件常量引用
 
 DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(sensor_data) {
@@ -31,7 +50,9 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
     auto health_monitor = std::make_unique<HealthMonitorState>(*this);
     health_monitor_ = health_monitor.get();
 
-    auto builder = ::state_machine::StateMachine::builder("FlightStateMachine");
+    auto builder = ::state_machine::StateMachine::builder(
+        "FlightStateMachine", ::state_machine::RuntimeOptions{},
+        std::make_shared<ControllerStateMachineClock>(current_time_));
     builder.region(region_type::HEALTH)
         .name("health")
         .order(0)

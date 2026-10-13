@@ -34,6 +34,69 @@ TEST(ControllerConfiguration, OwningProfileValuesAndValidation) {
     EXPECT_DOUBLE_EQ(config.nmpc.control_period, 0.01); // unchanged validation
     EXPECT_TRUE(config.dfbc.acceleration_correction_enabled);
 }
+TEST(ControllerClock, PausedAndSlowTakeoffUsesUpdateTimeForRequestsAndTimeout) {
+    SensorData data;
+    data.local_pos_stats.is_active = data.local_velocity_stats.is_active = true;
+    data.imu_stats.is_active = data.state_stats.is_active = true;
+    data.local_pos_stats.is_new = data.vrpn_pose_stats.is_new = true;
+    data.fcu_connected = true;
+    data.fcu_mode = "MANUAL";
+    DroneController controller(data);
+    ControllerConfig config;
+    config.tracking_backend = TrackingBackend::PX4_LOCAL;
+    controller.setConfig(config);
+    controller.update(100.0);
+    auto& machine = controller.getStateMachine();
+    ASSERT_EQ(machine.currentState(region_type::CONTROL), state_type::Ready);
+    ASSERT_TRUE(machine.postEvent(::state_machine::Event(event_type::TAKEOFF_REQUESTED)).ok());
+    constexpr double entered_at = 100.01;
+    controller.update(entered_at);
+    ASSERT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
+    bool disarm_requested = false;
+    for (const auto& event : machine.currentOutputEvents()) {
+        if (event.id == output_event_type::REQUEST_ARMING) {
+            disarm_requested = !std::get<bool>(event.payload.at("arm"));
+        }
+    }
+    EXPECT_TRUE(disarm_requested);
+    auto altctl_requests = [&] {
+        unsigned count = 0;
+        for (const auto& event : machine.currentOutputEvents()) {
+            if (event.id == output_event_type::REQUEST_MODE &&
+                std::get<std::string>(event.payload.at("mode")) == "ALTCTL") ++count;
+        }
+        return count;
+    };
+    auto elapsed = [&] {
+        return std::chrono::duration<double>(machine.elapsed(state_type::TakeoffInit)).count();
+    };
+
+    // The slow Gazebo window advanced only 1.988 seconds of controller time.
+    controller.update(entered_at + 1.988);
+    EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
+    EXPECT_EQ(altctl_requests(), 0U);
+    EXPECT_NEAR(elapsed(), 1.988, 1e-6);
+    for (int i = 0; i < 100; ++i) {
+        controller.update(entered_at + 1.988);  // paused clock, no wall-clock sleep
+        EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
+        EXPECT_EQ(altctl_requests(), 0U);
+    }
+    // Another controller's update must not advance this instance's elapsed time.
+    DroneController other(data);
+    other.setConfig(config);
+    other.update(1000.0);
+    EXPECT_NEAR(elapsed(), 1.988, 1e-6);
+
+    controller.update(entered_at + 3.0);
+    EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
+    EXPECT_EQ(altctl_requests(), 1U);
+    controller.update(entered_at + 3.0);
+    EXPECT_EQ(altctl_requests(), 0U);
+    controller.update(entered_at + 10.0);
+    EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
+    controller.update(entered_at + 10.01);
+    EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::Landing);
+}
 TEST(NmpcGeneration, InvalidatedAndUnissuedResultsCannotPoisonNextScope) {
     NmpcResultBuffer buffer;
     const auto first = buffer.beginGeneration(); const auto id1 = buffer.reserveRequestSequence();
