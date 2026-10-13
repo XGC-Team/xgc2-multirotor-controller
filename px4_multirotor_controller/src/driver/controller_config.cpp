@@ -105,8 +105,6 @@ ControllerConfig readControllerConfig(const ControllerParameters& parameters, co
     }
     parameters.logf(false, "[DroneRosNode] MPC planning period: %.3f s", config.planning_period);
 
-    parameters.logf(false, "[DroneRosNode] Control state source: state_estimator (fusion only)");
-
     std::string tracking_backend = "px4_local";
     parameters.param("tracking_backend", tracking_backend, tracking_backend);
     if (tracking_backend == "px4_local") {
