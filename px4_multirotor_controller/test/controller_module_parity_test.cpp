@@ -384,6 +384,7 @@ TEST(ControllerModuleParity, RecordedDfbcFlightWithEstimateHoverThrustAndReferen
            recordedOracle(pmc::TrackingBackend::DFBC), t);
     const std::vector<std::string> flight = {"SelfCheck", "Ready", "Landing"};
     EXPECT_EQ(t.states, flight);
+    EXPECT_GT(t.setpoints, 100U);
     EXPECT_GT(t.statuses, 50U);
 }
 
@@ -393,6 +394,7 @@ TEST(ControllerModuleParity, RecordedNmpcFlightWithEstimateHoverThrustAndReferen
            recordedOracle(pmc::TrackingBackend::NMPC), t);
     const std::vector<std::string> flight = {"SelfCheck", "Ready", "Landing"};
     EXPECT_EQ(t.states, flight);
+    EXPECT_GT(t.setpoints, 100U);
 }
 
 // The scripted flight reaches Custom1: the module must request the reference exactly as the node

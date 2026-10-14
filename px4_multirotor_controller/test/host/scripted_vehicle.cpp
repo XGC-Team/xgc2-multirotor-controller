@@ -107,7 +107,7 @@ class Vehicle {
         const double dt = last_ns_ != 0 ? static_cast<double>(now - last_ns_) * 1e-9 : 0.0;
         last_ns_ = now;
         readOutputsOfTheController(now);
-        followSetpoint(dt, now);
+        followSetpoint(dt);
         emitSensors(now);
         playOperator(now);
         if (phase_ != reported_phase_) {
@@ -139,8 +139,6 @@ class Vehicle {
         while (host_->read_next(ctx_, kFcuRequest, &view) == XGC2_OK) {
             const auto* request = static_cast<const xgc2_px4_fcu_request_v1*>(view.data);
             if (request->kind == XGC2_PX4_FCU_REQUEST_MODE) {
-                if (mode_ != "AUTO.LAND" && std::strcmp(request->mode, "AUTO.LAND") == 0)
-                    touchdown_ns_ = 0;
                 mode_ = std::string(request->mode, strnlen(request->mode, sizeof request->mode));
             } else if (request->kind == XGC2_PX4_FCU_REQUEST_ARM) {
                 armed_ = request->arm != 0;
@@ -160,15 +158,7 @@ class Vehicle {
         }
     }
 
-    void followSetpoint(double dt, int64_t now) {
-        if (armed_ && mode_ == "AUTO.LAND") {
-            z_ = std::max(0.0, z_ - dt);
-            if (z_ == 0.0) {
-                if (touchdown_ns_ == 0) touchdown_ns_ = now;
-                if (now - touchdown_ns_ >= 1000000000LL) armed_ = false;
-            }
-            return;
-        }
+    void followSetpoint(double dt) {
         if (armed_ && mode_ == "OFFBOARD" && have_setpoint_ && z_ < target_z_)
             z_ = std::min(target_z_, z_ + dt);  // 1 m/s
     }
@@ -260,7 +250,7 @@ class Vehicle {
 
     const xgc2_host_api* host_;
     void* ctx_;
-    int64_t started_ns_{0}, last_ns_{0}, state_since_ns_{0}, touchdown_ns_{0};
+    int64_t started_ns_{0}, last_ns_{0}, state_since_ns_{0};
     double z_{0.0}, target_z_{0.0};
     bool armed_{false}, have_setpoint_{false};
     std::string mode_{"MANUAL"}, state_{"unknown"}, phase_{"start"}, reported_phase_;

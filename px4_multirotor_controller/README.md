@@ -8,7 +8,7 @@ The package builds three things from one implementation:
 | Artifact | What |
 |---|---|
 | `libpx4_multirotor_controller_core.so`, `libpx4_multirotor_controller_uav_nmpc_runtime.so` | The ROS-free core: `DroneController`, its state machine and tracking strategies, `ControllerDriver` (receive statistics, the NMPC worker thread), the input handling shared by every front end (`driver/command_input.h`, `driver/trajectory_ingress.h`), and the acados NMPC solver. They link no ROS library. |
-| `px4_multirotor_controller_node` | The ROS node. Its input producers and output consumers turn ROS topics and MAVROS services into calls of the core and back. It runs the same core with the existing topics and parameters. |
+| `px4_multirotor_controller_node` | The ROS node. Its input producers and output consumers turn ROS topics and MAVROS services into calls of the core and back. Its behavior, topics and parameters are those of the previous releases. |
 | `libpx4_multirotor_controller_module.so` | The xgc2-module module `px4_multirotor_controller`. It runs the same core with typed ports instead of ROS topics. |
 
 The module is one half of the chain of an entity: the reference trajectory generator
@@ -55,13 +55,6 @@ checked by `static_assert` for size and field offsets (the tests also compile th
 A layout never changes; a different layout gets a new schema id.
 
 ### Behavior
-
-- **Landing is a native FCU handoff.** On entry the controller emits one `REQUEST_MODE` with
-  `AUTO.LAND`, then emits no descent setpoints or disarm commands. The FCU owns the landing surface
-  and automatic disarm. Only fresh, active, connected FCU feedback with `armed=false` posts the
-  existing `TOUCHDOWN` event; mode acceptance, world altitude and a landed flag do not complete it.
-  The previous diagnostic timeout budget is retained, without retries, fallback or a timeout-driven
-  transition to Ready; elevated landing does not require the world-zero plane.
 
 - **A step of the period is one iteration of the node's 1 kHz loop.** `start()` asks the host for a
   1 ms period. A step takes the samples that arrived (event ports in order, the state ports whose bit
