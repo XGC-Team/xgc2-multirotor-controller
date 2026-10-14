@@ -20,6 +20,7 @@ SUPPORT = r'''
 #include <string>
 #include <utility>
 #include <vector>
+#include <variant>
 namespace state_machine {
 struct ActionResult {};
 struct Status { bool ok() const { return true; } };
@@ -27,7 +28,7 @@ struct EventTimestamp { double seconds; };
 struct Event {
     uint32_t id;
     EventTimestamp timestamp;
-    std::map<std::string, bool> payload;
+    std::map<std::string, std::variant<bool, std::string>> payload;
     Event(uint32_t value, EventTimestamp stamp) : id(value), timestamp(stamp) {}
 };
 struct StateContext {
@@ -66,6 +67,7 @@ struct Stats { bool is_active{true}; bool is_new{true}; };
 struct SensorData {
     Stats local_pos_stats, local_velocity_stats, uav_state_estimate_stats, state_stats;
     bool fcu_connected{true}, fcu_armed{true};
+    std::string fcu_mode{"OFFBOARD"};
     double local_z{2}, local_vz{0}, z{2}, vz{0};
 };
 struct Config { TrackingBackend tracking_backend{TrackingBackend::PX4_LOCAL}; };
@@ -77,7 +79,7 @@ struct Setpoint {
 namespace state_type { constexpr uint32_t Landing = 7; }
 namespace event_type { constexpr uint32_t TOUCHDOWN = 10; }
 namespace output_event_type {
-constexpr uint32_t PUBLISH_SETPOINT = 20, REQUEST_ARMING = 21;
+constexpr uint32_t PUBLISH_SETPOINT = 20, REQUEST_ARMING = 21, REQUEST_MODE = 22;
 }
 template<class Clock>
 inline bool shouldRunEvery(state_machine::runtime::Timer<Clock>&, double, bool) { return true; }
@@ -131,111 +133,94 @@ void tick(TestLanding& landing, DroneController& controller, state_machine::Stat
     controller.now += .01;
     landing.onTick(ctx);
 }
-void settle(TestLanding& landing, DroneController& controller, state_machine::StateContext& ctx) {
-    controller.sensor.local_z = controller.sensor.z = .05;
-    controller.sensor.local_vz = controller.sensor.vz = 0;
-    for (int i = 0; i < 5; ++i) tick(landing, controller, ctx);
-}
-void testTimeoutAndLateDisarmConfirmation() {
+void testSingleAutoLandAndFreshElevatedDisarm() {
     DroneController controller;
     TestLanding landing(controller);
     state_machine::StateContext ctx;
     landing.onEnter(ctx);
-    ctx.elapsed_seconds = 100;
-    tick(landing, controller, ctx);
-    assert(ctx.internals.empty());
-    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 0);
-    assert(!controller.warnings.empty());
-    const auto publications = count(ctx.outputs, output_event_type::PUBLISH_SETPOINT);
-    tick(landing, controller, ctx);
-    assert(count(ctx.outputs, output_event_type::PUBLISH_SETPOINT) > publications);
-    assert(controller.setpoint.vz < 0);
-    // Timeout must not stop subsequent touchdown observation.
-    settle(landing, controller, ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 1);
-    for (const auto& event : ctx.outputs) {
-        if (event.id == output_event_type::REQUEST_ARMING) assert(!event.payload.at("arm"));
-    }
-    // A refused or uncompleted request leaves FCU armed; it is not success.
+    assert(count(ctx.outputs, output_event_type::REQUEST_MODE) == 1);
+    assert(std::get<std::string>(ctx.outputs.front().payload.at("mode")) == "AUTO.LAND");
+    assert(count(ctx.outputs, output_event_type::PUBLISH_SETPOINT) == 0);
+    controller.sensor.fcu_mode = "AUTO.LAND";
     for (int i = 0; i < 100; ++i) tick(landing, controller, ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 1);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    assert(ctx.internals.empty());  // Accepted mode and still armed do not complete landing.
+    assert(count(ctx.outputs, output_event_type::REQUEST_MODE) == 1);
+    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 0);
+    assert(count(ctx.outputs, output_event_type::PUBLISH_SETPOINT) == 0);
+    // The FCU may land on a roof. Pose/velocity are not the landing authority.
+    controller.sensor.local_z = controller.sensor.z = 2.03;
+    controller.sensor.local_pos_stats.is_active = false;
+    controller.sensor.local_velocity_stats.is_active = false;
+    controller.sensor.uav_state_estimate_stats.is_active = false;
     controller.sensor.fcu_armed = false;
     controller.sensor.state_stats.is_new = false;
     tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    assert(ctx.internals.empty());
     controller.sensor.state_stats.is_new = true;
     controller.sensor.state_stats.is_active = false;
     tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    assert(ctx.internals.empty());
     controller.sensor.state_stats.is_active = true;
     controller.sensor.fcu_connected = false;
     tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    assert(ctx.internals.empty());
     controller.sensor.fcu_connected = true;
     tick(landing, controller, ctx);
     assert(count(ctx.internals, event_type::TOUCHDOWN) == 1);
     tick(landing, controller, ctx);
     assert(count(ctx.internals, event_type::TOUCHDOWN) == 1);
     landing.onExit(ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 1);
+    assert(ctx.outputs.size() == 1);
 }
-void testNoCompletionFromInvalidFeedback() {
-    DroneController controller;
+void testTimeoutIsDiagnosticAndDoesNotRequestDisarmOrRetry() {
+    DroneController controller;  // Existing worldZ2 diagnostic budget: 2/.2 +5 =15s.
     TestLanding landing(controller);
     state_machine::StateContext ctx;
     landing.onEnter(ctx);
-    controller.sensor.local_velocity_stats.is_active = false;
-    settle(landing, controller, ctx);
+    ctx.elapsed_seconds = 14.999;
+    tick(landing, controller, ctx);
+    assert(controller.warnings.empty());
+    ctx.elapsed_seconds = 15;
+    tick(landing, controller, ctx);
+    assert(controller.warnings.size() == 1);
+    ctx.elapsed_seconds = 100;
+    for (int i = 0; i < 100; ++i) tick(landing, controller, ctx);
+    assert(controller.warnings.size() == 1);
+    assert(ctx.internals.empty());
+    assert(ctx.outputs.size() == 1);
+    assert(count(ctx.outputs, output_event_type::REQUEST_MODE) == 1);
     assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 0);
-    controller.sensor.local_velocity_stats.is_active = true;
-    controller.sensor.local_pos_stats.is_new = false;
-    settle(landing, controller, ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 0);
-    controller.sensor.local_pos_stats.is_new = true;
-    controller.sensor.local_vz = std::numeric_limits<double>::quiet_NaN();
-    for (int i = 0; i < 5; ++i) tick(landing, controller, ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 0);
-    settle(landing, controller, ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 1);
-    controller.sensor.local_pos_stats.is_active = false;
+    assert(count(ctx.outputs, output_event_type::PUBLISH_SETPOINT) == 0);
+    // Actual late auto-disarm still completes, without a platform disarm command.
     controller.sensor.fcu_armed = false;
     tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
-    controller.sensor.local_pos_stats.is_active = true;
-    settle(landing, controller, ctx);
     assert(count(ctx.internals, event_type::TOUCHDOWN) == 1);
 }
-void testFusedFeedbackAndReentry() {
+void testReentryHasOneNewHandoffAndNoFalseCompletion() {
     DroneController controller;
     controller.config.tracking_backend = TrackingBackend::NMPC;
-    controller.sensor.local_pos_stats.is_active = false;
     TestLanding landing(controller);
     state_machine::StateContext ctx;
     landing.onEnter(ctx);
-    settle(landing, controller, ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 1);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    landing.onExit(ctx);
+    assert(ctx.internals.empty());
+    ctx.outputs.clear();
+    landing.onEnter(ctx);
+    for (int i = 0; i < 5; ++i) tick(landing, controller, ctx);
+    assert(ctx.internals.empty());
+    assert(count(ctx.outputs, output_event_type::REQUEST_MODE) == 1);
+    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 0);
     controller.sensor.fcu_armed = false;
     tick(landing, controller, ctx);
     assert(count(ctx.internals, event_type::TOUCHDOWN) == 1);
-    landing.onExit(ctx);
-    ctx.outputs.clear(); ctx.internals.clear();
-    controller.sensor.fcu_armed = true;
-    landing.onEnter(ctx);
-    settle(landing, controller, ctx);
-    assert(count(ctx.outputs, output_event_type::REQUEST_ARMING) == 1);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
-    // External exit does not confirm touchdown.
-    landing.onExit(ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
 }
 int main() {
-    testTimeoutAndLateDisarmConfirmation();
-    testNoCompletionFromInvalidFeedback();
-    testFusedFeedbackAndReentry();
-    std::cout << "Landing timeout, normal-disarm confirmation, stale feedback, and reentry passed\n";
+    testSingleAutoLandAndFreshElevatedDisarm();
+    testTimeoutIsDiagnosticAndDoesNotRequestDisarmOrRetry();
+    testReentryHasOneNewHandoffAndNoFalseCompletion();
+    std::cout << "Landing single AUTO.LAND, fresh elevated disarm, stale/disconnected inputs, timeout and reentry passed\n";
 }
+
 '''
 
 

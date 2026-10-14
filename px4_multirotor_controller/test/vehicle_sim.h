@@ -7,6 +7,7 @@
 // With a reference module attached it also carries the reference requests and the active reference
 // between the two modules, as the host's channels do.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -66,8 +67,14 @@ class Vehicle {
         estimate_ = on;
     }
 
+    void setLandingSurface(double altitude) { landing_surface_z_ = altitude; }
+    void setAutoLandDisarm(bool enabled) { auto_land_disarm_ = enabled; }
+    void setFcuStateFeedback(bool enabled) { fcu_state_feedback_ = enabled; }
+
     // The requests, setpoints and attitude-rate commands seen so far.
     std::vector<xgc2_px4_fcu_request_v1> requests;
+    std::vector<std::string> request_states;
+    uint64_t disarm_requests_while_armed{0};
     std::vector<xgc2_px4_reference_analytic_v1> reference_requests;
     std::vector<xgc2_px4_attitude_rate_target_v1> attitude;
     uint64_t setpoints{0};
@@ -135,13 +142,15 @@ class Vehicle {
             xgc2_px4_velocity_v1 velocity{};
             stamp(now_, velocity.stamp_sec, velocity.stamp_nsec);
             controller_.push("local_velocity", velocity, now_);
-            xgc2_px4_fcu_state_v1 fcu{};
-            stamp(now_, fcu.stamp_sec, fcu.stamp_nsec);
-            fcu.connected = 1;
-            fcu.armed = armed_ ? 1 : 0;
-            fcu.system_status = 4;
-            std::strncpy(fcu.mode, mode_.c_str(), sizeof fcu.mode - 1);
-            controller_.push("fcu_state", fcu, now_);
+            if (fcu_state_feedback_) {
+                xgc2_px4_fcu_state_v1 fcu{};
+                stamp(now_, fcu.stamp_sec, fcu.stamp_nsec);
+                fcu.connected = 1;
+                fcu.armed = armed_ ? 1 : 0;
+                fcu.system_status = 4;
+                std::strncpy(fcu.mode, mode_.c_str(), sizeof fcu.mode - 1);
+                controller_.push("fcu_state", fcu, now_);
+            }
             if (hover_thrust_) {
                 xgc2_px4_hover_thrust_v1 hover{};
                 stamp(now_, hover.stamp_sec, hover.stamp_nsec);
@@ -184,8 +193,14 @@ class Vehicle {
         for (const auto& s : controller_.outputs("fcu_request")) {
             const auto request = s.as<xgc2_px4_fcu_request_v1>();
             requests.push_back(request);
-            if (request.kind == XGC2_PX4_FCU_REQUEST_MODE)
+            request_states.push_back(controller_.lastReportDetail());
+            if (request.kind == XGC2_PX4_FCU_REQUEST_ARM && request.arm == 0 && armed_)
+                ++disarm_requests_while_armed;
+            if (request.kind == XGC2_PX4_FCU_REQUEST_MODE) {
+                if (mode_ != "AUTO.LAND" && std::strcmp(request.mode, "AUTO.LAND") == 0)
+                    auto_land_touchdown_ns_ = 0;
                 mode_ = request.mode;
+            }
             if (request.kind == XGC2_PX4_FCU_REQUEST_ARM)
                 armed_ = request.arm != 0;
         }
@@ -227,8 +242,18 @@ class Vehicle {
         reference_->clearOutputs();
     }
 
-    // The flight controller follows the position setpoint's altitude once armed in OFFBOARD.
+    // Native AUTO.LAND owns descent and automatic disarm; OFFBOARD follows the takeoff setpoint.
     void followSetpoint() {
+        if (armed_ && mode_ == "AUTO.LAND") {
+            z_ = std::max(landing_surface_z_, z_ - 1.0e-3);
+            if (z_ <= landing_surface_z_) {
+                if (auto_land_touchdown_ns_ == 0) auto_land_touchdown_ns_ = now_;
+                // Fixture FCU policy: COM_DISARM_LAND=1, independent of controller state.
+                if (auto_land_disarm_ && now_ - auto_land_touchdown_ns_ >= 1000 * kMs)
+                    armed_ = false;
+            }
+            return;
+        }
         if (!armed_ || mode_ != "OFFBOARD" || setpoints == 0)
             return;
         const double target = last_setpoint.position[2];
@@ -241,7 +266,9 @@ class Vehicle {
     TestHost* reference_{nullptr};
     int64_t now_;
     uint64_t tick_{0};
-    double x_{0.0}, y_{0.0}, z_{0.0};
+    double x_{0.0}, y_{0.0}, z_{0.0}, landing_surface_z_{0.0};
+    int64_t auto_land_touchdown_ns_{0};
+    bool auto_land_disarm_{true}, fcu_state_feedback_{true};
     std::string mode_{"MANUAL"};
     bool armed_{false};
     bool sensors_off_{false};
