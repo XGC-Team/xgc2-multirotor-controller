@@ -71,3 +71,19 @@ for path in "${retired[@]}"; do
   [[ ! -e "$path" ]] || { echo "retired file is packaged: ${path#"$work/payload"}" >&2; exit 1; }
 done
 echo 'PASS: payload headers match the install root and are required; retired wire files are absent'
+bash "$script_dir/check_payload_headers.sh" --prefix "$work/payload$prefix"
+
+# A caller's source overlay must not conceal a missing installed dependency.
+cp -a "$work/payload" "$work/incomplete"
+mkdir -p "$work/source-only"
+printf '/* Not installed with the product. */\n' > "$work/source-only/uninstalled_payload_dependency.h"
+printf '\n#include <uninstalled_payload_dependency.h>\n' >> \
+  "$work/incomplete$prefix/include/px4_multirotor_controller/payloads.h"
+if CPATH="$work/source-only" C_INCLUDE_PATH="$work/source-only" CPLUS_INCLUDE_PATH="$work/source-only" \
+  bash "$script_dir/check_payload_headers.sh" --prefix "$work/incomplete$prefix" \
+  >"$work/source-fallback.log" 2>&1; then
+  echo 'payload consumer accepted a source-only dependency' >&2
+  exit 1
+fi
+grep -Fq 'uninstalled_payload_dependency.h' "$work/source-fallback.log"
+echo 'PASS: source include environment cannot conceal an incomplete installed payload'

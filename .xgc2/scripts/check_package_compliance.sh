@@ -41,6 +41,7 @@ required_files=(
   .xgc2/scripts/check_cpp_quality.sh
   .xgc2/scripts/check_installed_packages.sh
   .xgc2/scripts/check_module_package_payload.sh
+  .xgc2/scripts/check_payload_headers.sh
   .xgc2/scripts/check_package_compliance.sh
   .xgc2/scripts/check_version_bump.sh
   .xgc2/scripts/install_published_products.sh
@@ -115,7 +116,7 @@ fi
 # packages and the libraries they needed (the Runtime SDK, the robotics interface records, the
 # estimators' wire packages) must not come back.
 if grep -R --exclude='check_package_compliance.sh' --exclude='check_module_package_payload.sh' \
-  --exclude='check_installed_packages.sh' \
+  --exclude='check_installed_packages.sh' --exclude='check_payload_headers.sh' \
   -E "XgcRuntimeSDK|XgcRoboticsInterfaces|xgc-robotics-interfaces|robotics-interfaces|runtime-sdk|xgc_rt_plugin|HoverThrustNativeWire|RigidStateNativeWire|ReferenceTrajectoryNative|libctl_px4|libref_trajectory|reference_wire" \
   .github .xgc2 README.md px4_multirotor_controller multirotor_reference_trajectory module_support >/dev/null; then
   echo "Retired plugin adapter, wire package or robotics-interfaces dependency found." >&2

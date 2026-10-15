@@ -86,6 +86,9 @@ do
   dpkg-query -S "${path}" | grep -Fxq "ros-${ROS_DISTRO}-xgc2-multirotor-controller: ${path}"
 done
 
+# Exercise installed interfaces as consumers, including their complete header dependencies.
+bash "$(dirname "${BASH_SOURCE[0]}")/check_payload_headers.sh"
+
 # The retired wire packages and native adapters are gone.
 for path in \
   "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory/reference_wire.hpp" \
