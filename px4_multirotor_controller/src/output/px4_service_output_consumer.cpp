@@ -6,8 +6,8 @@
 #include <string>
 #include <variant>
 
-#include "px4_multirotor_controller/output/px4_command.h"
 #include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/output/px4_command.h"
 
 namespace px4_multirotor_controller {
 

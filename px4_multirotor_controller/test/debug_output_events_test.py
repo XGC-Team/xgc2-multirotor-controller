@@ -6,7 +6,7 @@ DebugMonitor emits PUBLISH_STATE_MACHINE_EVENTS on every 1 kHz control tick.
 This checks that the per-tick alg/state_machine_events work (processed-event
 snapshot, task allocation, worker wake-up) happens only while the topic has a
 subscriber, and that a subscriber still gets one message per tick with that
-tick's event ids. The 5 Hz status outputs keep their unconditional queueing.
+tick's event ids. The 5 Hz controller status stays unconditional; optional diagnostics do no work without subscribers.
 """
 from pathlib import Path
 import os
@@ -141,10 +141,12 @@ struct StateMachineDouble {
         ++snapshots;
         return processed;
     }
-    std::string currentStateName(uint32_t) const { return "Hover"; }
+    std::string state_name{"Hover"};
+    std::string currentStateName(uint32_t) const { return state_name; }
 };
 struct TrajectoryCacheDouble {
-    bool sample(const Time&, UavReferencePoint&) const { return false; }
+    mutable unsigned samples{0};
+    bool sample(const Time&, UavReferencePoint&) const { ++samples; return false; }
 };
 struct DroneController {
     StateMachineDouble machine;
@@ -155,6 +157,8 @@ struct DroneController {
 }
 '''
 TEST = r'''
+#include <future>
+#include <thread>
 #include <cassert>
 #include <iostream>
 #include "px4_multirotor_controller/output/debug_output_consumer.h"
@@ -202,15 +206,64 @@ int main() {
     assert(consumer.handle(tick));
     assert(worker.pending.empty() && controller.machine.snapshots == 4);
 
-    // The 5 Hz status outputs keep queueing whether or not anyone listens.
+    // Required status stays independent of optional diagnostic subscriptions.
     assert(consumer.handle({output_event_type::PUBLISH_CONTROLLER_STATUS}));
     assert(consumer.handle({output_event_type::PUBLISH_SENSOR_STATS}));
     assert(consumer.handle({output_event_type::PUBLISH_TRACKING_ERROR}));
     assert(consumer.handle({output_event_type::PRINT_SENSOR_DEBUG}));
-    assert(worker.pending.size() == 3);
-    worker.drain(nh);
-    assert(ros::publications().size() == 4 + 1 + 8 + 1);
+    assert(worker.pending.empty());
+    assert(controller.cache.samples == 0);
+    assert(ros::publications().size() == 5);
     assert(std::get<std_msgs::String>(ros::publications()[4].message).data == "Hover");
+
+    // Any one stats subscriber preserves the existing single snapshot/task and all eight outputs.
+    ros::subscribers("alg/stats/imu") = 1;
+    assert(consumer.handle({output_event_type::PUBLISH_SENSOR_STATS}));
+    assert(worker.pending.size() == 1);
+    worker.drain(nh);
+    assert(ros::publications().size() == 13);
+    ros::subscribers("alg/stats/imu") = 0;
+    assert(consumer.handle({output_event_type::PUBLISH_SENSOR_STATS}));
+    assert(worker.pending.empty());
+
+    // Tracking has a separate capability; reserve/sample/task are skipped while unsubscribed.
+    ros::subscribers("alg/tracking/position_error") = 1;
+    assert(consumer.handle({output_event_type::PUBLISH_TRACKING_ERROR}));
+    assert(controller.cache.samples == 1 && worker.pending.size() == 1);
+    worker.drain(nh);
+    assert(ros::publications().size() == 14);
+    ros::subscribers("alg/tracking/position_error") = 0;
+    assert(consumer.handle({output_event_type::PUBLISH_TRACKING_ERROR}));
+    assert(controller.cache.samples == 1 && worker.pending.empty());
+
+    // An in-flight RPC blocks the existing output worker. Status still publishes
+    // the current state immediately, with no old status queue to replay later.
+    std::promise<void> rpc_entered, release_rpc;
+    auto entered = rpc_entered.get_future();
+    auto release = release_rpc.get_future();
+    worker.pushTask(std::make_unique<state_machine::runtime::LambdaTask<ros::NodeHandle>>(
+        "BlockingRpc", [&](ros::NodeHandle&) { rpc_entered.set_value(); release.wait(); }));
+    auto rpc_task = std::move(worker.pending.front());
+    worker.pending.clear();
+    std::thread rpc_worker([&] { rpc_task->execute(nh); });
+    entered.wait();
+    const auto before_status = ros::publications().size();
+    controller.machine.state_name = "SelfCheck";
+    assert(consumer.handle({output_event_type::PUBLISH_CONTROLLER_STATUS}));
+    assert(ros::publications().size() == before_status + 1);
+    assert(std::get<std_msgs::String>(ros::publications().back().message).data == "SelfCheck");
+    controller.machine.state_name = "Ready";
+    assert(consumer.handle({output_event_type::PUBLISH_CONTROLLER_STATUS}));
+    assert(ros::publications().size() == before_status + 2);
+    assert(std::get<std_msgs::String>(ros::publications().back().message).data == "Ready");
+    assert(worker.pending.empty());
+    release_rpc.set_value();
+    rpc_worker.join();
+    worker.drain(nh);
+    assert(ros::publications().size() == before_status + 2);
+    controller.machine.state_name.clear();
+    assert(consumer.handle({output_event_type::PUBLISH_CONTROLLER_STATUS}));
+    assert(std::get<std_msgs::String>(ros::publications().back().message).data == "Unknown");
     assert(!consumer.handle({999}));
     std::cout << "1000 unsubscribed ticks: 0 snapshots, 0 tasks; "
                  "4 subscribed ticks: 4 messages in order\n";
@@ -242,7 +295,7 @@ class DebugOutputEventsTest(unittest.TestCase):
             main.write_text(TEST)
             binary = root / "test"
             subprocess.run([
-                compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-pedantic",
+                compiler, "-std=c++17", "-pthread", "-Wall", "-Wextra", "-Werror", "-pedantic",
                 "-I", str(root), "-I", str(PACKAGE / "include"),
                 str(PACKAGE / "src/output/debug_output_consumer.cpp"), str(main),
                 "-o", str(binary),

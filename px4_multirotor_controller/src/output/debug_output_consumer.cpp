@@ -1,5 +1,4 @@
 #include "px4_multirotor_controller/output/debug_output_consumer.h"
-#include "px4_multirotor_controller/ros_time_conversion.h"
 
 #include <cmath>
 #include <memory>
@@ -7,6 +6,7 @@
 #include <utility>
 
 #include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/ros_time_conversion.h"
 
 namespace px4_multirotor_controller {
 
@@ -58,8 +58,9 @@ bool DebugOutputConsumer::handle(const ::state_machine::Event& event) {
             if (msg.data.empty()) {
                 msg.data = "Unknown";
             }
-            executor_.pushTask(
-                makePublishTask("PublishControllerStatus", controller_status_pub_, std::move(msg)));
+            // Match control publishing: the ROS bounded transport queue owns
+            // delivery, not the worker that may be blocked in an Arm/Mode RPC.
+            controller_status_pub_.publish(msg);
             return true;
         }
         case output_event_type::PUBLISH_STATE_MACHINE_EVENTS:
@@ -74,6 +75,16 @@ bool DebugOutputConsumer::handle(const ::state_machine::Event& event) {
                                                snapshotStateMachineEvents()));
             return true;
         case output_event_type::PUBLISH_SENSOR_STATS: {
+            if (stats_state_estimate_pub_.getNumSubscribers() == 0 &&
+                stats_local_pos_pub_.getNumSubscribers() == 0 &&
+                stats_local_vel_pub_.getNumSubscribers() == 0 &&
+                stats_imu_pub_.getNumSubscribers() == 0 &&
+                stats_state_pub_.getNumSubscribers() == 0 &&
+                stats_battery_pub_.getNumSubscribers() == 0 &&
+                stats_vrpn_pose_pub_.getNumSubscribers() == 0 &&
+                vrpn_quality_pub_.getNumSubscribers() == 0) {
+                return true;
+            }
             const auto snapshot = snapshotSensorStats();
             executor_.pushTask(
                 std::make_unique<::state_machine::runtime::LambdaTask<ros::NodeHandle>>(
@@ -95,6 +106,9 @@ bool DebugOutputConsumer::handle(const ::state_machine::Event& event) {
             return true;
         }
         case output_event_type::PUBLISH_TRACKING_ERROR:
+            if (tracking_error_pub_.getNumSubscribers() == 0) {
+                return true;
+            }
             executor_.pushTask(makePublishTask("PublishTrackingError", tracking_error_pub_,
                                                snapshotTrackingError()));
             return true;
