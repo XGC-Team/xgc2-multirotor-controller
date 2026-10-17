@@ -18,6 +18,11 @@ SUPPORT = r'''
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <condition_variable>
+#include <cstdarg>
+#include <cstdio>
+#include <map>
+#include <mutex>
 #include <functional>
 #include <memory>
 #include <string>
@@ -35,6 +40,17 @@ struct Header { ros::Time stamp; std::string frame_id; };
 struct Vec3 { double x{0}, y{0}, z{0}; };
 struct Quaternion { double x{0}, y{0}, z{0}, w{0}; };
 namespace mavros_msgs {
+struct CommandLong {
+    struct Request {
+        uint16_t command{0};
+        double param1{0}, param2{0}, param3{0}, param4{0}, param5{0}, param6{0}, param7{0};
+    } request;
+    struct Response { bool success{false}; } response;
+};
+struct SetMode {
+    struct Request { std::string custom_mode; } request;
+    struct Response { bool mode_sent{false}; } response;
+};
 struct PositionTarget {
     Header header;
     uint8_t coordinate_frame{0};
@@ -64,14 +80,64 @@ struct Publisher {
         publications().push_back({topic, std::move(message)});
     }
 };
+struct ServiceBoundary {
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool release_exists{false};
+    int exists_calls{0};
+    bool transport_ok{true}, arm_success{true}, mode_sent{true};
+    std::vector<std::pair<std::string, bool>> registrations;
+    std::vector<std::variant<mavros_msgs::CommandLong, mavros_msgs::SetMode>> calls;
+    std::vector<std::string> logs;
+};
+inline ServiceBoundary& services() { static ServiceBoundary value; return value; }
+inline void log(const char* format, ...) {
+    char message[1024];
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(message, sizeof(message), format, args);
+    va_end(args);
+    services().logs.emplace_back(message);
+}
+struct ServiceClient {
+    bool exists() {
+        auto& boundary = services();
+        std::unique_lock<std::mutex> lock(boundary.mutex);
+        ++boundary.exists_calls;
+        boundary.condition.wait(lock, [&] { return boundary.release_exists; });
+        return true;
+    }
+    bool call(mavros_msgs::CommandLong& message) {
+        auto& boundary = services();
+        boundary.calls.emplace_back(message);
+        message.response.success = boundary.arm_success;
+        return boundary.transport_ok;
+    }
+    bool call(mavros_msgs::SetMode& message) {
+        auto& boundary = services();
+        boundary.calls.emplace_back(message);
+        message.response.mode_sent = boundary.mode_sent;
+        return boundary.transport_ok;
+    }
+};
 struct NodeHandle {
+    template<class T> ServiceClient serviceClient(const std::string& topic, bool persistent = false) {
+        services().registrations.emplace_back(topic, persistent);
+        return ServiceClient{};
+    }
     template<class T> Publisher advertise(const std::string& topic, uint32_t) {
         return Publisher{topic};
     }
 };
 }
+#define ROS_INFO(...) ::ros::log(__VA_ARGS__)
+#define ROS_WARN(...) ::ros::log(__VA_ARGS__)
+#define ROS_ERROR(...) ::ros::log(__VA_ARGS__)
 namespace state_machine {
-struct Event { uint32_t id; };
+struct Event {
+    uint32_t id;
+    std::map<std::string, std::variant<bool, std::string>> payload{};
+};
 namespace runtime {
 struct EventConsumer {
     virtual ~EventConsumer() = default;
@@ -81,6 +147,7 @@ struct EventConsumer {
 template<class Context> struct Task {
     virtual ~Task() = default;
     virtual void execute(Context&) = 0;
+    virtual std::string name() const { return {}; }
 };
 template<class Context> struct LambdaTask : Task<Context> {
     std::function<void(Context&)> fn;
@@ -99,6 +166,8 @@ template<class Context> struct AsyncTaskExecutor {
 }
 namespace px4_multirotor_controller {
 namespace output_event_type {
+constexpr uint32_t REQUEST_ARMING = 99;
+constexpr uint32_t REQUEST_MODE = 100;
 constexpr uint32_t PUBLISH_SETPOINT = 101;
 constexpr uint32_t PUBLISH_ATTITUDE_RATE_TARGET = 102;
 }
@@ -172,8 +241,98 @@ int main() {
 '''
 
 
+SERVICE_TEST = r'''
+#include <cassert>
+#include <chrono>
+#include <future>
+#include <iostream>
+#include <thread>
+#include "px4_multirotor_controller/output/px4_service_output_consumer.h"
+int main() {
+    using namespace px4_multirotor_controller;
+    ros::NodeHandle nh;
+    state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> rpc;
+    Px4ServiceOutputConsumer consumer(nh, rpc);
+    state_machine::Event arm{output_event_type::REQUEST_ARMING};
+    arm.payload["arm"] = true;
+    state_machine::Event mode{output_event_type::REQUEST_MODE};
+    mode.payload["mode"] = std::string("OFFBOARD");
+    auto& boundary = ros::services();
+    assert(consumer.handle(arm));
+    assert(consumer.handle(mode));
+    assert(rpc.pending.empty());
+
+    // An availability probe is held indefinitely until this test releases it.
+    // Initialization must finish without entering that network boundary.
+    std::promise<void> initialized;
+    auto done = initialized.get_future();
+    std::thread initializing([&] {
+        consumer.initializeClientsIfNeeded();
+        initialized.set_value();
+    });
+    const bool completed = done.wait_for(std::chrono::seconds(1)) == std::future_status::ready;
+    {
+        std::lock_guard<std::mutex> lock(boundary.mutex);
+        boundary.release_exists = true;
+    }
+    boundary.condition.notify_all();
+    initializing.join();
+    assert(completed && "initialization blocked in service availability probing");
+    assert(boundary.exists_calls == 0);
+    assert(boundary.registrations.size() == 2);
+    assert(boundary.registrations[0] == std::make_pair(std::string("mavros/cmd/command"), false));
+    assert(boundary.registrations[1] == std::make_pair(std::string("mavros/set_mode"), false));
+    consumer.initializeClientsIfNeeded();
+    assert(boundary.registrations.size() == 2);
+    assert(boundary.calls.empty());
+
+    auto queue = [&] {
+        assert(consumer.handle(arm));
+        assert(consumer.handle(mode));
+        assert(rpc.pending.size() == 2);
+    };
+    queue();
+    assert(boundary.calls.empty());
+    rpc.drain(nh);
+    assert(boundary.calls.size() == 2);
+    const auto& request = std::get<mavros_msgs::CommandLong>(boundary.calls[0]).request;
+    assert(request.command == 400 && request.param1 == 1);
+    assert(request.param2 == 0 && request.param3 == 0 && request.param4 == 0);
+    assert(request.param5 == 0 && request.param6 == 0 && request.param7 == 0);
+    assert(std::get<mavros_msgs::SetMode>(boundary.calls[1]).request.custom_mode == "OFFBOARD");
+    assert(boundary.logs[boundary.logs.size() - 2].find("result: SUCCESS") != std::string::npos);
+    assert(boundary.logs.back().find("result: SUCCESS") != std::string::npos);
+
+    boundary.arm_success = false;
+    boundary.mode_sent = false;
+    queue();
+    assert(boundary.calls.size() == 2);
+    rpc.drain(nh);
+    assert(boundary.calls.size() == 4);
+    assert(boundary.logs[boundary.logs.size() - 2].find("result: FAILED") != std::string::npos);
+    assert(boundary.logs.back().find("result: FAILED") != std::string::npos);
+
+    boundary.transport_ok = false;
+    queue();
+    rpc.drain(nh);
+    assert(boundary.calls.size() == 6);
+    assert(boundary.logs[boundary.logs.size() - 2].find("Failed to call arm/disarm") != std::string::npos);
+    assert(boundary.logs.back().find("Failed to call set_mode") != std::string::npos);
+    assert(boundary.exists_calls == 0 && boundary.registrations.size() == 2);
+    assert(!consumer.handle({999}));
+    std::cout << "0 initialization probes; 2 nonpersistent clients once; 6 async real task calls/results\n";
+}
+'''
+
+
 class ControlOutputSchedulingTest(unittest.TestCase):
+    def test_service_initialization_does_not_probe_and_commands_still_queue(self):
+        self.compile_and_run("px4_service_output_consumer.cpp", SERVICE_TEST)
+
     def test_real_consumer_does_not_queue_control_behind_rpc(self):
+        self.compile_and_run("control_output_consumer.cpp", TEST)
+
+    def compile_and_run(self, source, test):
         compiler = shutil.which(os.environ.get("CXX", "g++"))
         self.assertIsNotNone(compiler, "C++17 compiler is required")
         with tempfile.TemporaryDirectory(prefix="xgc2-output-test-") as directory:
@@ -181,6 +340,7 @@ class ControlOutputSchedulingTest(unittest.TestCase):
             (root / "support.hpp").write_text(SUPPORT)
             for name in (
                 "ros/ros.h", "mavros_msgs/AttitudeTarget.h", "mavros_msgs/PositionTarget.h",
+                "mavros_msgs/CommandLong.h", "mavros_msgs/SetMode.h",
                 "state_machine/runtime/async_task_executor.hpp",
                 "state_machine/runtime/event_dispatcher.hpp",
                 "px4_multirotor_controller/drone_controller.h",
@@ -191,12 +351,12 @@ class ControlOutputSchedulingTest(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text('#include "support.hpp"\n')
             main = root / "test.cpp"
-            main.write_text(TEST)
+            main.write_text(test)
             binary = root / "test"
             subprocess.run([
-                compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-pedantic",
+                compiler, "-std=c++17", "-pthread", "-Wall", "-Wextra", "-Werror", "-pedantic",
                 "-I", str(root), "-I", str(PACKAGE / "include"),
-                str(PACKAGE / "src/output/control_output_consumer.cpp"), str(main),
+                str(PACKAGE / "src/output" / source), str(main),
                 "-o", str(binary),
             ], check=True, timeout=30)
             subprocess.run([str(binary)], check=True, timeout=10)

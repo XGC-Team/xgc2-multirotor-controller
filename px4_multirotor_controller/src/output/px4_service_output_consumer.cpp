@@ -27,10 +27,6 @@ void Px4ServiceOutputConsumer::initializeClientsIfNeeded() {
     clients_initialized_ = true;
 
     ROS_INFO("[Px4ServiceOutputConsumer] Registered critical service clients");
-    ROS_INFO("[Px4ServiceOutputConsumer]   mavros/cmd/command ready: %s",
-             arming_client_.exists() ? "true" : "false");
-    ROS_INFO("[Px4ServiceOutputConsumer]   mavros/set_mode ready: %s",
-             set_mode_client_.exists() ? "true" : "false");
 }
 
 bool Px4ServiceOutputConsumer::handle(const ::state_machine::Event& event) {
