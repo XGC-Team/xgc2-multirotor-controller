@@ -15,7 +15,7 @@ class DroneController;
 // 职责：
 // - 持续输出起飞 setpoint
 // - 上升到目标高度
-// - 检测高度到达条件（高度阈值 + 速度稳定，连续5帧）
+// - 检测高度到达条件（|z - 目标| <= 高度阈值，双侧 + 速度稳定，连续5帧）
 // - 到达后发送 ALTITUDE_REACHED 事件转移到 Hover
 // - 超时后发送 TAKEOFF_TIMEOUT 事件转移到 Landing
 class TakeoffAscendingState : public ::state_machine::State {

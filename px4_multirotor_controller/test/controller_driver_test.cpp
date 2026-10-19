@@ -97,6 +97,76 @@ TEST(ControllerClock, PausedAndSlowTakeoffUsesUpdateTimeForRequestsAndTimeout) {
     controller.update(entered_at + 10.01);
     EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::Landing);
 }
+// Hover latches the altitude it is entered at, so the takeoff confirmation must be two-sided:
+// the apex of a PX4 overshoot (vz ~ 0 above the target) must not hand over to Hover.
+TEST(TakeoffAscending, AltitudeConfirmationIsTwoSidedAroundTarget) {
+    SensorData data;
+    data.local_pos_stats.is_active = data.local_velocity_stats.is_active = true;
+    data.imu_stats.is_active = data.state_stats.is_active = true;
+    data.fcu_connected = true;
+    data.local_z = 0.0;
+    DroneController controller(data);
+    ControllerConfig config;
+    config.tracking_backend = TrackingBackend::PX4_LOCAL;
+    config.takeoff_altitude = 1.0;
+    controller.setConfig(config);
+    double now = 100.0;
+    auto tick = [&](int frames = 1) {
+        for (int i = 0; i < frames; ++i) {
+            data.local_pos_stats.is_new = data.state_stats.is_new = true;
+            controller.update(now += 0.01);
+            data.local_pos_stats.is_new = data.state_stats.is_new = false;
+        }
+    };
+    auto& machine = controller.getStateMachine();
+    auto state = [&] { return machine.currentState(region_type::CONTROL); };
+    auto request = [&](uint32_t event_id) {
+        ASSERT_TRUE(machine.postEvent(::state_machine::Event(
+            event_id, ::state_machine::EventTimestamp{now})).ok());
+        tick();
+    };
+    tick();
+    ASSERT_EQ(state(), state_type::Ready);
+    request(event_type::TAKEOFF_REQUESTED);
+    ASSERT_EQ(state(), state_type::TakeoffInit);
+    request(event_type::ALTCTL_READY);
+    ASSERT_EQ(state(), state_type::TakeoffOffboardRequest);
+    request(event_type::OFFBOARD_READY);
+    ASSERT_EQ(state(), state_type::TakeoffArmRequest);
+    data.fcu_armed = true;
+    request(event_type::ARM_READY);
+    ASSERT_EQ(state(), state_type::TakeoffAscending);
+    ASSERT_DOUBLE_EQ(controller.getSetpoint().z, 1.0);
+
+    // Below the lower bound, even when stationary.
+    data.local_z = 0.85;
+    data.local_vz = 0.0;
+    tick(20);
+    EXPECT_EQ(state(), state_type::TakeoffAscending);
+
+    // Overshoot apex 0.26 m above the target with vz ~ 0.
+    data.local_z = 1.26;
+    data.local_vz = 0.01;
+    tick(20);
+    EXPECT_EQ(state(), state_type::TakeoffAscending);
+
+    // Just outside the upper bound stays unconfirmed.
+    data.local_z = 1.11;
+    tick(20);
+    EXPECT_EQ(state(), state_type::TakeoffAscending);
+
+    // Inside the band but still moving does not confirm either.
+    data.local_z = 1.03;
+    data.local_vz = 0.2;
+    tick(20);
+    EXPECT_EQ(state(), state_type::TakeoffAscending);
+
+    // Settled near the target: Hover is entered and latches that altitude.
+    data.local_vz = 0.01;
+    tick(10);
+    EXPECT_EQ(state(), state_type::Hover);
+    EXPECT_NEAR(controller.getSetpoint().z, 1.03, 1e-9);
+}
 TEST(NmpcGeneration, InvalidatedAndUnissuedResultsCannotPoisonNextScope) {
     NmpcResultBuffer buffer;
     const auto first = buffer.beginGeneration(); const auto id1 = buffer.reserveRequestSequence();
