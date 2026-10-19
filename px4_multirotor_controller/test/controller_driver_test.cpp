@@ -3,6 +3,7 @@
 #include <condition_variable>
 #include <future>
 #include <limits>
+#include "px4_multirotor_controller/common/state_estimate_status.h"
 #include "px4_multirotor_controller/driver/controller_driver.h"
 #include "px4_multirotor_controller/driver/controller_config.h"
 using namespace px4_multirotor_controller;
@@ -96,6 +97,88 @@ TEST(ControllerClock, PausedAndSlowTakeoffUsesUpdateTimeForRequestsAndTimeout) {
     EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
     controller.update(entered_at + 10.01);
     EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::Landing);
+}
+// Hover latches the altitude it is entered at, so the takeoff confirmation must be two-sided:
+// the apex of a PX4 overshoot (vz ~ 0 above the target) must not hand over to Hover.
+// The sensor fixture mirrors position_distance_runtime_test.cpp: every stream the Ready and
+// Takeoff states require is active, and the VRPN/local pair is kept consistent (a mismatch
+// above the distance limit lands the vehicle and would hide the gate under test).
+TEST(TakeoffAscending, AltitudeConfirmationIsTwoSidedAroundTarget) {
+    SensorData data;
+    data.local_pos_stats.is_active = true;
+    data.local_velocity_stats.is_active = true;
+    data.imu_stats.is_active = true;
+    data.state_stats.is_active = true;
+    data.uav_state_estimate_stats.is_active = true;
+    data.vrpn_pose_stats.is_active = true;
+    data.uav_state_estimator_state = state_estimate::STATE_RUNNING;
+    data.fcu_connected = true;
+    data.local_z = data.vrpn_z = data.z = 0.0;
+    DroneController controller(data);
+    ControllerConfig config;
+    config.tracking_backend = TrackingBackend::PX4_LOCAL;
+    config.takeoff_altitude = 1.0;
+    controller.setConfig(config);
+    double now = 100.0;
+    auto set_altitude = [&](double z, double vz) {
+        data.local_z = data.vrpn_z = data.z = z;
+        data.local_vz = data.vz = vz;
+    };
+    auto tick = [&](int frames = 1) {
+        for (int i = 0; i < frames; ++i) {
+            // A fresh pose sample every frame, as the ROS input producer delivers it.
+            data.local_pos_stats.is_new = data.vrpn_pose_stats.is_new = true;
+            controller.update(now += 0.01);
+            data.local_pos_stats.is_new = data.vrpn_pose_stats.is_new = false;
+            data.uav_state_estimate_stats.is_new = data.state_stats.is_new = false;
+            data.imu_stats.is_new = false;
+        }
+    };
+    auto& machine = controller.getStateMachine();
+    auto state = [&] { return machine.currentState(region_type::CONTROL); };
+    auto request = [&](uint32_t event_id) {
+        ASSERT_TRUE(machine.postEvent(::state_machine::Event(
+            event_id, ::state_machine::EventTimestamp{now})).ok());
+        tick();
+    };
+    tick();
+    ASSERT_EQ(state(), state_type::Ready);
+    request(event_type::TAKEOFF_REQUESTED);
+    ASSERT_EQ(state(), state_type::TakeoffInit);
+    request(event_type::ALTCTL_READY);
+    ASSERT_EQ(state(), state_type::TakeoffOffboardRequest);
+    request(event_type::OFFBOARD_READY);
+    ASSERT_EQ(state(), state_type::TakeoffArmRequest);
+    data.fcu_armed = true;
+    request(event_type::ARM_READY);
+    ASSERT_EQ(state(), state_type::TakeoffAscending);
+    ASSERT_DOUBLE_EQ(controller.getSetpoint().z, 1.0);
+
+    // Below the lower bound, even when stationary.
+    set_altitude(0.85, 0.0);
+    tick(20);
+    EXPECT_EQ(state(), state_type::TakeoffAscending);
+
+    // Overshoot apex 0.26 m above the target with vz ~ 0.
+    set_altitude(1.26, 0.01);
+    tick(20);
+    EXPECT_EQ(state(), state_type::TakeoffAscending);
+
+    // Just outside the upper bound stays unconfirmed.
+    set_altitude(1.11, 0.01);
+    tick(20);
+    EXPECT_EQ(state(), state_type::TakeoffAscending);
+
+    // Inside the band but still moving does not confirm either.
+    set_altitude(1.03, 0.2);
+    tick(20);
+    EXPECT_EQ(state(), state_type::TakeoffAscending);
+
+    // Settled near the target: Hover is entered and latches that altitude.
+    set_altitude(1.03, 0.01);
+    tick(10);
+    EXPECT_EQ(state(), state_type::Hover);
+    EXPECT_NEAR(controller.getSetpoint().z, 1.03, 1e-9);
 }
 TEST(NmpcGeneration, InvalidatedAndUnissuedResultsCannotPoisonNextScope) {
     NmpcResultBuffer buffer;

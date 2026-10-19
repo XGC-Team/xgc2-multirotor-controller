@@ -106,8 +106,10 @@ void TakeoffAscendingState::updateAltitudeConfirmation() {
     }
 
     const auto& setpoint = controller_.getSetpoint();
+    // Two-sided: an overshoot apex (vz ~ 0 above the target) must not confirm, because Hover
+    // latches the current altitude and would hold the overshoot.
     const bool altitude_ok =
-        sensor_checks::worldZ(sensor_data, backend) >= setpoint.z - ALTITUDE_THRESHOLD;
+        std::abs(sensor_checks::worldZ(sensor_data, backend) - setpoint.z) <= ALTITUDE_THRESHOLD;
     const bool velocity_ok =
         std::abs(sensor_checks::worldVz(sensor_data, backend)) < VELOCITY_THRESHOLD;
     if (!altitude_ok || !velocity_ok) {
