@@ -1,12 +1,13 @@
 #pragma once
 
+#include <hover_thrust_estimator/common/types.h>
 
 #include <Eigen/Dense>  // 用于 MpcTrajectoryState
 #include <cstdint>
 #include <string>
 
-#include "px4_multirotor_controller/common/world_boundary.h"
 #include "px4_multirotor_controller/common/time.h"
+#include "px4_multirotor_controller/common/world_boundary.h"
 
 namespace px4_multirotor_controller {
 
@@ -17,8 +18,13 @@ enum class TrackingBackend {
     PX4_LOCAL = 0,  // 世界系 PV/PVA 直通 mavros/setpoint_raw/local
     NMPC = 1,       // body-rate NMPC
     DFBC = 2,       // 几何 DFBC attitude-rate
-    SMC = 3,        // PVA 有效时刻提升 + 滑模世界加速度，经 PositionTarget 交给 PX4
+    SMC = 3,  // PVA 有效时刻提升 + 滑模世界加速度，经 PositionTarget 交给 PX4
 };
+
+// Input choice is independent of the tracking strategy. Existing defaults are unchanged.
+enum class FeedbackSource { RIGID_ESTIMATE, MAVROS_LOCAL };
+enum class HoverThrustSource { EXTERNAL, INTERNAL };
+enum class DfbcReferenceSource { TRAJECTORY_CACHE, PLANNER_SETPOINT };
 
 // PX4_LOCAL only. Legacy is the historical receipt-time polynomial lift.
 // ZeroOrderHold keeps the selected sample's p/v/a and does not integrate tau.
@@ -48,9 +54,9 @@ constexpr uint16_t kDefaultPvaLocalTypeMask = kIgnoreYawBit | kIgnoreYawRateBit;
 // SMC -> PX4/MAVROS: world acceleration only. Ignored position and velocity
 // stop the FCU from adding a position/velocity PD loop. Yaw stays ignored.
 // FORCE is clear, so acceleration_or_force is acceleration. Frame is local ENU.
-constexpr uint16_t kSmcAccelerationTypeMask =
-    kIgnorePxBit | kIgnorePyBit | kIgnorePzBit | kIgnoreVxBit | kIgnoreVyBit | kIgnoreVzBit |
-    kIgnoreYawBit | kIgnoreYawRateBit;
+constexpr uint16_t kSmcAccelerationTypeMask = kIgnorePxBit | kIgnorePyBit | kIgnorePzBit |
+                                              kIgnoreVxBit | kIgnoreVyBit | kIgnoreVzBit |
+                                              kIgnoreYawBit | kIgnoreYawRateBit;
 static_assert(kSmcAccelerationTypeMask == 3135, "SMC acceleration type_mask");
 static_assert((kSmcAccelerationTypeMask & kForceBit) == 0, "SMC acceleration is not a force");
 constexpr uint16_t kHoverPositionVelocityTypeMask = 0b110111000000;
@@ -62,6 +68,11 @@ constexpr double kLocalSetpointPublishInterval = 1.0 / kLocalSetpointPublishHz;
 
 // 控制器配置参数
 struct ControllerConfig {
+    FeedbackSource feedback_source{FeedbackSource::RIGID_ESTIMATE};
+    struct HoverThrustParams {
+        HoverThrustSource source{HoverThrustSource::EXTERNAL};
+        hover_thrust_estimator::HoverThrustEstimatorConfig estimator{};
+    } hover_thrust;
     double takeoff_altitude{1.5};  // 起飞目标高度（米）
     bool skip_takeoff_init_disarm{false};  // 是否跳过起飞初始化阶段的 DISARM 与 ALTCTL 安全门
     double planning_period{0.1};  // MPC 离散规划周期（秒），默认 10Hz
@@ -82,6 +93,7 @@ struct ControllerConfig {
 
     // ========== DFBC 几何 attitude-rate 策略参数 ==========
     struct DfbcParams {
+        DfbcReferenceSource reference_source{DfbcReferenceSource::TRAJECTORY_CACHE};
         Eigen::Vector3d position_natural_frequency{Eigen::Vector3d(2.0, 2.0, 2.2)};
         Eigen::Vector3d position_damping_ratio{Eigen::Vector3d(0.9, 0.9, 1.0)};
         double tilt_gain{6.0};
@@ -317,6 +329,12 @@ constexpr int DEFAULT = 0;     // 默认优先级
 // 传感器数据（聚合）
 // 包含所有传感器测量值，字段名与 ROS 消息保持一致
 struct SensorData {
+    // Derived from ControllerConfig at setConfig, not a second configuration owner.
+    FeedbackSource feedback_source{FeedbackSource::RIGID_ESTIMATE};
+    Eigen::Vector3d mavros_body_rate{Eigen::Vector3d::Zero()};
+    Eigen::Vector3d mavros_world_acceleration{Eigen::Vector3d::Zero()};
+    double mavros_imu_stamp{0.0};
+    bool mavros_inertial_valid{false};
     // DFBC/NMPC feedback from rigid_state_estimator_msgs/RigidStateEstimate.
     // PX4_LOCAL and SMC do not track these fields.
     double x{0.0}, y{0.0}, z{0.0};

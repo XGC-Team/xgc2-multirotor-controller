@@ -218,6 +218,10 @@ TEST_F(ControllerModuleTest, RefusesAnInvalidConfiguration) {
     const Bad bad[] = {
         {"{}", "world_boundary_json must explicitly contain"},  // the geofence is never defaulted
         {"[]", "not a JSON object"},
+        {config("\"feedback_source\": \"mavros_local\""),
+         "module imu.v1 cannot supply mavros_local feedback"},
+        {config("\"hover_thrust\": {\"source\": \"internal\"}"),
+         "module imu.v1 cannot supply internal hover thrust inputs"},
         {"{", "not a JSON object"},
         {config("\"takeoff_altitude\": \"high\""), "'takeoff_altitude' must be a number"},
         {config("\"local_type_mask\": 3.5"), "'local_type_mask' must be an integer"},

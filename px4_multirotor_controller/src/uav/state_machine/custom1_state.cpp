@@ -1,5 +1,4 @@
 #include "px4_multirotor_controller/uav/state_machine/custom1_state.h"
-#include "px4_multirotor_controller/common/time.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,6 +6,7 @@
 #include <utility>
 
 #include "px4_multirotor_controller/common/sensor_checks.h"
+#include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/drone_controller.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
 
@@ -34,8 +34,8 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
     consecutive_failures_ = 0;
     reference_finish_event_posted_ = false;
     sync_strategy_entered_ = false;
-    smc_position_held_ = false;
-    smc_frozen_hover_ = Setpoint{};
+    tracking_position_held_ = false;
+    tracking_frozen_hover_ = Setpoint{};
     nmpc_stale_output_log_timer_.reset();
 
     if (config.tracking_backend == TrackingBackend::NMPC) {
@@ -56,6 +56,10 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
         controller_.logInfo("[Custom1State] Custom1 latched (dfbc); holding hover until reference");
         controller_.activeTrajectoryCache().clear();
         dfbc_strategy_.configure(config);
+        if (config.dfbc.reference_source == DfbcReferenceSource::PLANNER_SETPOINT) {
+            controller_.mpcTrajectoryBuffer() = MpcTrajectoryBuffer{};
+            return {};
+        }
         ::state_machine::Event activation_event(
             output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION,
             ::state_machine::EventTimestamp{command_time_});
@@ -153,27 +157,26 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
     auto& buffer = controller_.mpcTrajectoryBuffer();
     promoteTrajectorySample(buffer, now, TrackingBackend::SMC, config.px4_local_lift);
     const MpcTrajectoryState& sample = buffer.active();
-    const auto lifted =
-        liftForBackend(sample, now, config.planning_period, config.local_type_mask, false,
-                       TrackingBackend::SMC, config.px4_local_lift);
-    if (!lifted.success ||
-        !passThroughMayTakeSetpoint(sample, hover_x_, hover_y_, hover_z_,
-                                    config.nmpc.plan_hover_xy_tol, config.nmpc.plan_hover_z_tol,
-                                    tracking_armed_)) {
-        if (tracking_armed_ && !smc_position_held_) {
+    const auto lifted = liftForBackend(sample, now, config.planning_period, config.local_type_mask,
+                                       false, TrackingBackend::SMC, config.px4_local_lift);
+    if (!lifted.success || !passThroughMayTakeSetpoint(
+                               sample, hover_x_, hover_y_, hover_z_, config.nmpc.plan_hover_xy_tol,
+                               config.nmpc.plan_hover_z_tol, tracking_armed_)) {
+        if (tracking_armed_ && !tracking_position_held_) {
             if (shouldRunEvery(trajectory_wait_log_timer_, 1.0, true)) {
                 controller_.logWarn(
                     "[Custom1State] SMC reference is outside its effective window; holding "
                     "position");
             }
-            holdSmcPosition(ctx, current_time);
+            holdTrackingPosition(ctx, current_time);
             return;
         }
-        if (smc_position_held_) {
+        if (tracking_position_held_) {
             if (shouldPublish(current_time)) {
-                controller_.getSetpoint() = smc_frozen_hover_;
-                ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                                      ::state_machine::EventTimestamp{current_time}));
+                controller_.getSetpoint() = tracking_frozen_hover_;
+                ctx.emitOutput(
+                    ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
+                                           ::state_machine::EventTimestamp{current_time}));
                 last_publish_time_ = current_time;
             }
             return;
@@ -218,13 +221,13 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
             controller_.logWarn("[Custom1State] SMC tracking update failed: %s",
                                 result.message.c_str());
         }
-        holdSmcPosition(ctx, current_time);
+        holdTrackingPosition(ctx, current_time);
         return;
     }
 
     consecutive_failures_ = 0;
     last_success_time_ = current_time;
-    smc_position_held_ = false;
+    tracking_position_held_ = false;
     controller_.getSetpoint() = result.local_setpoint;
     ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
                                           ::state_machine::EventTimestamp{current_time}));
@@ -302,32 +305,60 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
         sync_strategy_entered_ = dfbc_strategy_.enter(controller_.getSensorData(), now);
     }
 
-    if (!controller_.activeTrajectoryCache().valid()) {
-        tracking_armed_ = false;
-        if (shouldRunEvery(nmpc_wait_log_timer_, 1.0, true)) {
-            controller_.logWarn(
-                "[Custom1State] Waiting for finite UAV reference trajectory before synchronous "
-                "tracking");
+    UavReferencePoint reference;
+    const bool streaming = config.dfbc.reference_source == DfbcReferenceSource::PLANNER_SETPOINT;
+    if (streaming) {
+        auto& buffer = controller_.mpcTrajectoryBuffer();
+        promoteTrajectorySample(buffer, now, TrackingBackend::DFBC, config.px4_local_lift);
+        const auto& sample = buffer.active();
+        const auto lifted =
+            liftForBackend(sample, now, config.planning_period, config.local_type_mask,
+                           config.enable_yaw_control, TrackingBackend::DFBC, config.px4_local_lift);
+        if (!lifted.success ||
+            !passThroughMayTakeSetpoint(sample, hover_x_, hover_y_, hover_z_,
+                                        config.nmpc.plan_hover_xy_tol, config.nmpc.plan_hover_z_tol,
+                                        tracking_armed_)) {
+            if (tracking_armed_ || tracking_position_held_) {
+                if (shouldPublish(current_time))
+                    holdTrackingPosition(ctx, current_time);
+            } else if (shouldPublish(current_time)) {
+                publishCurrentHoverSetpoint(ctx, current_time);
+            }
+            return;
         }
-        if (shouldPublish(current_time)) {
-            publishCurrentHoverSetpoint(ctx, current_time);
+        tracking_armed_ = true;
+        const auto& point = lifted.setpoint;
+        reference.position << point.x, point.y, point.z;
+        reference.velocity << point.vx, point.vy, point.vz;
+        reference.acceleration << point.ax, point.ay, point.az;
+        reference.yaw = quaternionToYaw(point.qx, point.qy, point.qz, point.qw);
+        reference.yaw_rate =
+            positionTargetIgnored(point.type_mask, kIgnoreYawRateBit) ? 0.0 : point.yaw_rate;
+    } else {
+        if (!controller_.activeTrajectoryCache().valid()) {
+            tracking_armed_ = false;
+            if (shouldRunEvery(nmpc_wait_log_timer_, 1.0, true)) {
+                controller_.logWarn(
+                    "[Custom1State] Waiting for finite UAV reference trajectory before synchronous "
+                    "tracking");
+            }
+            if (shouldPublish(current_time))
+                publishCurrentHoverSetpoint(ctx, current_time);
+            return;
         }
-        return;
-    }
-    tracking_armed_ = true;
-
-    if (referenceWillFinishBeforeNextSynchronousUpdate(current_time)) {
-        postReferenceFinished(ctx, current_time,
-                              "reference horizon reached planned trajectory end");
-        return;
+        tracking_armed_ = true;
+        if (referenceWillFinishBeforeNextSynchronousUpdate(current_time)) {
+            postReferenceFinished(ctx, current_time,
+                                  "reference horizon reached planned trajectory end");
+            return;
+        }
     }
 
     if (!shouldRunSynchronousStrategy(current_time)) {
         return;
     }
 
-    UavReferencePoint reference;
-    if (!controller_.activeTrajectoryCache().sample(now, reference)) {
+    if (!streaming && !controller_.activeTrajectoryCache().sample(now, reference)) {
         publishCurrentHoverSetpoint(ctx, current_time);
         return;
     }
@@ -348,12 +379,17 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
             controller_.logWarn("[Custom1State] synchronous tracking update failed: %s",
                                 result.message.c_str());
         }
-        publishBackupSetpoint(ctx, current_time);
+        if (streaming)
+            holdTrackingPosition(ctx, current_time);
+        else
+            publishBackupSetpoint(ctx, current_time);
         return;
     }
 
     consecutive_failures_ = 0;
     last_success_time_ = current_time;
+    if (streaming)
+        tracking_position_held_ = false;
     controller_.getAttitudeRateTarget() = result.attitude_rate_target;
     ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_ATTITUDE_RATE_TARGET,
                                           ::state_machine::EventTimestamp{current_time}));
@@ -365,7 +401,8 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
     if (!controller_.nmpcResultBuffer().consumeNewerThan(consumed_result_sequence_, result)) {
         return;
     }
-    if (result.control_generation != control_generation_ || result.sequence != in_flight_sequence_) return;
+    if (result.control_generation != control_generation_ || result.sequence != in_flight_sequence_)
+        return;
     consumed_result_sequence_ = result.sequence;
 
     if (request_in_flight_ && result.sequence == in_flight_sequence_) {
@@ -375,8 +412,8 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
     // The buffer and actual output consumer use the same timestamp policy,
     // regardless of whether the solver deadline has elapsed.
     if (!std::isfinite(current_time) || current_time < 0.0 ||
-        !NmpcResultBuffer::isResultTimestampFresh(
-            result.stamp, Time(current_time), controller_.getConfig().nmpc.result_timeout)) {
+        !NmpcResultBuffer::isResultTimestampFresh(result.stamp, Time(current_time),
+                                                  controller_.getConfig().nmpc.result_timeout)) {
         return;
     }
 
@@ -473,22 +510,22 @@ Setpoint Custom1State::measurementHoverSetpoint() const {
     backup.ax = 0.0;
     backup.ay = 0.0;
     backup.az = 0.0;
-    backup.qx = sensor.qx;
-    backup.qy = sensor.qy;
-    backup.qz = sensor.qz;
-    backup.qw = sensor.qw;
+    backup.qx = sensor_checks::worldQx(sensor, backend);
+    backup.qy = sensor_checks::worldQy(sensor, backend);
+    backup.qz = sensor_checks::worldQz(sensor, backend);
+    backup.qw = sensor_checks::worldQw(sensor, backend);
     backup.yaw_rate = 0.0;
     backup.type_mask = kHoverPositionVelocityTypeMask;
     backup.coordinate_frame = 1;
     return backup;
 }
 
-void Custom1State::holdSmcPosition(::state_machine::StateContext& ctx, double current_time) {
-    if (!smc_position_held_) {
-        smc_frozen_hover_ = measurementHoverSetpoint();
-        smc_position_held_ = true;
+void Custom1State::holdTrackingPosition(::state_machine::StateContext& ctx, double current_time) {
+    if (!tracking_position_held_) {
+        tracking_frozen_hover_ = measurementHoverSetpoint();
+        tracking_position_held_ = true;
     }
-    controller_.getSetpoint() = smc_frozen_hover_;
+    controller_.getSetpoint() = tracking_frozen_hover_;
     ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
                                           ::state_machine::EventTimestamp{current_time}));
     last_publish_time_ = current_time;
@@ -525,8 +562,7 @@ void Custom1State::postReferenceFinished(::state_machine::StateContext& ctx, dou
 
 bool Custom1State::referenceWillFinishBeforeNextHorizon(double current_time) const {
     double remaining = 0.0;
-    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(Time(current_time),
-                                                                 remaining)) {
+    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(Time(current_time), remaining)) {
         return false;
     }
 
@@ -539,8 +575,7 @@ bool Custom1State::referenceWillFinishBeforeNextHorizon(double current_time) con
 
 bool Custom1State::referenceWillFinishBeforeNextSynchronousUpdate(double current_time) const {
     double remaining = 0.0;
-    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(Time(current_time),
-                                                                 remaining)) {
+    if (!controller_.activeTrajectoryCache().finiteTimeRemaining(Time(current_time), remaining)) {
         return false;
     }
 

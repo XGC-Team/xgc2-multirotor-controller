@@ -134,10 +134,10 @@ void LandingState::reportTimeoutIfNeeded(::state_machine::StateContext& ctx) {
 bool LandingState::landingFeedbackActive() const {
     const auto& sensor = controller_.getSensorData();
     const auto backend = controller_.getConfig().tracking_backend;
-    const bool active = trackingUsesFusedEstimate(backend)
-                            ? sensor.uav_state_estimate_stats.is_active
-                            : sensor.local_pos_stats.is_active &&
-                                  sensor.local_velocity_stats.is_active;
+    const bool active =
+        trackingUsesFusedEstimate(backend)
+            ? sensor_checks::isControlStateActive(sensor)
+            : sensor.local_pos_stats.is_active && sensor.local_velocity_stats.is_active;
     return active && std::isfinite(sensor_checks::worldZ(sensor, backend)) &&
            std::isfinite(sensor_checks::worldVz(sensor, backend));
 }
@@ -193,9 +193,8 @@ void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
         return;
     }
     if (!disarm_requested_) {
-        ::state_machine::Event event(
-            output_event_type::REQUEST_ARMING,
-            ::state_machine::EventTimestamp{controller_.getCurrentTime()});
+        ::state_machine::Event event(output_event_type::REQUEST_ARMING,
+                                     ::state_machine::EventTimestamp{controller_.getCurrentTime()});
         event.payload["arm"] = false;
         const auto status = ctx.emitOutput(std::move(event));
         if (status.ok()) {
@@ -215,8 +214,9 @@ void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
     if (exit_reason_ == ExitReason::TOUCHDOWN) {
         controller_.logInfo("[LandingState] Landing complete: fresh FCU disarm confirmed");
     } else {
-        controller_.logWarn("[LandingState] Exited without confirmed touchdown/disarm; "
-                            "no automatic force-disarm issued");
+        controller_.logWarn(
+            "[LandingState] Exited without confirmed touchdown/disarm; "
+            "no automatic force-disarm issued");
     }
     return {};
 }

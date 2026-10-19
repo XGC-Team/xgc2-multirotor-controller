@@ -63,19 +63,38 @@ CI path with `catkin_make`.
 
 ## Control-state source
 
-The controller consumes only
-`rigid_state_estimator_msgs/RigidStateEstimate`. Raw VRPN pose remains a
-diagnostic consistency input; raw VRPN twist is neither subscribed nor accepted
-as a control-state source. Simulation uses the same fused-state boundary as the
-future onboard deployment.
+`feedback_source: rigid_estimate` remains the default and consumes the existing
+`rigid_state_estimator_msgs/RigidStateEstimate` with its health policy.
+`feedback_source: mavros_local` selects local ENU pose, `velocity_local`, and IMU
+body FLU gyro/specific force. It does not synthesize an estimator state or its
+flags. The shared feedback mapper supplies DFBC and NMPC; raw VRPN pose remains a
+diagnostic consistency input.
+
+`hover_thrust/source: external` keeps the existing estimate subscription.
+`internal` embeds the same `HoverThrustEstimator::Runtime` in the controller
+update, fed by the actual MAVROS `target_attitude` normalized thrust, body IMU
+specific force, and local altitude. There is no additional estimator node or
+thread. The Runtime retains its original health, filtering and publication
+policy. Its source stamps are preserved.
+
+`config/dfbc_local_1m.yaml` selects streamed planner PVA, MAVROS local feedback,
+and the internal estimator. The current single-planner XSim sessions declare
+`local_origin=0`, so their local ENU input is also their world frame. This
+profile does not infer a map/world transform for a different origin.
+
+The existing module `imu.v1` payload carries a heartbeat stamp, not numerical
+IMU or target-thrust samples. Its existing external-estimator/fused-state mode
+is unchanged; that payload alone cannot supply the new local/internal mode.
 
 ## Reference inputs
 
 The reference runtime publishes analytic and sampled references, including
 circle and torus-knot entry trajectories. UAV waypoint optimization and external
-active polynomial ingestion are retired. NMPC and DFBC retain the analytic and
-sampled cache; PX4_LOCAL and SMC retain PositionTarget ingestion, PVA lifting,
-Custom1, and their existing output and takeoff/landing paths.
+active polynomial ingestion are retired. NMPC and DFBC default to the analytic
+and sampled cache. DFBC can explicitly select `dfbc/reference_source:
+planner_setpoint` for the existing world PVA stream. PX4_LOCAL and SMC retain
+PositionTarget ingestion, PVA lifting, Custom1, and their existing output and
+takeoff/landing paths.
 
 This revision requires the 1.4 message contract. All consumers of UAV
 ReferenceStatus must be rebuilt together because its ROS1 MD5 changed.

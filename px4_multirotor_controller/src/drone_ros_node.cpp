@@ -41,7 +41,6 @@ std::string resolveTopicName(const ros::NodeHandle& nh, const std::string& topic
     return nh.resolveName(topic);
 }
 
-
 }  // namespace
 
 DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
@@ -74,11 +73,14 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
         std::make_unique<NmpcOutputConsumer>(nh_, driver_.nmpc(), kRosQueueSize));
 
     sensor_input_producer_ = std::make_unique<SensorInputProducer>(
-        nh_, sensor_data_, vrpn_quality_stats_, driver_.statistics(), kRosQueueSize, post_input_event, [this] {
+        nh_, sensor_data_, vrpn_quality_stats_, driver_.statistics(), kRosQueueSize,
+        post_input_event,
+        [this] {
             if (px4_service_consumer_) {
                 px4_service_consumer_->initializeClientsIfNeeded();
             }
-        });
+        },
+        &driver_);
     loadVrpnQualityConfig();
     std::string state_estimate_topic;
     std::string vrpn_pose_topic;
@@ -102,17 +104,22 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
 
     ROS_INFO("[DroneRosNode] Initialized (with async output event executor)");
     ROS_INFO("[DroneRosNode] Subscribed topics:");
-    ROS_INFO("  - %s (control state)", resolveTopicName(nh_, state_estimate_topic).c_str());
-    ROS_INFO("  - mavros/local_position/pose (check only)");
-    ROS_INFO("  - mavros/local_position/velocity_local (check only)");
-    ROS_INFO("  - mavros/imu/data (check only)");
+    if (sensor_data_.feedback_source == FeedbackSource::RIGID_ESTIMATE)
+        ROS_INFO("  - %s (control state)", resolveTopicName(nh_, state_estimate_topic).c_str());
+    else
+        ROS_INFO("  - mavros_local control state (declared local ENU frame)");
+    ROS_INFO("  - mavros/local_position/pose");
+    ROS_INFO("  - mavros/local_position/velocity_local");
+    ROS_INFO("  - mavros/imu/data");
     ROS_INFO("  - mavros/state");
     ROS_INFO("  - mavros/battery (telemetry only)");
     ROS_INFO("  - %s (check only)", resolveTopicName(nh_, vrpn_pose_topic).c_str());
     ROS_INFO("  - alg/setpoint_raw/local");
     ROS_INFO("  - alg/multirotor_reference_trajectory/active/analytic");
     ROS_INFO("  - alg/multirotor_reference_trajectory/active/sampled");
-    ROS_INFO("  - hover_thrust/estimate_state");
+    ROS_INFO("  - %s", driver_.internalHoverThrust()
+                           ? "mavros/setpoint_raw/target_attitude (internal hover-thrust runtime)"
+                           : "hover_thrust/estimate_state");
     ROS_INFO("  - /command (global)");
     ROS_INFO("[DroneRosNode] Publishing topics:");
     ROS_INFO("  - mavros/setpoint_raw/local");
@@ -207,17 +214,27 @@ void DroneRosNode::dispatchOutputEvents(const std::vector<::state_machine::Event
 void DroneRosNode::loadControllerConfig() {
     ControllerParameters parameters(
         [this](const std::string& key, ControllerParameterValue& value) {
-            return std::visit([this, &key](auto& out) { return nh_private_.getParam(key, out); }, value);
-        }, [](bool warning, const std::string& text) {
-            if (warning) ROS_WARN("%s", text.c_str()); else ROS_INFO("%s", text.c_str());
-        }, false);
-    const ControllerConfig config = readControllerConfig(
-        parameters, ros1_utils::currentNameFromNamespacePrefix("/uav"));
-    const std::string tracking_backend = config.tracking_backend == TrackingBackend::NMPC ? "nmpc" :
-        config.tracking_backend == TrackingBackend::DFBC ? "dfbc" :
-        config.tracking_backend == TrackingBackend::SMC ? "smc" : "px4_local";
+            return std::visit([this, &key](auto& out) { return nh_private_.getParam(key, out); },
+                              value);
+        },
+        [](bool warning, const std::string& text) {
+            if (warning)
+                ROS_WARN("%s", text.c_str());
+            else
+                ROS_INFO("%s", text.c_str());
+        },
+        false);
+    const ControllerConfig config =
+        readControllerConfig(parameters, ros1_utils::currentNameFromNamespacePrefix("/uav"));
+    const std::string tracking_backend =
+        config.tracking_backend == TrackingBackend::NMPC
+            ? "nmpc"
+            : config.tracking_backend == TrackingBackend::DFBC
+                  ? "dfbc"
+                  : config.tracking_backend == TrackingBackend::SMC ? "smc" : "px4_local";
     // 将配置传递给控制器
     controller_.setConfig(config);
+    sensor_data_.feedback_source = config.feedback_source;
     // Capture the original load clocks at the setConfig boundary only. The
     // receipt is published after the sensor producer accepts its topics.
     try {
@@ -249,7 +266,8 @@ void DroneRosNode::publishLoadFact(const std::string& vrpn_pose_topic,
         load_fact_.canonical_pose_topic = nh_.resolveName(vrpn_pose_topic);
         load_fact_.local_pose_topic = nh_.resolveName("mavros/local_position/pose");
         load_fact_.world_pose_topic =
-            trackingUsesFusedEstimate(controller_.getConfig().tracking_backend)
+            trackingUsesFusedEstimate(controller_.getConfig().tracking_backend) &&
+                    controller_.getConfig().feedback_source == FeedbackSource::RIGID_ESTIMATE
                 ? nh_.resolveName(state_estimate_topic)
                 : load_fact_.local_pose_topic;
         std_msgs::String message;

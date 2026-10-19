@@ -51,12 +51,14 @@ protected:
 }
 namespace px4_multirotor_controller {
 enum class TrackingBackend { PX4_LOCAL, NMPC, DFBC };
+enum class FeedbackSource { RIGID_ESTIMATE, MAVROS_LOCAL };
 inline bool trackingUsesFusedEstimate(TrackingBackend backend) {
     return backend != TrackingBackend::PX4_LOCAL;
 }
 struct SensorData {
+    FeedbackSource feedback_source{FeedbackSource::RIGID_ESTIMATE};
     struct TopicStats { bool is_active{true}; bool is_new{false}; };
-    TopicStats vrpn_pose_stats, local_pos_stats, uav_state_estimate_stats, state_stats, imu_stats;
+    TopicStats vrpn_pose_stats, local_pos_stats, local_velocity_stats, uav_state_estimate_stats, state_stats, imu_stats;
     double vrpn_x{0}, vrpn_y{0}, vrpn_z{0}, local_x{0}, local_y{0}, local_z{0};
     double local_vx{0}, local_vy{0}, local_vz{0}, x{0}, y{0}, z{0};
     bool usable{true};
@@ -82,6 +84,7 @@ struct DroneController {
 };
 namespace event_type {
 constexpr uint32_t SAFE_TIMEOUT_UAV_STATE_ESTIMATE = 27, SAFE_TIMEOUT_STATE = 23;
+constexpr uint32_t SAFE_TIMEOUT_LOCAL_POS=20, SAFE_TIMEOUT_LOCAL_VELOCITY=21, SAFE_TIMEOUT_IMU=22;
 constexpr uint32_t SAFE_UAV_STATE_ESTIMATE_UNUSABLE = 28, SAFE_GEOFENCE_VIOLATION = 40;
 constexpr uint32_t SAFE_VELOCITY_XY_EXCEEDED = 41, SAFE_VELOCITY_Z_EXCEEDED = 42;
 constexpr uint32_t SAFE_CONTROL_SATURATION_XY = 43, SAFE_CONTROL_SATURATION_Z = 44;
