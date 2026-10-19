@@ -27,9 +27,8 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
             // The existing vrpn_* input slot now carries namespaced canonical
             // pose: its world offset is already applied upstream. Never use the
             // tracking backend's fused estimate or apply another offset here.
-            position_distance_.metres = std::hypot(sd.vrpn_x - sd.local_x,
-                                                   sd.vrpn_y - sd.local_y,
-                                                   sd.vrpn_z - sd.local_z);
+            position_distance_.metres =
+                std::hypot(sd.vrpn_x - sd.local_x, sd.vrpn_y - sd.local_y, sd.vrpn_z - sd.local_z);
             position_distance_.available = std::isfinite(position_distance_.metres);
             position_distance_.exceeded = position_distance_.available &&
                                           position_distance_.metres > kPositionDistanceLimitMetres;
@@ -37,9 +36,16 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
     }
 
     const bool fused = trackingUsesFusedEstimate(controller_config.tracking_backend);
-    if (fused) {
+    if (fused && sd.feedback_source == FeedbackSource::RIGID_ESTIMATE) {
         checkSensorActiveEdge(ctx, sd.uav_state_estimate_stats, ss.was_uav_state_estimate_active,
                               SAFE_TIMEOUT_UAV_STATE_ESTIMATE);
+    }
+    if (fused && sd.feedback_source == FeedbackSource::MAVROS_LOCAL) {
+        checkSensorActiveEdge(ctx, sd.local_pos_stats, ss.was_local_pos_active,
+                              SAFE_TIMEOUT_LOCAL_POS);
+        checkSensorActiveEdge(ctx, sd.local_velocity_stats, ss.was_local_velocity_active,
+                              SAFE_TIMEOUT_LOCAL_VELOCITY);
+        checkSensorActiveEdge(ctx, sd.imu_stats, ss.was_imu_active, SAFE_TIMEOUT_IMU);
     }
     checkSensorActiveEdge(ctx, sd.state_stats, ss.was_state_active, SAFE_TIMEOUT_STATE);
 

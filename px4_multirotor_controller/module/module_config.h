@@ -28,6 +28,14 @@ inline ControllerConfig readConfig(module_support::JsonConfig& json,
     if (!unknown.empty()) {
         throw std::invalid_argument("unknown configuration key '" + unknown + "'");
     }
+    // imu.v1 is a heartbeat and the old module has no numeric IMU/thrust ports.
+    // Refuse these explicit choices instead of accepting inputs it cannot supply.
+    if (config.feedback_source != FeedbackSource::RIGID_ESTIMATE) {
+        throw std::invalid_argument("module imu.v1 cannot supply mavros_local feedback");
+    }
+    if (config.hover_thrust.source != HoverThrustSource::EXTERNAL) {
+        throw std::invalid_argument("module imu.v1 cannot supply internal hover thrust inputs");
+    }
     return config;
 }
 

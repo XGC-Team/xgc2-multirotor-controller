@@ -8,6 +8,8 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get install -y --no-install-recommends \
   libxgc2-math-dev \
   libxgc2-state-machine-dev \
+  libxgc2-hover-thrust-core0 \
+  libxgc2-hover-thrust-dev \
   xgc2-acados \
   ros-noetic-xgc2-estimator-hover-thrust-msgs \
   ros-noetic-xgc2-estimator-rigid-state-msgs \
@@ -25,6 +27,8 @@ require_version() {
   }
 }
 require_version libxgc2-math-dev '0.5.12-1~'
+require_version libxgc2-hover-thrust-core0 '1.2.0-1~focal'
+require_version libxgc2-hover-thrust-dev '1.2.0-1~focal'
 require_version "ros-${ROS_DISTRO:-noetic}-xgc2-multirotor-reference-trajectory-msgs" 1.4.0-1
 
 # The generated header fixes the ROS1 wire MD5 in the compiled consumer.

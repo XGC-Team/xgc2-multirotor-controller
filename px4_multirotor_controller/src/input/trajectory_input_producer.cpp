@@ -14,9 +14,7 @@ namespace px4_multirotor_controller {
 TrajectoryInputProducer::TrajectoryInputProducer(ros::NodeHandle& nh, DroneController& controller,
                                                  SensorData& sensor_data, EventSink event_sink,
                                                  uint32_t queue_size)
-    : controller_(controller),
-      sensor_data_(sensor_data),
-      event_sink_(std::move(event_sink)) {
+    : controller_(controller), sensor_data_(sensor_data), event_sink_(std::move(event_sink)) {
     alg_setpoint_sub_ = nh.subscribe("alg/setpoint_raw/local", queue_size,
                                      &TrajectoryInputProducer::algSetpointCallback, this);
     active_analytic_sub_ =
@@ -25,8 +23,10 @@ TrajectoryInputProducer::TrajectoryInputProducer(ros::NodeHandle& nh, DroneContr
     active_sampled_sub_ =
         nh.subscribe("alg/multirotor_reference_trajectory/active/sampled", queue_size,
                      &TrajectoryInputProducer::activeSampledCallback, this);
-    hover_thrust_sub_ = nh.subscribe("hover_thrust/estimate_state", queue_size,
-                                     &TrajectoryInputProducer::hoverThrustCallback, this);
+    if (controller_.getConfig().hover_thrust.source == HoverThrustSource::EXTERNAL) {
+        hover_thrust_sub_ = nh.subscribe("hover_thrust/estimate_state", queue_size,
+                                         &TrajectoryInputProducer::hoverThrustCallback, this);
+    }
 }
 
 void TrajectoryInputProducer::algSetpointCallback(
@@ -72,7 +72,7 @@ void TrajectoryInputProducer::activeAnalyticCallback(
         return;
     }
     if (!controller_.activeTrajectoryCache().updateAnalytic(toCoreReference(*msg),
-                                                 toCoreTime(ros::Time::now()))) {
+                                                            toCoreTime(ros::Time::now()))) {
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active analytic trajectory");
         return;
     }
@@ -87,7 +87,7 @@ void TrajectoryInputProducer::activeSampledCallback(
         return;
     }
     if (!controller_.activeTrajectoryCache().updateSampled(toCoreReference(*msg),
-                                                toCoreTime(ros::Time::now()))) {
+                                                           toCoreTime(ros::Time::now()))) {
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active sampled trajectory");
         return;
     }

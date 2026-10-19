@@ -1,11 +1,11 @@
 #include "px4_multirotor_controller/tracking/dfbc_attitude_rate_strategy.h"
-#include "px4_multirotor_controller/common/time.h"
-#include "px4_multirotor_controller/common/core_log.h"
 
 #include <algorithm>
 #include <cmath>
 
-#include "px4_multirotor_controller/common/sensor_checks.h"
+#include "px4_multirotor_controller/common/control_feedback.h"
+#include "px4_multirotor_controller/common/core_log.h"
+#include "px4_multirotor_controller/common/time.h"
 
 namespace px4_multirotor_controller {
 namespace {
@@ -136,19 +136,7 @@ double DfbcAttitudeRateStrategy::period() const {
 
 bool DfbcAttitudeRateStrategy::feedbackState(const SensorData& sensor,
                                              xgc2_math::control::Se3State& state) const {
-    if (!sensor_checks::isControlStateUsableForControl(sensor)) {
-        return false;
-    }
-    state.position << sensor.x, sensor.y, sensor.z;
-    state.velocity << sensor.vx, sensor.vy, sensor.vz;
-    state.attitude = Eigen::Quaterniond(sensor.qw, sensor.qx, sensor.qy, sensor.qz);
-    if (!std::isfinite(state.attitude.norm()) || state.attitude.norm() < 1.0e-9) {
-        return false;
-    }
-    state.attitude.normalize();
-    state.body_rate << sensor.wx, sensor.wy, sensor.wz;
-    return state.position.array().isFinite().all() && state.velocity.array().isFinite().all() &&
-           state.body_rate.array().isFinite().all();
+    return readControlFeedback(sensor, TrackingBackend::DFBC, state);
 }
 
 bool DfbcAttitudeRateStrategy::measuredAcceleration(const SensorData& sensor, const Time& now,
@@ -156,14 +144,22 @@ bool DfbcAttitudeRateStrategy::measuredAcceleration(const SensorData& sensor, co
     if (!config_.dfbc.acceleration_correction_enabled) {
         return false;
     }
-    if (!std::isfinite(sensor.uav_state_estimate_stamp)) {
+    const double stamp = sensor.feedback_source == FeedbackSource::MAVROS_LOCAL
+                             ? sensor.mavros_imu_stamp
+                             : sensor.uav_state_estimate_stamp;
+    if (!std::isfinite(stamp)) {
         return false;
     }
-    const double age = now.toSec() - sensor.uav_state_estimate_stamp;
+    const double age = now.toSec() - stamp;
     if (!std::isfinite(age) || age < -0.05 || age > config_.dfbc.acceleration_measurement_timeout) {
         return false;
     }
-    acceleration << sensor.ax, sensor.ay, sensor.az;
+    if (sensor.feedback_source == FeedbackSource::MAVROS_LOCAL) {
+        if (!sensor.mavros_inertial_valid)
+            return false;
+        acceleration = sensor.mavros_world_acceleration;
+    } else
+        acceleration << sensor.ax, sensor.ay, sensor.az;
     return acceleration.array().isFinite().all();
 }
 
@@ -182,8 +178,7 @@ xgc2_math::trajectory::FlatOutput3 DfbcAttitudeRateStrategy::flatReference(
     return flat;
 }
 
-bool DfbcAttitudeRateStrategy::hoverThrustReady(const SensorData& sensor,
-                                                const Time& now) const {
+bool DfbcAttitudeRateStrategy::hoverThrustReady(const SensorData& sensor, const Time& now) const {
     if (!config_.nmpc.hover_thrust_enabled) {
         return false;
     }

@@ -96,6 +96,7 @@ struct DroneController {
     template<class... Args> void logWarn(const char* format, Args...) { warnings.emplace_back(format); }
 };
 namespace sensor_checks {
+inline bool isControlStateActive(const SensorData& sensor) { return sensor.uav_state_estimate_stats.is_active; }
 inline double worldZ(const SensorData& sensor, TrackingBackend backend) {
     return trackingUsesFusedEstimate(backend) ? sensor.z : sensor.local_z;
 }
