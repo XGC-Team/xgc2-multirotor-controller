@@ -3,6 +3,16 @@
 #include <cmath>
 
 namespace px4_multirotor_controller {
+namespace {
+// Missed periods do not replay measurements. Keep the original deadline grid
+// while skipping directly to its next tick, including the first /clock jump.
+Time nextDeadline(const Time& deadline, const Time& now, uint64_t period_ns) {
+    const uint64_t now_ns = now.toNSec();
+    const uint64_t remaining_ns = period_ns - (now_ns - deadline.toNSec()) % period_ns;
+    return Time().fromNSec(now_ns + remaining_ns);
+}
+}  // namespace
+
 SensorStatistics::SensorStatistics(SensorData& s)
  : tracks_{{{&s.uav_state_estimate_stats, {}, {}, {}}, {&s.local_pos_stats, {}, {}, {}},
              {&s.local_velocity_stats, {}, {}, {}}, {&s.imu_stats, {}, {}, {}},
@@ -58,11 +68,11 @@ void SensorStatistics::advance(const Time& now) {
     if (!started_) start(now);
     if (now >= next_stats_) {
         updateStatistics();
-        do { next_stats_ = next_stats_ + Duration(0.1); } while (now >= next_stats_);
+        next_stats_ = nextDeadline(next_stats_, now, 100000000ULL);
     }
     if (now >= next_heartbeat_) {
         updateHeartbeats(now);
-        do { next_heartbeat_ = next_heartbeat_ + Duration(1.0); } while (now >= next_heartbeat_);
+        next_heartbeat_ = nextDeadline(next_heartbeat_, now, 1000000000ULL);
     }
 }
 void SensorStatistics::resetNewFlags() { for (auto& track : tracks_) track.stats->is_new = false; }
