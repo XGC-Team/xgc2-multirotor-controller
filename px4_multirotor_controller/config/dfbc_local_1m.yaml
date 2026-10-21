@@ -1,0 +1,86 @@
+# DFBC with streamed planner PVA, local MAVROS feedback and the shared internal HTE.
+# Current single-planner XSim sessions use local_origin=0: local ENU is world.
+# A different origin requires the existing upstream frame projection, not reinterpretation.
+# Launch adds the required private world_boundary_json string on top of this file.
+acc_saturation_xy: 1000.0
+acc_saturation_z: 1000.0
+debug_print: false
+dfbc:
+  reference_source: planner_setpoint
+  acceleration_correction_enabled: true
+  acceleration_correction_filter_tau: 0.0
+  acceleration_correction_gain:
+  - 0.35
+  - 0.35
+  - 0.0
+  acceleration_correction_limit:
+  - 2.0
+  - 2.0
+  - 0.0
+  acceleration_measurement_timeout: 0.05
+  log_period: 1.0
+  position_damping_ratio:
+  - 0.9
+  - 0.9
+  - 1.0
+  position_natural_frequency:
+  - 2.0
+  - 2.0
+  - 2.2
+  tilt_gain: 6.0
+  tilt_rate_damping: 1.0
+  use_body_rate_feedforward: true
+  yaw_gain: 0.3
+  yaw_rate_damping: 0.2
+enable_yaw_control: true
+hover_thrust:
+  source: internal
+  enabled: true
+  min_altitude: 0.5
+  publish_rate: 50.0
+  sample_timeout: 0.2
+  timeout: 0.5
+local_type_mask: 3072
+max_velocity_xy: 1000.0
+max_velocity_z: 1000.0
+nmpc:
+  angular_acceleration_weight:
+  - 0.04
+  - 0.04
+  - 2.25
+  body_rate_time_constant: 0.08
+  control_period: 0.01
+  enable_timing_log: true
+  gravity: 9.8066
+  hover_thrust_ratio: 0.5
+  log_period: 1.0
+  max_hover_thrust: 0.95
+  max_roll_pitch_angular_acceleration: 15.0
+  max_roll_pitch_body_rate: 3.4906585
+  max_yaw_angular_acceleration: 2.0
+  max_yaw_body_rate: 0.8726646
+  min_hover_thrust: 0.05
+  normalized_thrust_max: 0.9
+  normalized_thrust_min: 0.1
+  prediction_horizon: 1.0
+  reference_analytic_type: 9
+  reference_duration: 60.0
+  reference_entry_duration: 5.0
+  reference_height: 3.0
+  reference_line_speed: 1.0
+  reference_radius: 3.0
+  reference_start_delay: 0.2
+  reference_torus_omega: 0.3
+  reference_torus_scale: 2.0
+  reference_z_amplitude: 0.0
+  reference_z_frequency: 0.5
+  result_timeout: 0.1
+  solve_timeout: 0.03
+position_jump_threshold: 100.0
+skip_takeoff_init_disarm: false
+state_estimate_topic: alg/state_estimator/state
+takeoff_altitude: 1.0
+tracking_backend: dfbc
+feedback_source: mavros_local
+# Canonical robot pose; the ground station has already applied the world offset.
+vrpn_pose_topic: pose
