@@ -25,6 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 find_package(xgc2_acados REQUIRED CONFIG)
 find_package(xgc2_state_machine REQUIRED CONFIG)
+find_package(HoverThrustEstimator 1.2.0 REQUIRED CONFIG)
 # Empty uses the installed xgc2_math headers (APT: >= 0.5.12). Set this to a
 # math source include when that package is not installed yet. Do not hardcode
 # a worktree path; callers pass -DXGC2_MATH_INCLUDE_OVERRIDE=...
@@ -318,6 +319,7 @@ add_dependencies(px4_multirotor_controller_uav_nmpc_runtime ${catkin_EXPORTED_TA
 add_dependencies(px4_multirotor_controller_uav_nmpc_runtime px4_multirotor_controller_uav_nmpc_generated)
 target_link_libraries(px4_multirotor_controller_uav_nmpc_runtime
   px4_multirotor_controller_uav_nmpc_generated
+  HoverThrustEstimator::Runtime
   xgc2_math::control
   "-Wl,--no-as-needed"
   ${MULTIROTOR_ACADOS_LIBRARIES}
@@ -384,6 +386,7 @@ target_include_directories(px4_multirotor_controller_core BEFORE PUBLIC
 add_dependencies(px4_multirotor_controller_core px4_multirotor_controller_uav_nmpc_generated)
 target_link_libraries(px4_multirotor_controller_core
   px4_multirotor_controller_uav_nmpc_runtime
+  HoverThrustEstimator::Runtime
   xgc2_state_machine::state_machine
   xgc2_math::control
   xgc2_math::geometry
@@ -625,6 +628,18 @@ endif()
 # catkin_add_nosetests(test)
 
 if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(px4_dfbc_stream_reference_test test/dfbc_stream_reference_test.cpp)
+  if(TARGET px4_dfbc_stream_reference_test)
+    target_link_libraries(px4_dfbc_stream_reference_test px4_multirotor_controller_core gtest_main)
+  endif()
+  catkin_add_gtest(px4_local_feedback_test test/local_feedback_test.cpp)
+  if(TARGET px4_local_feedback_test)
+    target_link_libraries(px4_local_feedback_test px4_multirotor_controller_core gtest_main)
+  endif()
+  catkin_add_gtest(px4_internal_hover_thrust_driver_test test/internal_hover_thrust_driver_test.cpp)
+  if(TARGET px4_internal_hover_thrust_driver_test)
+    target_link_libraries(px4_internal_hover_thrust_driver_test px4_multirotor_controller_core gtest_main)
+  endif()
   catkin_add_gtest(px4_controller_driver_test test/controller_driver_test.cpp)
   if(TARGET px4_controller_driver_test)
     target_include_directories(px4_controller_driver_test BEFORE PRIVATE

@@ -60,9 +60,9 @@ class Custom1State : public ::state_machine::State {
     SmcAccelerationStrategy smc_strategy_;
     Px4LocalRawStrategy px4_local_raw_strategy_;
     bool sync_strategy_entered_{false};
-    // Acceleration tracking has failed. Later hover publishes reuse smc_frozen_hover_.
-    bool smc_position_held_{false};
-    Setpoint smc_frozen_hover_{};
+    // Acceleration tracking has failed. Later hover publishes reuse tracking_frozen_hover_.
+    bool tracking_position_held_{false};
+    Setpoint tracking_frozen_hover_{};
 
     void handleNmpcEventMode(::state_machine::StateContext& ctx, double current_time);
     void handleSynchronousAttitudeRateMode(::state_machine::StateContext& ctx, double current_time);
@@ -73,7 +73,7 @@ class Custom1State : public ::state_machine::State {
     void publishBackupSetpoint(::state_machine::StateContext& ctx, double current_time);
     Setpoint measurementHoverSetpoint() const;
     void publishCurrentHoverSetpoint(::state_machine::StateContext& ctx, double current_time);
-    void holdSmcPosition(::state_machine::StateContext& ctx, double current_time);
+    void holdTrackingPosition(::state_machine::StateContext& ctx, double current_time);
     void postReferenceFinished(::state_machine::StateContext& ctx, double current_time,
                                const char* reason);
     bool referenceWillFinishBeforeNextHorizon(double current_time) const;

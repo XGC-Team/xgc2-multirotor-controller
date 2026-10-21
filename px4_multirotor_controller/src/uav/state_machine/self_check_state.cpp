@@ -21,9 +21,11 @@ SelfCheckState::SelfCheckState(DroneController& controller) : controller_(contro
         const auto& sensor_data = controller_.getSensorData();
         const bool vrpn_pose_active = sensor_data.vrpn_pose_stats.is_active;
         const auto& distance = controller_.getPositionDistance();
-        const char* consistency = !distance.available ? "WAIT" : (distance.exceeded ? "OVER" : "OK");
+        const char* consistency =
+            !distance.available ? "WAIT" : (distance.exceeded ? "OVER" : "OK");
 
-        if (trackingUsesFusedEstimate(controller_.getConfig().tracking_backend)) {
+        if (trackingUsesFusedEstimate(controller_.getConfig().tracking_backend) &&
+            sensor_data.feedback_source == FeedbackSource::RIGID_ESTIMATE) {
             controller_.logInfo(
                 "[SelfCheckState] Checking sensors... "
                 "ControlState:%s(state_estimator est=%u flags=0x%08x) State:%s Pose:%s "

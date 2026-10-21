@@ -16,6 +16,11 @@ dpkg -s "ros-${ROS_DISTRO}-xgc2-multirotor-reference-trajectory-msgs" >/dev/null
 dpkg -s "ros-${ROS_DISTRO}-xgc2-px4-multirotor-controller-msgs" >/dev/null
 dpkg -s "ros-${ROS_DISTRO}-xgc2-ros1-utils" >/dev/null
 dpkg -s libxgc2-state-machine-dev >/dev/null
+dpkg -s libxgc2-hover-thrust-core0 >/dev/null
+dpkg -s libxgc2-hover-thrust-dev >/dev/null
+test -f "/opt/ros/${ROS_DISTRO}/lib/cmake/HoverThrustEstimator/HoverThrustEstimatorConfig.cmake"
+test -f "/opt/ros/${ROS_DISTRO}/include/hover_thrust_estimator/hover_thrust_estimator_runtime.h"
+test -f "/opt/ros/${ROS_DISTRO}/lib/libhover_thrust_estimator_math.so.0"
 dpkg -s libxgc2-math-dev >/dev/null
 dpkg -s libjsoncpp1 >/dev/null
 dpkg -s xgc2-acados >/dev/null
@@ -38,6 +43,7 @@ test -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/Ana
 test -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/SampledReference.h"
 test -f "/opt/ros/${ROS_DISTRO}/include/multirotor_reference_trajectory_msgs/ReferenceStatus.h"
 test -f "/opt/ros/${ROS_DISTRO}/share/px4_multirotor_controller/config/uav_nmpc.yaml"
+test -f "/opt/ros/${ROS_DISTRO}/share/px4_multirotor_controller/config/dfbc_local_1m.yaml"
 test -f "/opt/ros/${ROS_DISTRO}/share/px4_multirotor_controller/launch/uav_nmpc_controller.launch"
 test -f "/opt/ros/${ROS_DISTRO}/include/px4_multirotor_controller/drone_controller.h"
 test -f "/opt/ros/${ROS_DISTRO}/include/px4_multirotor_controller/uav/state_machine/custom1_state.h"

@@ -1,11 +1,10 @@
 #pragma once
 
-
 #include <cmath>
 #include <cstdint>
 
-#include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/common/time.h"
+#include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 #include "px4_multirotor_controller/uav/mpc_trajectory_buffer.h"
 
@@ -170,12 +169,11 @@ inline bool smcWorldPvaAvailable(uint16_t type_mask, uint8_t coordinate_frame) {
     return smcCoordinateFrameIsWorld(coordinate_frame) && smcMaskSuppliesWorldPva(type_mask);
 }
 
-// Header effective time for SMC and for PX4_LOCAL zero-order hold.
+// Header effective time for streaming DFBC, SMC and PX4_LOCAL zero-order hold.
 // Legacy PX4_LOCAL keeps the arrival stamp.
 inline bool usesStageEffectiveTime(TrackingBackend backend, Px4LocalLiftMode lift_mode) {
-    return backend == TrackingBackend::SMC ||
-           (backend == TrackingBackend::PX4_LOCAL &&
-            lift_mode == Px4LocalLiftMode::ZeroOrderHold);
+    return backend == TrackingBackend::SMC || backend == TrackingBackend::DFBC ||
+           (backend == TrackingBackend::PX4_LOCAL && lift_mode == Px4LocalLiftMode::ZeroOrderHold);
 }
 
 // One ingress for the ROS producer and the module (driver/trajectory_ingress.h).
@@ -205,9 +203,11 @@ inline MpcTrajectoryState ingestPositionTarget(const PositionTargetIngress& in,
     traj.qw = yaw_quat.w();
     traj.yaw_rate = in.yaw_rate;
     traj.type_mask = in.type_mask;
-    // PX4_LOCAL still treats frame 0 as local frame 1. SMC keeps the wire frame.
-    traj.coordinate_frame =
-        backend == TrackingBackend::SMC || in.coordinate_frame != 0U ? in.coordinate_frame : 1U;
+    // PX4_LOCAL keeps its historical frame-0 alias; geometric tracking requires frame 1.
+    traj.coordinate_frame = backend == TrackingBackend::SMC || backend == TrackingBackend::DFBC ||
+                                    in.coordinate_frame != 0U
+                                ? in.coordinate_frame
+                                : 1U;
     traj.new_data_received = false;
     if (usesStageEffectiveTime(backend, lift_mode)) {
         const bool finite = in.position.allFinite() && in.velocity.allFinite() &&
@@ -215,9 +215,9 @@ inline MpcTrajectoryState ingestPositionTarget(const PositionTargetIngress& in,
                             std::isfinite(in.yaw_rate);
         traj.planning_time = in.header_stamp;
         traj.is_valid = finite && !in.header_stamp.isZero();
-        if (backend == TrackingBackend::SMC) {
-            traj.is_valid = traj.is_valid &&
-                            smcWorldPvaAvailable(in.type_mask, in.coordinate_frame);
+        if (backend == TrackingBackend::SMC || backend == TrackingBackend::DFBC) {
+            traj.is_valid =
+                traj.is_valid && smcWorldPvaAvailable(in.type_mask, in.coordinate_frame);
         }
         return traj;
     }
@@ -283,14 +283,15 @@ inline EffectiveSegmentLift liftForBackend(const MpcTrajectoryState& sample, con
                                            bool enable_yaw, TrackingBackend backend,
                                            Px4LocalLiftMode px4_local_lift) {
     EffectiveSegmentLift out;
-    if (backend == TrackingBackend::SMC) {
+    if (backend == TrackingBackend::SMC || backend == TrackingBackend::DFBC) {
         if (!stageWindowOpen(sample, now, planning_period) ||
             !smcWorldPvaAvailable(sample.type_mask, sample.coordinate_frame)) {
             return out;
         }
         // A wire mask of 0 must stay 0 here. liftWorldLocal would otherwise
         // fill it from local_type_mask, which SMC does not use.
-        out.setpoint = liftWorldLocal(sample, now, 0, false);
+        out.setpoint =
+            liftWorldLocal(sample, now, 0, backend == TrackingBackend::DFBC && enable_yaw);
         out.success = true;
         return out;
     }

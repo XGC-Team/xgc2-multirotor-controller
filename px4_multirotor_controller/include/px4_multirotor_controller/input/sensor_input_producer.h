@@ -2,6 +2,7 @@
 
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TwistStamped.h>
+#include <mavros_msgs/AttitudeTarget.h>
 #include <mavros_msgs/State.h>
 #include <rigid_state_estimator_msgs/RigidStateEstimate.h>
 #include <ros/ros.h>
@@ -18,13 +19,16 @@
 
 namespace px4_multirotor_controller {
 
+class ControllerDriver;
+
 class SensorInputProducer {
    public:
     using EventSink = std::function<::state_machine::Status(::state_machine::Event)>;
 
     SensorInputProducer(ros::NodeHandle& nh, SensorData& sensor_data,
-                        ros1_utils::PositionQualityStats& vrpn_quality_stats, SensorStatistics& statistics, uint32_t queue_size,
-                        EventSink event_sink, std::function<void()> on_state_message);
+                        ros1_utils::PositionQualityStats& vrpn_quality_stats,
+                        SensorStatistics& statistics, uint32_t queue_size, EventSink event_sink,
+                        std::function<void()> on_state_message, ControllerDriver* driver = nullptr);
 
     void setVrpnQualityConfig(const ros1_utils::PositionQualityConfig& config);
     void setStateEstimateTopic(std::string state_estimate_topic);
@@ -40,11 +44,13 @@ class SensorInputProducer {
     void localPosCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
     void velocityCallback(const geometry_msgs::TwistStamped::ConstPtr& msg);
     void imuCallback(const sensor_msgs::Imu::ConstPtr& msg);
+    void targetAttitudeCallback(const mavros_msgs::AttitudeTarget::ConstPtr& msg);
     void stateCallback(const mavros_msgs::State::ConstPtr& msg);
     void batteryCallback(const sensor_msgs::BatteryState::ConstPtr& msg);
     void vrpnPoseCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
     void postInputEvent(::state_machine::EventId event_id, const char* source);
 
+    ControllerDriver* driver_{nullptr};
     ros::NodeHandle& nh_;
     SensorData& sensor_data_;
     ros1_utils::PositionQualityStats& vrpn_quality_stats_;

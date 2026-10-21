@@ -1,12 +1,11 @@
 #include "px4_multirotor_controller/uav/nmpc_tracking_backend.h"
-#include "px4_multirotor_controller/common/time.h"
-#include "px4_multirotor_controller/common/core_log.h"
-
 
 #include <algorithm>
 #include <cmath>
 
-#include "px4_multirotor_controller/common/sensor_checks.h"
+#include "px4_multirotor_controller/common/control_feedback.h"
+#include "px4_multirotor_controller/common/core_log.h"
+#include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 
 namespace px4_multirotor_controller {
@@ -146,8 +145,8 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor, const MpcTrajecto
 }
 
 bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
-                                     const std::vector<Se3Reference>& references,
-                                     const Time& now, AttitudeRateTarget& target) {
+                                     const std::vector<Se3Reference>& references, const Time& now,
+                                     AttitudeRateTarget& target) {
     if (!entered_) {
         return false;
     }
@@ -267,17 +266,17 @@ bool UavNmpcTrackingBackend::compute(const SensorData& sensor,
         const Se3StateVector ref1_x = control::packState(tracking_references[1].state);
         const Eigen::Vector3d position_error = x0.segment<3>(0) - ref0_x.segment<3>(0);
         PMC_LOG_WARN_THROTTLE(1.0,
-                          "[UavNmpcTrackingBackend] input debug: x0_p=[%.3f %.3f %.3f] "
-                          "x0_v=[%.3f %.3f %.3f] x0_q=[%.3f %.3f %.3f %.3f] "
-                          "x0_w=[%.3f %.3f %.3f] ref0_p=[%.3f %.3f %.3f] "
-                          "ref0_v=[%.3f %.3f %.3f] ref0_q=[%.3f %.3f %.3f %.3f] "
-                          "ref0_w=[%.3f %.3f %.3f] ref0_u=[%.3f %.3f %.3f %.3f] "
-                          "ref1_p=[%.3f %.3f %.3f] pos_err_norm=%.3f",
-                          x0(0), x0(1), x0(2), x0(3), x0(4), x0(5), x0(6), x0(7), x0(8), x0(9),
-                          x0(10), x0(11), x0(12), ref0_x(0), ref0_x(1), ref0_x(2), ref0_x(3),
-                          ref0_x(4), ref0_x(5), ref0_x(6), ref0_x(7), ref0_x(8), ref0_x(9),
-                          ref0_x(10), ref0_x(11), ref0_x(12), ref0_u(0), ref0_u(1), ref0_u(2),
-                          ref0_u(3), ref1_x(0), ref1_x(1), ref1_x(2), position_error.norm());
+                              "[UavNmpcTrackingBackend] input debug: x0_p=[%.3f %.3f %.3f] "
+                              "x0_v=[%.3f %.3f %.3f] x0_q=[%.3f %.3f %.3f %.3f] "
+                              "x0_w=[%.3f %.3f %.3f] ref0_p=[%.3f %.3f %.3f] "
+                              "ref0_v=[%.3f %.3f %.3f] ref0_q=[%.3f %.3f %.3f %.3f] "
+                              "ref0_w=[%.3f %.3f %.3f] ref0_u=[%.3f %.3f %.3f %.3f] "
+                              "ref1_p=[%.3f %.3f %.3f] pos_err_norm=%.3f",
+                              x0(0), x0(1), x0(2), x0(3), x0(4), x0(5), x0(6), x0(7), x0(8), x0(9),
+                              x0(10), x0(11), x0(12), ref0_x(0), ref0_x(1), ref0_x(2), ref0_x(3),
+                              ref0_x(4), ref0_x(5), ref0_x(6), ref0_x(7), ref0_x(8), ref0_x(9),
+                              ref0_x(10), ref0_x(11), ref0_x(12), ref0_u(0), ref0_u(1), ref0_u(2),
+                              ref0_u(3), ref1_x(0), ref1_x(1), ref1_x(2), position_error.norm());
     }
 
     if (config_.nmpc.enable_timing_log &&
@@ -325,25 +324,14 @@ void UavNmpcTrackingBackend::exit() {
 }
 
 bool UavNmpcTrackingBackend::feedbackState(const SensorData& sensor, Se3StateVector& x0) const {
-    if (!sensor_checks::isControlStateUsableForControl(sensor)) {
+    control::Se3State state;
+    if (!readControlFeedback(sensor, TrackingBackend::NMPC, state))
         return false;
-    }
-
-    Eigen::Vector3d position(sensor.x, sensor.y, sensor.z);
-    Eigen::Vector3d velocity(sensor.vx, sensor.vy, sensor.vz);
-    Eigen::Quaterniond attitude(sensor.qw, sensor.qx, sensor.qy, sensor.qz);
-
-    if (!std::isfinite(attitude.norm()) || attitude.norm() < 1e-9) {
-        return false;
-    }
-    attitude.normalize();
-
     x0.setZero();
-    x0.segment<3>(0) = position;
-    x0.segment<3>(3) = velocity;
-    x0.segment<4>(6) = control::quaternionToVectorWxyz(attitude);
-    x0.segment<3>(10) << sensor.wx, sensor.wy, sensor.wz;
-
+    x0.segment<3>(0) = state.position;
+    x0.segment<3>(3) = state.velocity;
+    x0.segment<4>(6) = control::quaternionToVectorWxyz(state.attitude);
+    x0.segment<3>(10) = state.body_rate;
     return control::isFinite(x0);
 }
 
@@ -393,8 +381,7 @@ Se3Reference UavNmpcTrackingBackend::sampleReference(const MpcTrajectoryState& r
     return sample;
 }
 
-bool UavNmpcTrackingBackend::hoverThrustReady(const SensorData& sensor,
-                                              const Time& now) const {
+bool UavNmpcTrackingBackend::hoverThrustReady(const SensorData& sensor, const Time& now) const {
     if (!config_.nmpc.hover_thrust_enabled) {
         return false;
     }

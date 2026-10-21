@@ -37,10 +37,10 @@ void HoverState::configureHoverSetpoint() {
     setpoint.type_mask = HOVER_POSITION_VELOCITY_TYPE_MASK;
 
     if (config.enable_yaw_control) {
-        setpoint.qx = sensor_data.qx;
-        setpoint.qy = sensor_data.qy;
-        setpoint.qz = sensor_data.qz;
-        setpoint.qw = sensor_data.qw;
+        setpoint.qx = sensor_checks::worldQx(sensor_data, backend);
+        setpoint.qy = sensor_checks::worldQy(sensor_data, backend);
+        setpoint.qz = sensor_checks::worldQz(sensor_data, backend);
+        setpoint.qw = sensor_checks::worldQw(sensor_data, backend);
         setpoint.type_mask &= ~IGNORE_YAW_BIT;
         controller_.logInfo("[HoverState] Yaw control enabled: holding current yaw");
     } else {
