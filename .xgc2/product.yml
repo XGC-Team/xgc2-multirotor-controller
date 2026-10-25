@@ -1,7 +1,7 @@
 schema: xgc2.product.v1
 id: xgc2-multirotor-controller
 name: XGC2 Multirotor Controller
-version: 1.2.0-4
+version: 1.2.0-5
 kind: ros1-apt
 summary: ROS1 PX4 multirotor controller and multirotor reference trajectory packages
   and their xgc2-module modules for XGC2 robots.
@@ -62,4 +62,4 @@ release:
     xgc2-ros-msgs: rebuild
     xgc2-ros1-utils: rebuild
   apt_versions:
-    focal: 1.2.0-4
+    focal: 1.2.0-5
