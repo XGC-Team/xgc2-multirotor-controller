@@ -45,6 +45,14 @@ if [[ -z "${VERSION}" ]]; then
   exit 1
 fi
 
+command -v file >/dev/null 2>&1 || {
+  echo 'missing packaging tool: file (required by module ELF validation; prepare the build environment)' >&2
+  exit 1
+}
+file --version >/dev/null 2>&1 || {
+  echo 'packaging tool is not usable: file' >&2
+  exit 1
+}
 ARCH="$(dpkg --print-architecture)"
 PREFIX="/opt/ros/${ROS_DISTRO}"
 PREFIX_ROOT="${INSTALL_ROOT}${PREFIX}"
@@ -60,7 +68,11 @@ for module_library in "${MODULE_LIBRARIES[@]}"; do
     echo "missing required installed module library: ${module_path}" >&2
     exit 1
   fi
-  if ! file -b "${module_path}" | grep -q '^ELF'; then
+  module_kind="$(file -b "${module_path}")" || {
+    echo "failed to inspect module library with file: ${module_path}" >&2
+    exit 1
+  }
+  if [[ "${module_kind}" != ELF* ]]; then
     echo "required module library is not ELF: ${module_path}" >&2
     exit 1
   fi

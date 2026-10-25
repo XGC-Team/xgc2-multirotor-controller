@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
 bash -n .xgc2/scripts/*.sh
+python3 .xgc2/scripts/test_package_prerequisites.py
 
 nested_git="$(
   find . \
