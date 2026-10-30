@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import ctypes
 import os
-import sys
-from importlib.util import find_spec
 from pathlib import Path
 from time import perf_counter
 
@@ -171,125 +168,96 @@ def _normalize_projected_heading(x_axis: np.ndarray, z_ref: np.ndarray) -> np.nd
     return projected / norm
 
 
-def _repo_root() -> Path:
-    here = Path(__file__).resolve()
-    for parent in (here.parent, *here.parents):
-        if (parent / "external" / "acados-helper" / "acados").exists():
-            return parent
-        if (parent / "external" / "toolchains" / "xgc2-acados").exists():
-            return parent
-    if len(here.parents) >= 4:
-        return here.parents[3]
-    return here.parent
+# The single installed SDK. Discovery, alternate roots, sys.path/library-path
+# rewriting and ctypes preloading are intentionally absent: the released
+# package setup selects the code-generation interpreter and this module only
+# validates the canonical installation read-only.
+ACADOS_ROOT = Path("/opt/xgc2/acados")
+ACADOS_REF = "v0.6.0"
+ACADOS_SHA = "503364817c872d474ab5bed219c26760ac267769"
+ACADOS_PACKAGE_BASE = "0.6.0-1"
 
 
-def _local_acados_root() -> Path:
-    for env_name in (
-        "XGC2_ACADOS_SOURCE_DIR",
-        "XGC2_ACADOS_ACADOS_SOURCE_DIR",
-        "ACADOS_SOURCE_DIR",
-        "ACADOS_ROOT",
+def _installed_acados_status() -> dict[str, bool | str]:
+    """Validate the installed xgc2-acados SDK without mutating the process."""
+
+    root = ACADOS_ROOT
+    status: dict[str, bool | str] = {
+        "acados_root": str(root),
+        "acados_root_exists": root.is_dir(),
+        "acados_template_source_exists": (
+            root / "interfaces" / "acados_template" / "acados_template"
+        ).is_dir(),
+        "casadi": False,
+        "acados_template": False,
+    }
+    conflict = os.environ.get("ACADOS_SOURCE_DIR")
+    if conflict:
+        try:
+            resolved = Path(conflict).expanduser().resolve()
+        except OSError:
+            resolved = None
+        if resolved != root.resolve():
+            status["error"] = (
+                f"ACADOS_SOURCE_DIR={conflict} conflicts with the installed SDK at {root}"
+            )
+            return status
+    if not root.is_dir():
+        status["error"] = f"xgc2-acados is not installed at {root}; install the released package"
+        return status
+    try:
+        lock = dict(
+            line.split("=", 1)
+            for line in (root / "acados.lock").read_text().splitlines()
+            if "=" in line
+        )
+    except OSError as error:
+        status["error"] = f"cannot read the installed SDK lock {root / 'acados.lock'}: {error}"
+        return status
+    lock = {key.strip(): value.strip() for key, value in lock.items()}
+    if (
+        lock.get("ACADOS_REF") != ACADOS_REF
+        or lock.get("ACADOS_SHA") != ACADOS_SHA
+        or lock.get("XGC2_PACKAGE_VERSION") != ACADOS_PACKAGE_BASE
     ):
-        raw_path = os.environ.get(env_name)
-        if raw_path:
-            candidate = Path(raw_path).expanduser().resolve()
-            if candidate.exists():
-                return candidate
-    repo_root = _repo_root()
-    vendor_acados = repo_root / "external" / "toolchains" / "xgc2-acados" / "third_party" / "acados"
-    if vendor_acados.exists():
-        return vendor_acados
-    packaged_acados = Path("/opt/xgc2/acados")
-    if packaged_acados.exists():
-        return packaged_acados
-    return repo_root / "external" / "acados-helper" / "acados"
-
-
-def _env_paths(*names: str) -> list[Path]:
-    paths: list[Path] = []
-    for name in names:
-        for raw_path in os.environ.get(name, "").split(os.pathsep):
-            if not raw_path:
-                continue
-            candidate = Path(raw_path).expanduser().resolve()
-            if candidate.exists() and candidate not in paths:
-                paths.append(candidate)
-    return paths
-
-
-def _prepend_sys_paths(paths: list[Path]) -> None:
-    for path in reversed(paths):
-        path_str = str(path)
-        if path_str not in sys.path:
-            sys.path.insert(0, path_str)
+        status["error"] = (
+            f"installed SDK lock is not the selected acados {ACADOS_REF} "
+            f"({ACADOS_SHA}, package base {ACADOS_PACKAGE_BASE})"
+        )
+        return status
+    try:
+        import acados_template
+        import casadi
+    except Exception as error:
+        status["error"] = (
+            f"casadi/acados_template is not importable from the SDK environment: {error}"
+        )
+        return status
+    template_path = Path(acados_template.__file__).resolve()
+    casadi_path = Path(casadi.__file__).resolve()
+    if root.resolve() not in template_path.parents:
+        status["error"] = (
+            f"acados_template is loaded from {template_path}, outside the installed SDK {root}"
+        )
+        return status
+    if (root / "python").resolve() not in casadi_path.parents:
+        status["error"] = (
+            f"casadi is loaded from {casadi_path}, outside the installed SDK {root}/python"
+        )
+        return status
+    status["casadi"] = True
+    status["acados_template"] = True
+    return status
 
 
 def _format_float_token(value: float) -> str:
     return f"{value:g}".replace("-", "m").replace(".", "p")
 
 
-def configure_acados_environment() -> dict[str, bool | str]:
-    """Configure acados paths exported by the system xgc2-acados package."""
-
-    os.environ.setdefault("MPLBACKEND", "Agg")
-    acados_root = _local_acados_root()
-    template_parent = acados_root / "interfaces" / "acados_template"
-    python_paths = _env_paths(
-        "XGC2_ACADOS_PYTHONPATH",
-        "XGC2_ACADOS_PYTHON_PATH",
-        "ACADOS_PYTHONPATH",
-    )
-    for interface_path in _env_paths(
-        "XGC2_ACADOS_PYTHON_INTERFACE_PATH",
-        "ACADOS_PYTHON_INTERFACE_PATH",
-    ):
-        if interface_path.name == "acados_template":
-            python_paths.append(interface_path.parent)
-        else:
-            python_paths.append(interface_path)
-    if template_parent.exists():
-        python_paths.append(template_parent)
-    _prepend_sys_paths(python_paths)
-    if acados_root.exists():
-        os.environ.setdefault("ACADOS_SOURCE_DIR", str(acados_root))
-    library_dirs = _env_paths(
-        "XGC2_ACADOS_LIBRARY_DIRS",
-        "XGC2_ACADOS_LIBRARY_DIR",
-        "ACADOS_LIBRARY_DIRS",
-    )
-    source_lib_dir = acados_root / "lib"
-    if source_lib_dir.exists() and source_lib_dir not in library_dirs:
-        library_dirs.append(source_lib_dir)
-    for lib_dir in library_dirs:
-        current_ld = os.environ.get("LD_LIBRARY_PATH", "")
-        lib_dir_str = str(lib_dir)
-        if lib_dir_str not in current_ld.split(":"):
-            os.environ["LD_LIBRARY_PATH"] = (
-                f"{lib_dir_str}:{current_ld}" if current_ld else lib_dir_str
-            )
-        for lib_name in ("libblasfeo.so", "libhpipm.so", "libacados.so"):
-            lib_path = lib_dir / lib_name
-            if lib_path.exists():
-                ctypes.CDLL(str(lib_path), mode=ctypes.RTLD_GLOBAL)
-    return {
-        "acados_root": str(acados_root),
-        "acados_root_exists": acados_root.exists(),
-        "acados_template_source_exists": (template_parent / "acados_template").exists(),
-        "acados_python_paths": os.pathsep.join(str(path) for path in python_paths),
-        "acados_library_dirs": os.pathsep.join(str(path) for path in library_dirs),
-        "acados_lib_dir_exists": any(path.exists() for path in library_dirs),
-    }
-
-
 def optional_backend_status() -> dict[str, bool | str]:
-    """Report CasADi/acados backend availability."""
+    """Report the installed SDK/backend availability without mutating state."""
 
-    local_status = configure_acados_environment()
-    return {
-        "casadi": find_spec("casadi") is not None,
-        "acados_template": find_spec("acados_template") is not None,
-        **local_status,
-    }
+    return _installed_acados_status()
 
 
 class AcadosBackendUnavailable(RuntimeError):
@@ -315,9 +283,9 @@ class AcadosNMPCController:
     ) -> None:
         status = optional_backend_status()
         if not status["casadi"] or not status["acados_template"]:
+            reason = status.get("error", "the installed xgc2-acados SDK is not available")
             raise AcadosBackendUnavailable(
-                "backend='acados' requires importable casadi and acados_template; "
-                "check xgc2-acados exported Python paths or ACADOS_SOURCE_DIR."
+                f"backend='acados' requires the installed xgc2-acados SDK: {reason}"
             )
         self.reference = reference
         self.params = params if params is not None else default_quadrotor_params()
