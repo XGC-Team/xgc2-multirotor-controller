@@ -158,9 +158,11 @@ else()
 endif()
 
 if(MULTIROTOR_UAV_NMPC_REGENERATE)
-  find_program(PYTHON3_EXECUTABLE python3)
-  if(NOT PYTHON3_EXECUTABLE)
-    message(FATAL_ERROR "python3 is required to generate the package-local UAV NMPC acados code")
+  if(NOT XGC2_ACADOS_CODEGEN_PYTHON)
+    message(FATAL_ERROR "xgc2_acados did not export XGC2_ACADOS_CODEGEN_PYTHON; install the released SDK with its code-generation interpreter")
+  endif()
+  if(NOT IS_ABSOLUTE "${XGC2_ACADOS_CODEGEN_PYTHON}" OR NOT EXISTS "${XGC2_ACADOS_CODEGEN_PYTHON}")
+    message(FATAL_ERROR "XGC2_ACADOS_CODEGEN_PYTHON must be an existing absolute interpreter: ${XGC2_ACADOS_CODEGEN_PYTHON}")
   endif()
   file(MAKE_DIRECTORY
     "${MULTIROTOR_UAV_NMPC_PYTHON_CACHE_DIR}"
@@ -180,7 +182,7 @@ if(MULTIROTOR_UAV_NMPC_REGENERATE)
       PYTHONPYCACHEPREFIX=${MULTIROTOR_UAV_NMPC_PYTHON_CACHE_DIR}
       MPLCONFIGDIR=${MULTIROTOR_UAV_NMPC_MPL_CACHE_DIR}
       MPLBACKEND=Agg
-      ${PYTHON3_EXECUTABLE} -B -m nmpc.export_ros_generated_code
+      ${XGC2_ACADOS_CODEGEN_PYTHON} -B -m nmpc.export_ros_generated_code
       --output-dir ${MULTIROTOR_UAV_NMPC_GENERATED_DIR}
       --horizon ${MULTIROTOR_UAV_NMPC_HORIZON}
       --steps ${MULTIROTOR_UAV_NMPC_STEPS}
