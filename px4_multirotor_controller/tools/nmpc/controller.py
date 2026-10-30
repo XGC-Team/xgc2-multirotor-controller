@@ -651,7 +651,7 @@ class AcadosNMPCController:
         """Generate acados C solver code without building a shared library."""
 
         ocp, AcadosOcpSolver = self._build_ocp()
-        AcadosOcpSolver.generate(ocp, json_file=ocp.json_file, verbose=False)
+        AcadosOcpSolver.generate(ocp, verbose=False)
 
     def _casadi_residual(self, ca, x, u, p, *, terminal: bool, initial: bool = False):
         xref = p[0:STATE_SIZE]
