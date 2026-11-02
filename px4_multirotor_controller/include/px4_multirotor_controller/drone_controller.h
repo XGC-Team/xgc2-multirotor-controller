@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <memory>
 #include <mutex>
+#include <state_machine/adt.hpp>
 #include <state_machine/state_machine.hpp>
 
 #include "px4_multirotor_controller/common/types.h"
@@ -85,7 +86,11 @@ class DroneController {
 
     // 配置访问接口
     ControllerConfig getConfig() const;
+    const ControllerConfig& configRef() const noexcept {
+        return config_;
+    }
     void setConfig(const ControllerConfig& config);
+    ::state_machine::adt::TickPolicy tickPolicy(double nominal_control_frequency_hz) const;
 
     void requestCustom1Tracking();
     void clearCustom1Request();

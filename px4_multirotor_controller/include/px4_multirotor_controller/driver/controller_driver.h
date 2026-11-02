@@ -89,14 +89,8 @@ class ControllerDriver {
         if (hover_thrust_) {
             hover_thrust_->update(now.toSec());
             for (const auto& estimate : hover_thrust_->publishedEstimates()) {
-                if (ingestHoverThrust(sensor_, estimate.output.hover_thrust, estimate.output.flags,
-                                      estimate.stamp_sec, now.toSec())) {
-                    ::state_machine::Event event(
-                        event_type::INPUT_HOVER_THRUST_UPDATED,
-                        ::state_machine::EventTimestamp{estimate.stamp_sec});
-                    event.source = "hover_thrust/internal";
-                    checkHoverInput(controller_.getStateMachine().postEvent(std::move(event)));
-                }
+                (void)ingestHoverThrust(sensor_, estimate.output.hover_thrust,
+                                        estimate.output.flags, estimate.stamp_sec, now.toSec());
             }
         }
         controller_.update(now.toSec());

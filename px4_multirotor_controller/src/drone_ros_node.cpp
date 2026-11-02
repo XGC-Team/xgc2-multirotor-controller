@@ -1,5 +1,6 @@
 #include "px4_multirotor_controller/drone_ros_node.h"
 
+#include <ros/callback_queue.h>
 #include <ros1_utils/namespace_utils.h>
 #include <ros1_utils/param_utils.h>
 #include <std_msgs/String.h>
@@ -143,38 +144,34 @@ DroneRosNode::~DroneRosNode() {
 }
 
 void DroneRosNode::run(double frequency) {
-    ROS_INFO("[DroneRosNode] Starting control loop at %.1f Hz", frequency);
+    const double nominal_hz = std::isfinite(frequency) && frequency > 0.0 ? frequency : 100.0;
+    ROS_INFO("[DroneRosNode] Starting demand-driven control loop (nominal %.1f Hz)", nominal_hz);
 
-    // ============================================================
-    // 线程模型：ROS/FSM 主循环单线程，输出事件由单 worker 异步消费
-    // ============================================================
-    // 执行顺序：
-    // 1. ros::spinOnce()      - 处理所有待处理的ROS回调（非阻塞）
-    // 2. controlLoopCallback() - 执行控制逻辑
-    // 3. resetNewFlags()       - 清除新数据标志
-    // 4. rate.sleep()          - 维持固定频率
-    //
-    // 线程安全保证：
-    // - ROS 订阅回调、上下文更新、FSM update 在主线程中串行执行
-    // - 输出消费者在主线程快照必要数据，再把发布/服务任务放入 worker
-    // ============================================================
-
-    ros::Rate rate(frequency);
+    ::state_machine::adt::AdaptiveScheduleTracker schedule(1.0 / nominal_hz);
+    ros::CallbackQueue* queue = ros::getGlobalCallbackQueue();
+    double wait_sec = 0.0;
 
     while (ros::ok()) {
-        // 处理ROS回调（订阅者消息）
-        ros::spinOnce();
+        // 1. 按需阻塞等待回调队列或下一个状态周期截止时间（新消息到达立即0延迟唤醒）
+        if (queue != nullptr) {
+            queue->callAvailable(ros::WallDuration(wait_sec));
+        } else {
+            ros::spinOnce();
+        }
 
-        // 执行控制循环
+        // 2. 执行控制循环
         controlLoopCallback();
 
-        // 清除所有新数据标志
+        // 3. 清除所有新数据标志
         if (sensor_input_producer_) {
             sensor_input_producer_->resetNewFlags();
         }
 
-        // 按设定频率休眠
-        rate.sleep();
+        // 4. 根据当前状态机的 TickPolicy（SelfCheck/Ready 低频，飞行态全频）计算下次等待时长
+        const double now_sec = ros::Time::now().toSec();
+        wait_sec = std::max(
+            1.0 / nominal_hz,
+            schedule.nextWaitDurationSec(controller_.tickPolicy(nominal_hz), now_sec));
     }
 
     ROS_INFO("[DroneRosNode] Control loop exited");

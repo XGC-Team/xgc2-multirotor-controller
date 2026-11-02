@@ -114,21 +114,21 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
         .to(state_type::Normal)
         .priority(transition_priority::AUTOMATIC)
         .when([this](const ::state_machine::GuardContext&) {
-            return sensor_checks::areSensorsReady(sensor_data_, getConfig().tracking_backend);
+            return sensor_checks::areSensorsReady(sensor_data_, config_.tracking_backend);
         })
         .transition()
         .from(state_type::Ready)
         .to(state_type::SelfCheck)
         .priority(transition_priority::AUTOMATIC)
         .when([this](const ::state_machine::GuardContext&) {
-            return !sensor_checks::areSensorsReady(sensor_data_, getConfig().tracking_backend);
+            return !sensor_checks::areSensorsReady(sensor_data_, config_.tracking_backend);
         })
         .transition()
         .from(state_type::Ready)
         .to(state_type::Landing)
         .priority(transition_priority::CRITICAL)
         .when([this](const ::state_machine::GuardContext&) {
-            return sensor_checks::isAirborne(sensor_data_, getConfig().tracking_backend);
+            return sensor_checks::isAirborne(sensor_data_, config_.tracking_backend);
         })
         .transition()
         .from(state_type::Ready)
@@ -378,6 +378,20 @@ void DroneController::setConfig(const ControllerConfig& config) {
     config_ = config;
 }
 
+::state_machine::adt::TickPolicy DroneController::tickPolicy(
+    double nominal_control_frequency_hz) const {
+    const double control_hz = std::max(1.0, nominal_control_frequency_hz);
+    if (!state_machine_) {
+        return ::state_machine::adt::TickPeriodic{1.0 / control_hz};
+    }
+    const auto active = state_machine_->currentState(region_type::CONTROL);
+    if (active == state_type::SelfCheck || active == state_type::Ready) {
+        const double idle_hz = std::min(control_hz, 20.0);
+        return ::state_machine::adt::TickPeriodic{1.0 / idle_hz};
+    }
+    return ::state_machine::adt::TickPeriodic{1.0 / control_hz};
+}
+
 void DroneController::requestCustom1Tracking() {
     custom1_requested_ = true;
 }
@@ -391,7 +405,7 @@ bool DroneController::custom1Requested() const {
 }
 
 bool DroneController::custom1ReferenceReady() const {
-    const auto config = getConfig();
+    const auto& config = config_;
     if (config.tracking_backend != TrackingBackend::PX4_LOCAL) {
         return true;
     }

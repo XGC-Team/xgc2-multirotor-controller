@@ -2,7 +2,9 @@
 
 #include <cstdint>
 #include <memory>
+#include <state_machine/adt.hpp>
 #include <state_machine/state_machine.hpp>
+#include <variant>
 #include <xgc2_math/trajectory.hpp>
 
 #include "multirotor_reference_trajectory/reference_types.h"
@@ -20,8 +22,26 @@ struct ReferenceTrajectoryConfig {
     double min_lead_time{0.2};
     trajectory::TrajectoryLimits3 limits{};
 };
+
 class ReferenceTrajectoryRuntime {
    public:
+    struct ActiveAnalyticSpec {
+        reference::AnalyticReference message{};
+        std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator{};
+        double duration{0.0};
+    };
+
+    struct ActiveSampledSpec {
+        reference::SampledReference message{};
+        std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator{};
+        double duration{0.0};
+    };
+
+    using PendingSpecVariant =
+        std::variant<std::monostate, reference::AnalyticReference, reference::SampledReference>;
+    using ActiveSpecVariant =
+        std::variant<std::monostate, ActiveAnalyticSpec, ActiveSampledSpec>;
+
     ReferenceTrajectoryRuntime();
     ReferenceTrajectoryRuntime(const ReferenceTrajectoryRuntime&) = delete;
     ReferenceTrajectoryRuntime& operator=(const ReferenceTrajectoryRuntime&) = delete;
@@ -48,36 +68,23 @@ class ReferenceTrajectoryRuntime {
     const ReferenceTrajectoryConfig& config() const {
         return config_;
     }
-    trajectory::TrajectoryModelType activeType() const {
-        return active_type_;
-    }
-    uint32_t activeTrajectoryId() const {
-        return active_trajectory_id_;
-    }
-    uint32_t activeRevision() const {
-        return active_revision_;
-    }
+    trajectory::TrajectoryModelType activeType() const;
+    uint32_t activeTrajectoryId() const;
+    uint32_t activeRevision() const;
     uint32_t flags() const {
         return flags_;
     }
 
-    const reference::AnalyticReference& activeAnalyticMessage() const {
-        return active_analytic_;
-    }
-    const reference::SampledReference& activeSampledMessage() const {
-        return active_sampled_;
-    }
+    const reference::AnalyticReference& activeAnalyticMessage() const;
+    const reference::SampledReference& activeSampledMessage() const;
     reference::ReferenceStatus makeStatus(double stamp_sec) const;
-    const trajectory::TrajectoryEvaluator3* evaluator() const {
-        return active_evaluator_.get();
-    }
+    const trajectory::TrajectoryEvaluator3* evaluator() const;
     ::state_machine::StateMachine& stateMachine() {
         return *machine_;
     }
+    ::state_machine::adt::TickPolicy tickPolicy() const;
 
    private:
-    enum class PendingKind { kNone, kAnalytic, kSampled };
-
     void setupMachine();
     std::unique_ptr<trajectory::TrajectoryEvaluator3> buildAnalyticEvaluator(
         const reference::AnalyticReference& msg, uint32_t& flags) const;
@@ -96,17 +103,10 @@ class ReferenceTrajectoryRuntime {
     double current_time_sec_{0.0};
     uint32_t flags_{0U};
 
-    PendingKind pending_kind_{PendingKind::kNone};
-    reference::AnalyticReference pending_analytic_;
-    reference::SampledReference pending_sampled_;
-    trajectory::TrajectoryModelType active_type_{trajectory::TrajectoryModelType::kNone};
-    uint32_t active_trajectory_id_{0U};
-    uint32_t active_revision_{0U};
-    double active_start_sec_{0.0};
-    double active_duration_{0.0};
-    std::unique_ptr<trajectory::TrajectoryEvaluator3> active_evaluator_;
-    reference::AnalyticReference active_analytic_;
-    reference::SampledReference active_sampled_;
+    PendingSpecVariant pending_spec_{std::monostate{}};
+    ActiveSpecVariant active_spec_{std::monostate{}};
+    reference::AnalyticReference empty_analytic_{};
+    reference::SampledReference empty_sampled_{};
 };
 
 }  // namespace multirotor_reference_trajectory

@@ -82,15 +82,8 @@ void ReferenceTrajectoryRuntime::reset() {
     state_ = reference::ReferenceStatus::STATE_SELF_CHECK;
     current_time_sec_ = 0.0;
     flags_ = 0U;
-    pending_kind_ = PendingKind::kNone;
-    active_type_ = trajectory::TrajectoryModelType::kNone;
-    active_trajectory_id_ = 0U;
-    active_revision_ = 0U;
-    active_start_sec_ = 0.0;
-    active_duration_ = 0.0;
-    active_evaluator_.reset();
-    active_analytic_ = reference::AnalyticReference{};
-    active_sampled_ = reference::SampledReference{};
+    pending_spec_ = std::monostate{};
+    active_spec_ = std::monostate{};
     setupMachine();
 }
 
@@ -117,10 +110,10 @@ bool ReferenceTrajectoryRuntime::acceptAnalytic(const reference::AnalyticReferen
         flags_ |= flags;
         return false;
     }
-    pending_analytic_ = msg;
-    pending_analytic_.start_time =
+    reference::AnalyticReference adjusted = msg;
+    adjusted.start_time =
         Time(adjustedStartTime(msg.start_time.toSec(), current_time_sec_, config_.min_lead_time));
-    pending_kind_ = PendingKind::kAnalytic;
+    pending_spec_ = std::move(adjusted);
     return true;
 }
 
@@ -131,56 +124,139 @@ bool ReferenceTrajectoryRuntime::acceptSampled(const reference::SampledReference
         flags_ |= flags;
         return false;
     }
-    pending_sampled_ = msg;
-    pending_sampled_.start_time =
+    reference::SampledReference adjusted = msg;
+    adjusted.start_time =
         Time(adjustedStartTime(msg.start_time.toSec(), current_time_sec_, config_.min_lead_time));
-    pending_kind_ = PendingKind::kSampled;
+    pending_spec_ = std::move(adjusted);
     return true;
 }
 
 bool ReferenceTrajectoryRuntime::activatePending() {
-    if (pending_kind_ == PendingKind::kNone) {
-        return active_evaluator_ != nullptr;
-    }
-    if (pending_kind_ == PendingKind::kAnalytic) {
-        uint32_t flags = 0U;
-        auto evaluator = buildAnalyticEvaluator(pending_analytic_, flags);
-        if (!evaluator) {
-            flags_ |= flags;
-            pending_kind_ = PendingKind::kNone;
-            return false;
-        }
-        setActiveAnalytic(pending_analytic_, std::move(evaluator), flags);
-        pending_kind_ = PendingKind::kNone;
-        return true;
-    }
-    if (pending_kind_ == PendingKind::kSampled) {
-        auto evaluator = std::make_unique<trajectory::SampledEvaluator3>();
-        uint32_t flags = 0U;
-        if (!buildSampledEvaluator(pending_sampled_, *evaluator, flags)) {
-            flags_ |= flags;
-            pending_kind_ = PendingKind::kNone;
-            return false;
-        }
-        setActiveSampled(pending_sampled_, std::move(evaluator), flags);
-        pending_kind_ = PendingKind::kNone;
-        return true;
-    }
-    return false;
+    return std::visit(
+        sm::adt::Overloaded{
+            [this](std::monostate) -> bool {
+                return evaluator() != nullptr;
+            },
+            [this](const reference::AnalyticReference& pending_analytic) -> bool {
+                uint32_t flags = 0U;
+                auto eval = buildAnalyticEvaluator(pending_analytic, flags);
+                if (!eval) {
+                    flags_ |= flags;
+                    pending_spec_ = std::monostate{};
+                    return false;
+                }
+                const reference::AnalyticReference copy = pending_analytic;
+                pending_spec_ = std::monostate{};
+                setActiveAnalytic(copy, std::move(eval), flags);
+                return true;
+            },
+            [this](const reference::SampledReference& pending_sampled) -> bool {
+                auto eval = std::make_unique<trajectory::SampledEvaluator3>();
+                uint32_t flags = 0U;
+                if (!buildSampledEvaluator(pending_sampled, *eval, flags)) {
+                    flags_ |= flags;
+                    pending_spec_ = std::monostate{};
+                    return false;
+                }
+                const reference::SampledReference copy = pending_sampled;
+                pending_spec_ = std::monostate{};
+                setActiveSampled(copy, std::move(eval), flags);
+                return true;
+            }},
+        pending_spec_);
 }
 
 bool ReferenceTrajectoryRuntime::activeExpired(double now_sec) const {
-    if (!active_evaluator_) {
-        return true;
-    }
-    if (active_duration_ <= 0.0) {
-        return false;
-    }
-    return now_sec > active_start_sec_ + active_duration_ + config_.trajectory_timeout;
+    return std::visit(
+        sm::adt::Overloaded{
+            [](std::monostate) -> bool { return true; },
+            [this, now_sec](const ActiveAnalyticSpec& spec) -> bool {
+                if (!spec.evaluator) {
+                    return true;
+                }
+                if (spec.duration <= 0.0) {
+                    return false;
+                }
+                return now_sec > spec.message.start_time.toSec() + spec.duration +
+                                     config_.trajectory_timeout;
+            },
+            [this, now_sec](const ActiveSampledSpec& spec) -> bool {
+                if (!spec.evaluator) {
+                    return true;
+                }
+                if (spec.duration <= 0.0) {
+                    return false;
+                }
+                return now_sec > spec.message.start_time.toSec() + spec.duration +
+                                     config_.trajectory_timeout;
+            }},
+        active_spec_);
 }
 
 bool ReferenceTrajectoryRuntime::hasPendingReference() const {
-    return pending_kind_ != PendingKind::kNone;
+    return !std::holds_alternative<std::monostate>(pending_spec_);
+}
+
+trajectory::TrajectoryModelType ReferenceTrajectoryRuntime::activeType() const {
+    return std::visit(
+        sm::adt::Overloaded{
+            [](std::monostate) { return trajectory::TrajectoryModelType::kNone; },
+            [](const ActiveAnalyticSpec&) { return trajectory::TrajectoryModelType::kAnalytic; },
+            [](const ActiveSampledSpec&) { return trajectory::TrajectoryModelType::kSampled; }},
+        active_spec_);
+}
+
+uint32_t ReferenceTrajectoryRuntime::activeTrajectoryId() const {
+    return std::visit(
+        sm::adt::Overloaded{
+            [](std::monostate) -> uint32_t { return 0U; },
+            [](const ActiveAnalyticSpec& spec) -> uint32_t { return spec.message.trajectory_id; },
+            [](const ActiveSampledSpec& spec) -> uint32_t { return spec.message.trajectory_id; }},
+        active_spec_);
+}
+
+uint32_t ReferenceTrajectoryRuntime::activeRevision() const {
+    return std::visit(
+        sm::adt::Overloaded{
+            [](std::monostate) -> uint32_t { return 0U; },
+            [](const ActiveAnalyticSpec& spec) -> uint32_t { return spec.message.revision; },
+            [](const ActiveSampledSpec& spec) -> uint32_t { return spec.message.revision; }},
+        active_spec_);
+}
+
+const reference::AnalyticReference& ReferenceTrajectoryRuntime::activeAnalyticMessage() const {
+    if (const auto* spec = std::get_if<ActiveAnalyticSpec>(&active_spec_)) {
+        return spec->message;
+    }
+    return empty_analytic_;
+}
+
+const reference::SampledReference& ReferenceTrajectoryRuntime::activeSampledMessage() const {
+    if (const auto* spec = std::get_if<ActiveSampledSpec>(&active_spec_)) {
+        return spec->message;
+    }
+    return empty_sampled_;
+}
+
+const trajectory::TrajectoryEvaluator3* ReferenceTrajectoryRuntime::evaluator() const {
+    return std::visit(
+        sm::adt::Overloaded{
+            [](std::monostate) -> const trajectory::TrajectoryEvaluator3* { return nullptr; },
+            [](const ActiveAnalyticSpec& spec) -> const trajectory::TrajectoryEvaluator3* {
+                return spec.evaluator.get();
+            },
+            [](const ActiveSampledSpec& spec) -> const trajectory::TrajectoryEvaluator3* {
+                return spec.evaluator.get();
+            }},
+        active_spec_);
+}
+
+sm::adt::TickPolicy ReferenceTrajectoryRuntime::tickPolicy() const {
+    if (state_ == reference::ReferenceStatus::STATE_ACTIVE) {
+        const double rate = std::max(config_.status_rate_hz, config_.active_publish_rate_hz);
+        return sm::adt::TickPeriodic{1.0 / std::max(1.0, rate)};
+    }
+    return sm::adt::TickPeriodic{1.0 / std::max(1.0, config_.status_rate_hz)};
 }
 
 void ReferenceTrajectoryRuntime::enterState(uint8_t state) {
@@ -192,13 +268,13 @@ reference::ReferenceStatus ReferenceTrajectoryRuntime::makeStatus(double stamp_s
     status.header.stamp = Time(stamp_sec);
     status.state = state_;
     status.flags = flags_;
-    status.active_trajectory_id = active_trajectory_id_;
-    status.active_revision = active_revision_;
+    status.active_trajectory_id = activeTrajectoryId();
+    status.active_revision = activeRevision();
     status.active_type = reference::ReferenceStatus::TYPE_NONE;
-    if (active_type_ == trajectory::TrajectoryModelType::kAnalytic) {
+    const auto type = activeType();
+    if (type == trajectory::TrajectoryModelType::kAnalytic) {
         status.active_type = reference::ReferenceStatus::TYPE_ANALYTIC;
-
-    } else if (active_type_ == trajectory::TrajectoryModelType::kSampled) {
+    } else if (type == trajectory::TrajectoryModelType::kSampled) {
         status.active_type = reference::ReferenceStatus::TYPE_SAMPLED;
     }
     return status;
@@ -472,26 +548,22 @@ bool ReferenceTrajectoryRuntime::buildSampledEvaluator(const reference::SampledR
 void ReferenceTrajectoryRuntime::setActiveAnalytic(
     const reference::AnalyticReference& msg,
     std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator, uint32_t flags) {
-    active_type_ = trajectory::TrajectoryModelType::kAnalytic;
-    active_trajectory_id_ = msg.trajectory_id;
-    active_revision_ = msg.revision;
-    active_start_sec_ = msg.start_time.toSec();
-    active_duration_ = evaluator ? evaluator->duration() : 0.0;
-    active_evaluator_ = std::move(evaluator);
-    active_analytic_ = msg;
+    ActiveAnalyticSpec spec;
+    spec.message = msg;
+    spec.duration = evaluator ? evaluator->duration() : 0.0;
+    spec.evaluator = std::move(evaluator);
+    active_spec_ = std::move(spec);
     flags_ = flags;
 }
 
 void ReferenceTrajectoryRuntime::setActiveSampled(
     const reference::SampledReference& msg,
     std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator, uint32_t flags) {
-    active_type_ = trajectory::TrajectoryModelType::kSampled;
-    active_trajectory_id_ = msg.trajectory_id;
-    active_revision_ = msg.revision;
-    active_start_sec_ = msg.start_time.toSec();
-    active_duration_ = evaluator ? evaluator->duration() : 0.0;
-    active_evaluator_ = std::move(evaluator);
-    active_sampled_ = msg;
+    ActiveSampledSpec spec;
+    spec.message = msg;
+    spec.duration = evaluator ? evaluator->duration() : 0.0;
+    spec.evaluator = std::move(evaluator);
+    active_spec_ = std::move(spec);
     flags_ = flags;
 }
 

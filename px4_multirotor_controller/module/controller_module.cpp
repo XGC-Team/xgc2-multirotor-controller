@@ -465,8 +465,6 @@ class ControllerModule {
                 sensor.uav_state_filter_inertial_stamp = m.filter_inertial_stamp_sec;
                 sensor.uav_state_filter_pose_stamp = m.filter_pose_stamp_sec;
                 sensor.uav_state_last_vrpn_pose_stamp = m.last_vrpn_pose_stamp_sec;
-                post(rt, pmc::event_type::INPUT_UAV_STATE_ESTIMATE_UPDATED, receipt_sec,
-                     "alg/state_estimator/state");
                 break;
             }
             case kLocalPose: {
@@ -478,8 +476,6 @@ class ControllerModule {
                 sensor.local_qy = m.orientation_xyzw[1];
                 sensor.local_qz = m.orientation_xyzw[2];
                 sensor.local_qw = m.orientation_xyzw[3];
-                post(rt, pmc::event_type::INPUT_LOCAL_POSITION_UPDATED, receipt_sec,
-                     "mavros/local_position/pose");
                 break;
             }
             case kLocalVelocity: {
@@ -487,12 +483,9 @@ class ControllerModule {
                 sensor.local_vx = m.linear[0];
                 sensor.local_vy = m.linear[1];
                 sensor.local_vz = m.linear[2];
-                post(rt, pmc::event_type::INPUT_LOCAL_VELOCITY_UPDATED, receipt_sec,
-                     "mavros/local_position/velocity_local");
                 break;
             }
             case kImu:
-                post(rt, pmc::event_type::INPUT_IMU_UPDATED, receipt_sec, "mavros/imu/data");
                 break;
             case kFcuState: {
                 const auto& m = *static_cast<const xgc2_px4_fcu_state_v1*>(data);
@@ -502,13 +495,11 @@ class ControllerModule {
                 sensor.fcu_manual_input = m.manual_input != 0;
                 sensor.fcu_mode = boundedString(m.mode, sizeof m.mode);
                 sensor.fcu_system_status = m.system_status;
-                post(rt, pmc::event_type::INPUT_FCU_STATE_UPDATED, receipt_sec, "mavros/state");
                 break;
             }
             case kBattery: {
                 const auto& m = *static_cast<const xgc2_px4_battery_v1*>(data);
                 sensor.battery_percentage = m.percentage;
-                post(rt, pmc::event_type::INPUT_BATTERY_UPDATED, receipt_sec, "mavros/battery");
                 break;
             }
             case kVrpnPose: {
@@ -520,7 +511,6 @@ class ControllerModule {
                 sensor.vrpn_qy = m.orientation_xyzw[1];
                 sensor.vrpn_qz = m.orientation_xyzw[2];
                 sensor.vrpn_qw = m.orientation_xyzw[3];
-                post(rt, pmc::event_type::INPUT_VRPN_POSE_UPDATED, receipt_sec, "pose");
                 break;
             }
             case kCommand: {
@@ -539,36 +529,27 @@ class ControllerModule {
                 break;
             case kHoverThrust: {
                 const auto& m = *static_cast<const xgc2_px4_hover_thrust_v1*>(data);
-                if (pmc::ingestHoverThrust(sensor, m.hover_thrust, m.flags,
-                                           pmc::Time(m.stamp_sec, m.stamp_nsec).toSec(),
-                                           receipt_sec)) {
-                    post(rt, pmc::event_type::INPUT_HOVER_THRUST_UPDATED, receipt_sec,
-                         "hover_thrust/estimate_state");
-                }
+                (void)pmc::ingestHoverThrust(sensor, m.hover_thrust, m.flags,
+                                             pmc::Time(m.stamp_sec, m.stamp_nsec).toSec(),
+                                             receipt_sec);
                 break;
             }
             case kRefActiveAnalytic: {
                 pmc::reference::AnalyticReference message;
-                if (conv::toCore(*static_cast<const xgc2_px4_reference_analytic_v1*>(data),
-                                 message) &&
-                    rt.driver.controller().activeTrajectoryCache().updateAnalytic(message,
-                                                                                  receipt)) {
-                    post(rt, pmc::event_type::INPUT_REFERENCE_TRAJECTORY_UPDATED, receipt_sec,
-                         "alg/multirotor_reference_trajectory/active/analytic");
-                } else {
+                if (!conv::toCore(*static_cast<const xgc2_px4_reference_analytic_v1*>(data),
+                                  message) ||
+                    !rt.driver.controller().activeTrajectoryCache().updateAnalytic(message,
+                                                                                   receipt)) {
                     log(kLogWarn, "rejected active analytic trajectory");
                 }
                 break;
             }
             case kRefActiveSampled: {
                 pmc::reference::SampledReference message;
-                if (conv::toCore(*static_cast<const xgc2_px4_reference_sampled_v1*>(data),
-                                 message) &&
-                    rt.driver.controller().activeTrajectoryCache().updateSampled(message,
-                                                                                 receipt)) {
-                    post(rt, pmc::event_type::INPUT_REFERENCE_TRAJECTORY_UPDATED, receipt_sec,
-                         "alg/multirotor_reference_trajectory/active/sampled");
-                } else {
+                if (!conv::toCore(*static_cast<const xgc2_px4_reference_sampled_v1*>(data),
+                                  message) ||
+                    !rt.driver.controller().activeTrajectoryCache().updateSampled(message,
+                                                                                  receipt)) {
                     log(kLogWarn, "rejected active sampled trajectory");
                 }
                 break;
@@ -579,7 +560,7 @@ class ControllerModule {
     }
 
     void applyPlannerSetpoint(Runtime& rt, const xgc2_px4_position_target_v1& m,
-                              const pmc::Time& receipt, double receipt_sec) {
+                              const pmc::Time& receipt, double) {
         pmc::PositionTargetIngress ingress;
         ingress.position << m.position[0], m.position[1], m.position[2];
         ingress.velocity << m.velocity[0], m.velocity[1], m.velocity[2];
@@ -603,8 +584,6 @@ class ControllerModule {
                     "effective-time setpoint needs a finite PVA and a non-zero header stamp");
                 break;
             case pmc::PlannerSetpointResult::kCached:
-                post(rt, pmc::event_type::INPUT_MPC_TRAJECTORY_UPDATED, receipt_sec,
-                     "alg/setpoint_raw/local");
                 break;
         }
     }
