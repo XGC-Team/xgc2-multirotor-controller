@@ -232,10 +232,6 @@ constexpr uint32_t LANDING_REQUESTED = 2;
 constexpr uint32_t HOVER_REQUESTED = 3;
 constexpr uint32_t TRAJECTORY_TRACKING_REQUESTED = 6;
 
-constexpr uint32_t INPUT_NMPC_SOLVE_SUCCEEDED = 60;
-constexpr uint32_t INPUT_NMPC_SOLVE_FAILED = 61;
-constexpr uint32_t INPUT_NMPC_SOLVE_TIMED_OUT = 62;
-
 // 内部条件事件
 constexpr uint32_t ALTITUDE_REACHED = 10;
 constexpr uint32_t POSITION_REACHED = 11;

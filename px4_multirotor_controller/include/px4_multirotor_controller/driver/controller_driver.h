@@ -19,7 +19,7 @@ namespace px4_multirotor_controller {
 class ControllerDriver {
    public:
     // on_nmpc_result is called after every NMPC solve result (success, failure or
-    // rejection) has been posted to the state machine, from the solver's worker thread or
+    // rejection) has been stored, from the solver's worker thread or
     // from the thread that requested the solve. The module wakes its host with it, so the
     // update that consumes the result runs now and not at the next period.
     explicit ControllerDriver(SensorData& sensor, std::function<void()> on_nmpc_result = {})
@@ -29,11 +29,9 @@ class ControllerDriver {
           on_nmpc_result_(std::move(on_nmpc_result)),
           nmpc_(
               controller_, [this] { return Time().fromNSec(clock_ns_.load()); },
-              [this](::state_machine::Event event) {
-                  const auto status = controller_.getStateMachine().postEvent(std::move(event));
+              [this] {
                   if (on_nmpc_result_)
                       on_nmpc_result_();
-                  return status;
               }) {}
     DroneController& controller() {
         return controller_;

@@ -203,7 +203,7 @@ TEST(NmpcExecution, ConfigSnapshotBusyLateCompletionStopAndRestart) {
     std::mutex mutex; std::condition_variable condition; bool entered = false, release = false;
     std::atomic<unsigned> completions{0}; std::atomic<double> captured{0.0};
     NmpcExecution execution(controller, [] { return Time(100.01); },
-        [&](::state_machine::Event) { ++completions; return ::state_machine::Status{}; },
+        [&] { ++completions; },
         [&](const NmpcExecution::Request& request) {
             captured.store(request.config.nmpc.gravity);
             { std::unique_lock<std::mutex> lock(mutex); entered = true; condition.notify_all();
@@ -255,9 +255,8 @@ TEST(NmpcExecution, ConfigSnapshotBusyLateCompletionStopAndRestart) {
     execution.stop();
 }
 
-// The module's host wakes its owner on the result event, so the owner may request the next solve as
-// soon as the event is posted: the worker must be idle by then, not still finishing the last one.
-TEST(NmpcExecution, WorkerIsIdleWhenItsResultEventIsPosted) {
+// The owner may request the next solve as soon as it is notified: the worker must already be idle.
+TEST(NmpcExecution, WorkerIsIdleWhenItsResultIsNotified) {
     SensorData data; DroneController controller(data); ControllerConfig config; controller.setConfig(config);
     reference::AnalyticReference ref; ref.start_time = ref.header.stamp = Time(100.0);
     ref.duration = 60.0; ref.analytic_type = reference::AnalyticReference::ANALYTIC_HOLD;
@@ -273,9 +272,8 @@ TEST(NmpcExecution, WorkerIsIdleWhenItsResultEventIsPosted) {
         return event;
     };
     NmpcExecution execution(controller, [] { return Time(100.01); },
-        [&](::state_machine::Event) {
+        [&] {
             if (++announcements == 1) owner->handle(make_request());  // the owner runs again at once
-            return ::state_machine::Status{};
         },
         [&](const NmpcExecution::Request&) {
             ++computes; NmpcSolveResult result; result.success = true; return result;

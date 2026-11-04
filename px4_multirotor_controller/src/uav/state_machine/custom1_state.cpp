@@ -280,11 +280,6 @@ void Custom1State::handleNmpcEventMode(::state_machine::StateContext& ctx, doubl
     if (request_in_flight_ && current_time > request_deadline_) {
         ++consecutive_failures_;
         request_in_flight_ = false;
-        ::state_machine::Event timeout_event(event_type::INPUT_NMPC_SOLVE_TIMED_OUT,
-                                             ::state_machine::EventTimestamp{current_time});
-        timeout_event.source = "custom1_state";
-        timeout_event.correlation_id = in_flight_sequence_;
-        ctx.postInternalEvent(std::move(timeout_event));
         publishBackupSetpoint(ctx, current_time);
     }
 

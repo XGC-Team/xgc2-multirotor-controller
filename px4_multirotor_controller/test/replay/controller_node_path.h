@@ -449,15 +449,7 @@ class NodePath {
                 result.solver_status = pmc::nmpc_solver_status::kBackendUnavailable;
             }
         }
-        if (controller_.nmpcResultBuffer().store(result)) {
-            sm::Event done(result.success ? pmc::event_type::INPUT_NMPC_SOLVE_SUCCEEDED
-                                          : pmc::event_type::INPUT_NMPC_SOLVE_FAILED,
-                           sm::EventTimestamp{t});
-            done.source = "nmpc_output_consumer";
-            done.correlation_id = sequence;
-            done.payload["control_generation"] = static_cast<int64_t>(generation);
-            controller_.getStateMachine().postEvent(std::move(done));
-        }
+        controller_.nmpcResultBuffer().store(result);
         out.solved = true;
         out.solve = result;
     }

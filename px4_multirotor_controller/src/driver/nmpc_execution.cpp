@@ -2,8 +2,8 @@
 #include <utility>
 #include <cmath>
 namespace px4_multirotor_controller {
-NmpcExecution::NmpcExecution(DroneController& controller, Clock clock, EventSink sink, Compute compute)
- : controller_(controller), clock_(std::move(clock)), event_sink_(std::move(sink)), compute_(std::move(compute)) {}
+NmpcExecution::NmpcExecution(DroneController& controller, Clock clock, Completion on_result, Compute compute)
+ : controller_(controller), clock_(std::move(clock)), on_result_(std::move(on_result)), compute_(std::move(compute)) {}
 NmpcExecution::~NmpcExecution() { stop(); }
 void NmpcExecution::start() {
  std::lock_guard<std::mutex> lock(mutex_);
@@ -101,10 +101,10 @@ void NmpcExecution::workerLoop() {
         result.stamp = request.now;
         const bool stored = controller_.nmpcResultBuffer().store(result);
         // The worker is idle before its owner hears of the result: the owner may be woken by the
-        // result event and request the next solve at once, and must not find the worker busy.
+        // completion and request the next solve at once, and must not find the worker busy.
         { std::lock_guard<std::mutex> lock(mutex_); busy_ = false; }
         if (stored) {
-            postResultEvent(request.sequence, request.generation, result.success);
+            notifyResult(request.generation);
         }
     }
 }
@@ -116,20 +116,12 @@ void NmpcExecution::reject(uint64_t sequence, uint64_t generation, int solver_st
     result.success = false;
     result.solver_status = solver_status;
     result.stamp = clock_();
-    if (controller_.nmpcResultBuffer().store(result)) postResultEvent(sequence, generation, false);
+    if (controller_.nmpcResultBuffer().store(result)) notifyResult(generation);
 }
 
-void NmpcExecution::postResultEvent(uint64_t sequence, uint64_t generation, bool success) {
-    if (!event_sink_ || !controller_.nmpcResultBuffer().isGenerationActive(generation)) {
-        return;
-    }
-    ::state_machine::Event event(
-        success ? event_type::INPUT_NMPC_SOLVE_SUCCEEDED : event_type::INPUT_NMPC_SOLVE_FAILED,
-        ::state_machine::EventTimestamp{clock_().toSec()});
-    event.source = "nmpc_output_consumer";
-    event.correlation_id = sequence;
-    event.payload["control_generation"] = static_cast<int64_t>(generation);
-    (void)event_sink_(std::move(event));
+void NmpcExecution::notifyResult(uint64_t generation) {
+    if (on_result_ && controller_.nmpcResultBuffer().isGenerationActive(generation))
+        on_result_();
 }
 
 
