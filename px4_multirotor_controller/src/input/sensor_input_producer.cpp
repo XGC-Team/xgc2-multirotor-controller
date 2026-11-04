@@ -1,6 +1,7 @@
 #include "px4_multirotor_controller/input/sensor_input_producer.h"
 
 #include <ros/ros.h>
+#include <boost/bind/bind.hpp>
 
 #include <utility>
 
@@ -78,6 +79,17 @@ void SensorInputProducer::start() {
             statistics_.observe(SensorStream::LocalVelocity, toCoreTime(ros::Time::now()));
             velocityCallback(message);
         }));
+    if (driver_ && driver_->controller().getConfig().tracking_backend == TrackingBackend::PVA_SMC) {
+        paired_position_ = std::make_unique<message_filters::Subscriber<geometry_msgs::PoseStamped>>(
+            nh_, "mavros/local_position/pose", queue_size_);
+        paired_velocity_ = std::make_unique<message_filters::Subscriber<geometry_msgs::TwistStamped>>(
+            nh_, "mavros/local_position/velocity_local", queue_size_);
+        local_pv_sync_ = std::make_unique<message_filters::Synchronizer<LocalPvPolicy>>(
+            LocalPvPolicy(queue_size_), *paired_position_, *paired_velocity_);
+        local_pv_sync_->registerCallback(boost::bind(&SensorInputProducer::localPvCallback, this,
+                                                    boost::placeholders::_1,
+                                                    boost::placeholders::_2));
+    }
     subscribers_.push_back(nh_.subscribe<sensor_msgs::Imu>(
         "mavros/imu/data", queue_size_, [this](const sensor_msgs::Imu::ConstPtr& message) {
             statistics_.observe(SensorStream::Imu, toCoreTime(ros::Time::now()));
@@ -169,6 +181,15 @@ void SensorInputProducer::velocityCallback(const geometry_msgs::TwistStamped::Co
     sensor_data_.local_vz = msg->twist.linear.z;
     postInputEvent(event_type::INPUT_LOCAL_VELOCITY_UPDATED,
                    "mavros/local_position/velocity_local");
+}
+
+void SensorInputProducer::localPvCallback(const geometry_msgs::PoseStamped::ConstPtr& position,
+                                          const geometry_msgs::TwistStamped::ConstPtr& velocity) {
+    driver_->ingestPairedLocalPv(
+        Eigen::Vector3d(position->pose.position.x, position->pose.position.y,
+                        position->pose.position.z),
+        Eigen::Vector3d(velocity->twist.linear.x, velocity->twist.linear.y,
+                        velocity->twist.linear.z));
 }
 
 void SensorInputProducer::imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {

@@ -67,6 +67,7 @@ class Custom1State : public ::state_machine::State {
     void handleNmpcEventMode(::state_machine::StateContext& ctx, double current_time);
     void handleSynchronousAttitudeRateMode(::state_machine::StateContext& ctx, double current_time);
     void handleSmcMode(::state_machine::StateContext& ctx, double current_time);
+    void handlePvaSmcMode(::state_machine::StateContext& ctx, double current_time);
     void handlePx4LocalPassThrough(::state_machine::StateContext& ctx, double current_time);
     void consumeNmpcResult(::state_machine::StateContext& ctx, double current_time);
     void dispatchNmpcRequest(::state_machine::StateContext& ctx, double current_time);

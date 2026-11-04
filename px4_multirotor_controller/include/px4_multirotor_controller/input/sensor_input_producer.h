@@ -4,6 +4,9 @@
 #include <geometry_msgs/TwistStamped.h>
 #include <mavros_msgs/AttitudeTarget.h>
 #include <mavros_msgs/State.h>
+#include <message_filters/subscriber.h>
+#include <message_filters/sync_policies/exact_time.h>
+#include <message_filters/synchronizer.h>
 #include <rigid_state_estimator_msgs/RigidStateEstimate.h>
 #include <ros/ros.h>
 #include <ros1_utils/param_utils.h>
@@ -12,6 +15,7 @@
 #include <sensor_msgs/Imu.h>
 
 #include <functional>
+#include <memory>
 #include <state_machine/state_machine.hpp>
 #include <string>
 
@@ -43,6 +47,8 @@ class SensorInputProducer {
     void stateEstimateCallback(const rigid_state_estimator_msgs::RigidStateEstimate::ConstPtr& msg);
     void localPosCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
     void velocityCallback(const geometry_msgs::TwistStamped::ConstPtr& msg);
+    void localPvCallback(const geometry_msgs::PoseStamped::ConstPtr& position,
+                         const geometry_msgs::TwistStamped::ConstPtr& velocity);
     void imuCallback(const sensor_msgs::Imu::ConstPtr& msg);
     void targetAttitudeCallback(const mavros_msgs::AttitudeTarget::ConstPtr& msg);
     void stateCallback(const mavros_msgs::State::ConstPtr& msg);
@@ -59,6 +65,11 @@ class SensorInputProducer {
     std::function<void()> on_state_message_;
     SensorStatistics& statistics_;
     std::vector<ros::Subscriber> subscribers_;
+    using LocalPvPolicy = message_filters::sync_policies::ExactTime<geometry_msgs::PoseStamped,
+                                                                   geometry_msgs::TwistStamped>;
+    std::unique_ptr<message_filters::Subscriber<geometry_msgs::PoseStamped>> paired_position_;
+    std::unique_ptr<message_filters::Subscriber<geometry_msgs::TwistStamped>> paired_velocity_;
+    std::unique_ptr<message_filters::Synchronizer<LocalPvPolicy>> local_pv_sync_;
     ros1_utils::PositionQualityDetector vrpn_quality_detector_;
     std::string state_estimate_topic_{"alg/state_estimator/state"};
     std::string vrpn_pose_topic_{"pose"};

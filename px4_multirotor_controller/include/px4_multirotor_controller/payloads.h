@@ -31,6 +31,7 @@ extern "C" {
 #define XGC2_PX4_STATE_ESTIMATE_SCHEMA "xgc2.px4.state_estimate.v1"
 #define XGC2_PX4_POSE_SCHEMA "xgc2.px4.pose.v1"
 #define XGC2_PX4_VELOCITY_SCHEMA "xgc2.px4.velocity.v1"
+#define XGC2_PX4_LOCAL_PV_SCHEMA "xgc2.px4.local_pv.v1"
 #define XGC2_PX4_IMU_SCHEMA "xgc2.px4.imu.v1"
 #define XGC2_PX4_FCU_STATE_SCHEMA "xgc2.px4.fcu_state.v1"
 #define XGC2_PX4_BATTERY_SCHEMA "xgc2.px4.battery.v1"
@@ -84,6 +85,14 @@ typedef struct xgc2_px4_velocity_v1 {
     uint32_t stamp_nsec;
     double linear[3];
 } xgc2_px4_velocity_v1;
+
+/* One complete source sample, not a pairing of independently received ports. */
+typedef struct xgc2_px4_local_pv_v1 {
+    uint32_t stamp_sec;
+    uint32_t stamp_nsec;
+    double position[3];
+    double velocity[3];
+} xgc2_px4_local_pv_v1;
 
 /*
  * "xgc2.px4.imu.v1": a sample of mavros/imu/data. The controller reads no IMU value; its health
@@ -200,6 +209,9 @@ typedef struct xgc2_px4_controller_status_v1 {
 #endif
 
 XGC2_PX4_ASSERT(sizeof(xgc2_px4_state_estimate_v1) == 216, "state_estimate size");
+XGC2_PX4_ASSERT(sizeof(xgc2_px4_local_pv_v1) == 56, "local_pv size");
+XGC2_PX4_ASSERT(offsetof(xgc2_px4_local_pv_v1, position) == 8, "local_pv.position");
+XGC2_PX4_ASSERT(offsetof(xgc2_px4_local_pv_v1, velocity) == 32, "local_pv.velocity");
 XGC2_PX4_ASSERT(offsetof(xgc2_px4_state_estimate_v1, position) == 8, "state_estimate.position");
 XGC2_PX4_ASSERT(offsetof(xgc2_px4_state_estimate_v1, velocity) == 32, "state_estimate.velocity");
 XGC2_PX4_ASSERT(offsetof(xgc2_px4_state_estimate_v1, orientation_xyzw) == 56,

@@ -173,7 +173,8 @@ inline bool smcWorldPvaAvailable(uint16_t type_mask, uint8_t coordinate_frame) {
 // Legacy PX4_LOCAL keeps the arrival stamp.
 inline bool usesStageEffectiveTime(TrackingBackend backend, Px4LocalLiftMode lift_mode) {
     return backend == TrackingBackend::SMC || backend == TrackingBackend::DFBC ||
-           (backend == TrackingBackend::PX4_LOCAL && lift_mode == Px4LocalLiftMode::ZeroOrderHold);
+           ((backend == TrackingBackend::PX4_LOCAL || backend == TrackingBackend::PVA_SMC) &&
+            lift_mode == Px4LocalLiftMode::ZeroOrderHold);
 }
 
 // One ingress for the ROS producer and the module (driver/trajectory_ingress.h).

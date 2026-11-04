@@ -139,6 +139,63 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
     EXPECT_EQ(host.step(), XGC2_ERR_STATE);
 }
 
+TEST(ControllerTransports, RosLocalPvUsesActualExactTimePairs) {
+    ros::NodeHandle nh("controller_exact_pair");
+    SensorData data;
+    ControllerDriver driver(data);
+    ControllerConfig config;
+    config.tracking_backend = TrackingBackend::PVA_SMC;
+    driver.controller().setConfig(config);
+    ros1_utils::PositionQualityStats quality;
+    unsigned callbacks = 0;
+    SensorInputProducer producer(
+        nh, data, quality, driver.statistics(), 20,
+        [&](::state_machine::Event) { ++callbacks; return ::state_machine::Status{}; },
+        [] {}, &driver);
+    producer.start();
+    auto local = nh.advertise<geometry_msgs::PoseStamped>("mavros/local_position/pose", 20);
+    auto velocity = nh.advertise<geometry_msgs::TwistStamped>(
+        "mavros/local_position/velocity_local", 20);
+    const auto connected = ros::WallTime::now() + ros::WallDuration(3.0);
+    while ((!local.getNumSubscribers() || !velocity.getNumSubscribers()) &&
+           ros::WallTime::now() < connected) {
+        ros::spinOnce();
+        ros::WallDuration(0.002).sleep();
+    }
+    ASSERT_GT(local.getNumSubscribers(), 0U);
+    ASSERT_GT(velocity.getNumSubscribers(), 0U);
+
+    geometry_msgs::PoseStamped position;
+    position.header.stamp = ros::Time(100, 20);
+    position.pose.position.x = 3.0;
+    geometry_msgs::TwistStamped speed;
+    speed.header.stamp = ros::Time(100, 21);
+    speed.twist.linear.x = 9.0;
+    local.publish(position);
+    velocity.publish(speed);
+    const auto delivered = ros::WallTime::now() + ros::WallDuration(2.0);
+    while (callbacks < 2 && ros::WallTime::now() < delivered) {
+        ros::spinOnce();
+        ros::WallDuration(0.002).sleep();
+    }
+    ASSERT_EQ(callbacks, 2U);
+    EXPECT_FALSE(data.paired_local_pv.has_value());
+    EXPECT_DOUBLE_EQ(data.local_x, 3.0);
+    EXPECT_DOUBLE_EQ(data.local_vx, 9.0);
+
+    speed.header.stamp = position.header.stamp;
+    speed.twist.linear.x = 5.0;
+    velocity.publish(speed);
+    const auto paired = ros::WallTime::now() + ros::WallDuration(2.0);
+    while (!data.paired_local_pv && ros::WallTime::now() < paired) {
+        ros::spinOnce();
+        ros::WallDuration(0.002).sleep();
+    }
+    ASSERT_TRUE(data.paired_local_pv);
+    EXPECT_DOUBLE_EQ(data.paired_local_pv->position.x(), 3.0);
+    EXPECT_DOUBLE_EQ(data.paired_local_pv->velocity.x(), 5.0);
+}
+
 int main(int argc, char** argv) {
     ros::init(argc, argv, "controller_transport_parity");
     ::testing::InitGoogleTest(&argc, argv);

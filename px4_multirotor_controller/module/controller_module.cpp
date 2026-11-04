@@ -19,6 +19,7 @@
 //   in  hover_thrust          event  xgc2.px4.hover_thrust.v1         hover_thrust/estimate_state
 //   in  ref_active_analytic   state  xgc2.px4.reference_analytic.v1   the reference module's
 //   in  ref_active_sampled    state  xgc2.px4.reference_sampled.v1    active/analytic,
+//   in  local_pv              event  xgc2.px4.local_pv.v1  one complete source pair
 //   active/sampled out setpoint              state  xgc2.px4.position_target.v1
 //   mavros/setpoint_raw/local out attitude_rate         state  xgc2.px4.attitude_rate_target.v1
 //   mavros/setpoint_raw/attitude out fcu_request           event  xgc2.px4.fcu_request.v1
@@ -111,6 +112,7 @@ enum Port : uint32_t {
     kHoverThrust,
     kRefActiveAnalytic,
     kRefActiveSampled,
+    kLocalPv,
     kSetpoint,
     kAttitudeRate,
     kFcuRequest,
@@ -118,7 +120,7 @@ enum Port : uint32_t {
     kRefRequest,
     kPortCount
 };
-constexpr uint32_t kInputCount = kRefActiveSampled + 1;
+constexpr uint32_t kInputCount = kLocalPv + 1;
 constexpr uint32_t kStatisticsStreams = static_cast<uint32_t>(pmc::SensorStream::Count);
 
 static_assert(kStateEstimate == static_cast<uint32_t>(pmc::SensorStream::Estimate), "stream order");
@@ -172,6 +174,7 @@ const xgc2_port_desc kPorts[kPortCount] = {
                                              XGC2_PX4_REFERENCE_ANALYTIC_SCHEMA),
     describe<xgc2_px4_reference_sampled_v1>("ref_active_sampled", kIn, kState,
                                             XGC2_PX4_REFERENCE_SAMPLED_SCHEMA),
+    describe<xgc2_px4_local_pv_v1>("local_pv", kIn, kEvent, XGC2_PX4_LOCAL_PV_SCHEMA, 8),
     describe<xgc2_px4_position_target_v1>("setpoint", kOut, kState,
                                           XGC2_PX4_POSITION_TARGET_SCHEMA),
     describe<xgc2_px4_attitude_rate_target_v1>("attitude_rate", kOut, kState,
@@ -489,6 +492,13 @@ class ControllerModule {
                 sensor.local_vz = m.linear[2];
                 post(rt, pmc::event_type::INPUT_LOCAL_VELOCITY_UPDATED, receipt_sec,
                      "mavros/local_position/velocity_local");
+                break;
+            }
+            case kLocalPv: {
+                const auto& m = *static_cast<const xgc2_px4_local_pv_v1*>(data);
+                rt.driver.ingestPairedLocalPv(
+                    Eigen::Vector3d(m.position[0], m.position[1], m.position[2]),
+                    Eigen::Vector3d(m.velocity[0], m.velocity[1], m.velocity[2]));
                 break;
             }
             case kImu:

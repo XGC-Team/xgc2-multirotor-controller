@@ -9,6 +9,7 @@
 #include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/drone_controller.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
+#include "px4_multirotor_controller/tracking/pva_smc.h"
 
 namespace px4_multirotor_controller {
 
@@ -77,6 +78,11 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
         smc_strategy_.configure(config);
         return {};
     }
+    if (config.tracking_backend == TrackingBackend::PVA_SMC) {
+        publish_period_ = 0.01;
+        controller_.logInfo("[Custom1State] Custom1 latched (pva_smc)");
+        return {};
+    }
 
     publish_period_ = kPx4LocalSetpointPublishInterval;
     controller_.logInfo(
@@ -101,8 +107,33 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
         handleSmcMode(ctx, current_time);
         return {};
     }
+    if (backend == TrackingBackend::PVA_SMC) {
+        handlePvaSmcMode(ctx, current_time);
+        return {};
+    }
     handlePx4LocalPassThrough(ctx, current_time);
     return {};
+}
+
+void Custom1State::handlePvaSmcMode(::state_machine::StateContext& ctx, double current_time) {
+    const auto config = controller_.getConfig();
+    const Time now(current_time);
+    auto& buffer = controller_.mpcTrajectoryBuffer();
+    const bool frame_switched = promoteTrajectorySample(
+        buffer, now, TrackingBackend::PVA_SMC, config.px4_local_lift);
+    const auto& reference = buffer.active();
+    const auto& paired = controller_.getSensorData().paired_local_pv;
+    if (!reference.is_valid || !paired || (!frame_switched && !shouldPublish(current_time)))
+        return;
+    const Time lift_time = config.px4_local_lift == Px4LocalLiftMode::ZeroOrderHold
+                               ? reference.planning_time
+                               : now;
+    const Setpoint lifted = liftWorldLocal(reference, lift_time, config.local_type_mask,
+                                           config.enable_yaw_control);
+    controller_.getSetpoint() = pvaSmcSetpoint(lifted, *paired, config);
+    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
+                                          ::state_machine::EventTimestamp{current_time}));
+    last_publish_time_ = current_time;
 }
 
 void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
@@ -623,6 +654,8 @@ bool Custom1State::shouldPublish(double current_time) const {
         controller_.logInfo("[Custom1State] Exiting UAV SMC acceleration tracking");
         smc_strategy_.exit();
         sync_strategy_entered_ = false;
+    } else if (backend == TrackingBackend::PVA_SMC) {
+        controller_.logInfo("[Custom1State] Exiting UAV PVA SMC tracking");
     } else {
         controller_.logInfo("[Custom1State] Exiting PX4 local pass-through");
         px4_local_raw_strategy_.exit();

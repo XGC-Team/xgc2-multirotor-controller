@@ -4,6 +4,7 @@
 
 #include <Eigen/Dense>  // 用于 MpcTrajectoryState
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "px4_multirotor_controller/common/time.h"
@@ -19,6 +20,7 @@ enum class TrackingBackend {
     NMPC = 1,       // body-rate NMPC
     DFBC = 2,       // 几何 DFBC attitude-rate
     SMC = 3,  // PVA 有效时刻提升 + 滑模世界加速度，经 PositionTarget 交给 PX4
+    PVA_SMC = 4,  // lifted position/velocity and feedforward plus v1 SMC acceleration
 };
 
 // Input choice is independent of the tracking strategy. Existing defaults are unchanged.
@@ -399,6 +401,14 @@ struct SensorData {
     double local_x{0.0}, local_y{0.0}, local_z{0.0};
     double local_qx{0.0}, local_qy{0.0}, local_qz{0.0}, local_qw{1.0};
     double local_vx{0.0}, local_vy{0.0}, local_vz{0.0};
+
+    // Only a complete source pair enters this value. The independent fields
+    // above retain their original statistics, hover and legacy-mode duties.
+    struct LocalPv {
+        Eigen::Vector3d position;
+        Eigen::Vector3d velocity;
+    };
+    std::optional<LocalPv> paired_local_pv;
 
     // Canonical pose used by the position-distance check. Not SMC feedback.
     double vrpn_x{0.0}, vrpn_y{0.0}, vrpn_z{0.0};

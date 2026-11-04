@@ -65,6 +65,9 @@ class ControllerDriver {
         if (hover_thrust_)
             checkHoverInput(hover_thrust_->ingestAltitude(altitude, stamp_sec, receipt_sec));
     }
+    void ingestPairedLocalPv(const Eigen::Vector3d& position, const Eigen::Vector3d& velocity) {
+        sensor_.paired_local_pv = SensorData::LocalPv{position, velocity};
+    }
     const hover_thrust_estimator::HoverThrustEstimatorRuntime* hoverThrustRuntime() const {
         return hover_thrust_.get();
     }

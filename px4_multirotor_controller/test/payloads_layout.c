@@ -40,6 +40,9 @@ int main(void) {
         return 12;
     if (strcmp(XGC2_PX4_CONTROLLER_STATUS_SCHEMA, "xgc2.px4.controller_status.v1") != 0)
         return 13;
+    if (strcmp(XGC2_PX4_LOCAL_PV_SCHEMA, "xgc2.px4.local_pv.v1") != 0 ||
+        sizeof(xgc2_px4_local_pv_v1) != 56)
+        return 14;
     puts("controller payload layout (C11) ok");
     return 0;
 }

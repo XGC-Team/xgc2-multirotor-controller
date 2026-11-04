@@ -14,6 +14,7 @@ set(MULTIROTOR_CONTROLLER_CATKIN_COMPONENTS
   ros1_utils
   sensor_msgs
   mavros_msgs
+  message_filters
   multirotor_reference_trajectory_msgs
   px4_multirotor_controller_msgs
   hover_thrust_estimator_msgs
@@ -285,7 +286,7 @@ endif()
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp std_msgs geometry_msgs nav_msgs sensor_msgs mavros_msgs ros1_utils
+  CATKIN_DEPENDS roscpp std_msgs geometry_msgs nav_msgs sensor_msgs mavros_msgs message_filters ros1_utils
                  multirotor_reference_trajectory_msgs px4_multirotor_controller_msgs
                  hover_thrust_estimator_msgs rigid_state_estimator_msgs
   CFG_EXTRAS px4_multirotor_controller-dependencies.cmake

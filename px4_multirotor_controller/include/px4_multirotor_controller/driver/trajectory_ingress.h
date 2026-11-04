@@ -29,7 +29,8 @@ inline PlannerSetpointResult ingestPlannerSetpoint(DroneController& controller,
         config.tracking_backend == TrackingBackend::DFBC &&
         config.dfbc.reference_source == DfbcReferenceSource::PLANNER_SETPOINT;
     if (config.tracking_backend != TrackingBackend::PX4_LOCAL &&
-        config.tracking_backend != TrackingBackend::SMC && !streaming_dfbc) {
+        config.tracking_backend != TrackingBackend::SMC &&
+        config.tracking_backend != TrackingBackend::PVA_SMC && !streaming_dfbc) {
         return PlannerSetpointResult::kNotUsed;
     }
     const MpcTrajectoryState trajectory =

@@ -1,7 +1,7 @@
 # px4_multirotor_controller
 
 PX4/MAVROS multirotor controller: a state machine (self check, takeoff, hover, landing, trajectory
-tracking) around four tracking backends (`px4_local`, `smc`, `dfbc`, `nmpc`).
+tracking) around five tracking backends (`px4_local`, `smc`, `pva_smc`, `dfbc`, `nmpc`).
 
 The package builds three things from one implementation:
 
@@ -27,6 +27,7 @@ input is its bit in `changed_inputs`):
 | `state_estimate` | in | event (8) | `xgc2.px4.state_estimate.v1` | | `alg/state_estimator/state` |
 | `local_pose` | in | event (8) | `xgc2.px4.pose.v1` | yes | `mavros/local_position/pose` |
 | `local_velocity` | in | event (8) | `xgc2.px4.velocity.v1` | yes | `mavros/local_position/velocity_local` |
+| `local_pv` | in | event (8) | `xgc2.px4.local_pv.v1` | | one complete local position/velocity pair for `pva_smc` |
 | `imu` | in | event (16) | `xgc2.px4.imu.v1` | yes | `mavros/imu/data` |
 | `fcu_state` | in | event (8) | `xgc2.px4.fcu_state.v1` | yes | `mavros/state` |
 | `battery` | in | event (4) | `xgc2.px4.battery.v1` | | `mavros/battery` |
@@ -114,7 +115,7 @@ read and validated by the same code as the node's parameters (`driver/controller
 ```toml
 [instance.config]
 world_boundary_json = "null"
-tracking_backend = "dfbc"       # px4_local (default), smc, dfbc or nmpc
+tracking_backend = "dfbc"       # px4_local (default), smc, pva_smc, dfbc or nmpc
 takeoff_altitude = 1.5
 [instance.config.dfbc]
 position_natural_frequency = [2.0, 2.0, 2.2]
@@ -181,8 +182,8 @@ ref_request = "ref.request.analytic"
 # mavros.attitude_rate, mavros.fcu_request and controller.status.
 ```
 
-Leave `period_ms` out: a module chooses its step period itself when it starts (1 ms for the controller,
-`main_frequency` for the reference module), and without a manifest period the host applies its default
+Leave `period_ms` out: the controller currently requests a 1 ms step and the reference module arms
+its actual deadlines. Without a manifest period the host applies its default
 step budget of 50 ms instead of one period. The required inputs (`local_pose`, `local_velocity`, `imu`,
 `fcu_state`, `vrpn_pose`) keep the instance from being ready until a producer is bound;
 `xgc2-module-host --check` reports the ones without one.
@@ -206,6 +207,7 @@ message has none). Quaternions are x, y, z, w as in ROS.
 | `state_estimate` | `alg/state_estimator/state` (`rigid_state_estimator_msgs/RigidStateEstimate`) | `position`, `velocity`, `orientation_xyzw`, `angular_velocity`, `linear_acceleration`, `gravity`, `accel_bias`, `filter_inertial_stamp_sec`, `filter_pose_stamp_sec`, `last_vrpn_pose_stamp_sec`, `flags`, `estimator_state` |
 | `local_pose` | `mavros/local_position/pose` (`geometry_msgs/PoseStamped`) | `position`, `orientation_xyzw` |
 | `local_velocity` | `mavros/local_position/velocity_local` (`geometry_msgs/TwistStamped`) | `linear` (the angular part is not used) |
+| `local_pv` | an explicitly produced complete local position/velocity source pair | `stamp_sec`, `stamp_nsec`, `position`, `velocity` |
 | `imu` | `mavros/imu/data` (`sensor_msgs/Imu`) | the stamp only: the controller counts arrivals and rate, it reads no IMU value |
 | `fcu_state` | `mavros/state` (`mavros_msgs/State`) | `connected`, `armed`, `guided`, `manual_input` (0/1), `system_status`, `mode` (NUL-terminated, at most 31 characters) |
 | `battery` | `mavros/battery` (`sensor_msgs/BatteryState`) | `percentage` (telemetry only) |
@@ -213,6 +215,11 @@ message has none). Quaternions are x, y, z, w as in ROS.
 | `command` | `/command` (`std_msgs/String`) | `text` (NUL-terminated, at most 63 characters) |
 | `alg_setpoint` | `alg/setpoint_raw/local` (`mavros_msgs/PositionTarget`) | `position`, `velocity`, `acceleration` (= `acceleration_or_force`), `yaw`, `yaw_rate`, `type_mask`, `coordinate_frame` |
 | `hover_thrust` | `hover_thrust/estimate_state` (`hover_thrust_estimator_msgs/HoverThrustEstimate`) | `hover_thrust`, `flags`; a zero header stamp means unstamped and the controller then uses the receipt time |
+
+`pva_smc` consumes a complete pair only: the ROS node uses `message_filters::ExactTime`; a native
+producer supplies one `local_pv` event. Separate `local_pose` and `local_velocity` events retain
+their original duties and do not create a pair. Current TRO authoring uses the ROS controller;
+this port does not assert that its native edge has been wired.
 
 `ref_active_analytic` and `ref_active_sampled` are wired to the reference module's outputs of the same
 meaning; the edge does not map them. The node subscribes to its topics with a queue of 5; the module's

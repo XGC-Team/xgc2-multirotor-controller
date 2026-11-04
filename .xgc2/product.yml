@@ -28,6 +28,7 @@ apt:
   - ros-noetic-xgc2-estimator-rigid-state-msgs (>= 1.2.0-3)
   - ros-noetic-xgc2-multirotor-reference-trajectory-msgs (>= 1.4.0-1)
   - ros-noetic-xgc2-px4-multirotor-controller-msgs (>= 1.2.0-3)
+  - ros-noetic-message-filters
 usage:
   install: 'sudo apt update
 

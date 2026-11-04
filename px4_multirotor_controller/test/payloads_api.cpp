@@ -12,6 +12,7 @@ constexpr bool plain() {
 static_assert(plain<xgc2_px4_state_estimate_v1>(), "state_estimate");
 static_assert(plain<xgc2_px4_pose_v1>(), "pose");
 static_assert(plain<xgc2_px4_velocity_v1>(), "velocity");
+static_assert(plain<xgc2_px4_local_pv_v1>(), "local_pv");
 static_assert(plain<xgc2_px4_imu_v1>(), "imu");
 static_assert(plain<xgc2_px4_fcu_state_v1>(), "fcu_state");
 static_assert(plain<xgc2_px4_battery_v1>(), "battery");

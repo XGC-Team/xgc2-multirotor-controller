@@ -122,6 +122,7 @@ TEST_F(ControllerModuleTest, DescriptorDeclaresTheAbiAndTheTypedPorts) {
              xgc2_px4_reference_analytic_v1, 0, 0),
         PORT("ref_active_sampled", in, state, "xgc2.px4.reference_sampled.v1",
              xgc2_px4_reference_sampled_v1, 0, 0),
+        PORT("local_pv", in, event, "xgc2.px4.local_pv.v1", xgc2_px4_local_pv_v1, 8, 0),
         PORT("setpoint", out, state, "xgc2.px4.position_target.v1", xgc2_px4_position_target_v1, 0,
              0),
         PORT("attitude_rate", out, state, "xgc2.px4.attitude_rate_target.v1",
@@ -321,6 +322,58 @@ TEST_F(ControllerModuleTest, TakeoffRequestsOffboardAndArmingAndStreamsSetpoints
     EXPECT_FALSE(vehicle_->failed);
     // Every output is stamped with the step's time.
     EXPECT_GE(vehicle_->last_setpoint.stamp_sec, 100U);
+}
+
+TEST_F(ControllerModuleTest, PvaSmcUsesOnlyAnExplicitCompleteLocalPair) {
+    open(config(std::string(kFlightConfig) +
+                ", \"tracking_backend\": \"pva_smc\", "
+                "\"smc\": {\"k1\": 0.4, \"k2\": 0.4, \"boundary_layer\": 0.15}"));
+    ASSERT_TRUE(reach("Ready", 3.0));
+    xgc2_px4_command_v1 command{};
+    std::strcpy(command.text, "takeoff");
+    ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
+    ASSERT_TRUE(reach("Hover", 20.0)) << vehicle_->state();
+    std::strcpy(command.text, "custom1");
+    ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
+    ASSERT_TRUE(reach("Custom1", 3.0)) << vehicle_->state();
+
+    xgc2_px4_position_target_v1 reference{};
+    reference.coordinate_frame = 1;
+    reference.type_mask = pmc::kDefaultPvaLocalTypeMask;
+    reference.position[2] = 1.5;
+    reference.acceleration[0] = 0.3;
+    ASSERT_TRUE(host_->push("alg_setpoint", reference, vehicle_->now()));
+    const auto before = vehicle_->setpoints;
+    // The fixture continues to deliver both old ports at 50 Hz. They must not
+    // synthesize a source pair or cause feedback output.
+    vehicle_->run(0.15);
+    EXPECT_EQ(vehicle_->setpoints, before);
+
+    xgc2_px4_local_pv_v1 pair{};
+    pair.position[0] = 0.25;
+    pair.position[2] = 1.5;
+    ASSERT_TRUE(host_->push("local_pv", pair, vehicle_->now()));
+    vehicle_->run(0.03);
+    ASSERT_GT(vehicle_->setpoints, before);
+    EXPECT_EQ(vehicle_->last_setpoint.type_mask, pmc::kDefaultPvaLocalTypeMask);
+    EXPECT_EQ(vehicle_->last_setpoint.coordinate_frame, 1);
+    EXPECT_DOUBLE_EQ(vehicle_->last_setpoint.position[2], 1.5);
+    EXPECT_NEAR(vehicle_->last_setpoint.acceleration[0], -0.1, 1e-12);
+
+    const auto prior = vehicle_->setpoints;
+    ASSERT_TRUE(vehicle_->runUntil([&] { return vehicle_->setpoints > prior; }, 0.03));
+    const auto immediately_before_switch = vehicle_->setpoints;
+    reference.position[0] = 1.0;
+    ASSERT_TRUE(host_->push("alg_setpoint", reference, vehicle_->now()));
+    vehicle_->run(0.001);
+    EXPECT_EQ(vehicle_->setpoints, immediately_before_switch + 1);
+    EXPECT_NEAR(vehicle_->last_setpoint.position[0], 1.00000015, 1e-12);
+
+    const auto before_periods = vehicle_->setpoints;
+    vehicle_->run(0.1);
+    EXPECT_GE(vehicle_->setpoints - before_periods, 9U);
+    EXPECT_LE(vehicle_->setpoints - before_periods, 11U);
+    EXPECT_FALSE(vehicle_->failed);
 }
 
 TEST_F(ControllerModuleTest, CommandsAreMappedAsTheRosNodeMapsThem) {

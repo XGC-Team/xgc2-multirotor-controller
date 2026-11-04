@@ -4,6 +4,7 @@
 
 #include "px4_multirotor_controller/common/control_feedback.h"
 #include "px4_multirotor_controller/driver/body_inertial_input.h"
+#include "px4_multirotor_controller/tracking/pva_smc.h"
 
 using namespace px4_multirotor_controller;
 
@@ -46,6 +47,33 @@ TEST(LocalFeedback, BodySpecificForceBecomesWorldAccelerationWithoutRseMutation)
     imu.orientation.coeffs().setZero();
     EXPECT_FALSE(ingestBodyInertial(sensor, imu, 9.8066));
     EXPECT_FALSE(sensor.mavros_inertial_valid);
+}
+
+TEST(LocalFeedback, HybridPvaMatchesV1BoundaryAndAddsFeedbackOnce) {
+    ControllerConfig config;
+    config.smc.k1 = .4;
+    config.smc.k2 = .4;
+    config.smc.boundary_layer = .15;
+    Setpoint reference;
+    reference.x = 1.0;
+    reference.y = -2.0;
+    reference.z = 1.5;
+    reference.ax = .3;
+    reference.ay = -.2;
+    reference.az = .5;
+    SensorData::LocalPv paired{Eigen::Vector3d(1.0 + 1e-10, -1.75, 1.05),
+                                Eigen::Vector3d(0.0, .1, -.2)};
+    const auto command = pvaSmcSetpoint(reference, paired, config);
+    EXPECT_DOUBLE_EQ(command.x, reference.x);
+    EXPECT_DOUBLE_EQ(command.y, reference.y);
+    EXPECT_DOUBLE_EQ(command.z, reference.z);
+    EXPECT_DOUBLE_EQ(command.ax, .3);       // v1 signBeta dead zone
+    EXPECT_DOUBLE_EQ(command.ay, -.2 - .4);
+    EXPECT_DOUBLE_EQ(command.az, .5 + .4);
+    EXPECT_EQ(command.type_mask, 3072U);
+    EXPECT_EQ(command.coordinate_frame, 1U);
+    config.enable_yaw_control = true;
+    EXPECT_EQ(pvaSmcSetpoint(reference, paired, config).type_mask, 2048U);
 }
 
 TEST(LocalFeedback, HealthUsesSelectedSourceAndDoesNotInventRseHealth) {

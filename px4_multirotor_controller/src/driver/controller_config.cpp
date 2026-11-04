@@ -182,6 +182,8 @@ ControllerConfig readControllerConfig(const ControllerParameters& parameters,
         config.tracking_backend = TrackingBackend::DFBC;
     } else if (tracking_backend == "smc") {
         config.tracking_backend = TrackingBackend::SMC;
+    } else if (tracking_backend == "pva_smc") {
+        config.tracking_backend = TrackingBackend::PVA_SMC;
     } else {
         parameters.logf(true, "[DroneRosNode] Unknown tracking_backend=%s, using px4_local",
                         tracking_backend.c_str());
@@ -557,6 +559,11 @@ ControllerConfig readControllerConfig(const ControllerParameters& parameters,
                         "feedback=mavros_local mask=%u frame=1",
                         config.nmpc.control_period, config.smc.k1, config.smc.k2,
                         config.smc.boundary_layer, static_cast<unsigned>(kSmcAccelerationTypeMask));
+    } else if (config.tracking_backend == TrackingBackend::PVA_SMC) {
+        parameters.logf(false,
+                        "[DroneRosNode] UAV PVA SMC: dt=0.010 k1=%.3f k2=%.3f rho=%.4f "
+                        "feedback=paired_mavros_local frame=1",
+                        config.smc.k1, config.smc.k2, config.smc.boundary_layer);
     } else if (config.tracking_backend == TrackingBackend::PX4_LOCAL) {
         parameters.logf(false,
                         "[DroneRosNode] UAV PX4 local pass-through: default_mask=%u yaw=%s lift=%s",
