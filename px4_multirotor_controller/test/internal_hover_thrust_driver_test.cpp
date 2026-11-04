@@ -85,6 +85,57 @@ TEST(InternalHoverThrust, SameRuntimeSameSamplesSameEstimatesAndPublicationGates
     EXPECT_EQ(driver.hoverThrustRuntime(), nullptr);
 }
 
+TEST(InternalHoverThrust, SparseInputsAndTimeoutKeepRuntimePublicationSemantics) {
+    SensorData sensor;
+    SensorData expected_sensor;
+    ControllerDriver driver(sensor);
+    ControllerConfig config;
+    config.feedback_source = FeedbackSource::MAVROS_LOCAL;
+    config.hover_thrust.source = HoverThrustSource::INTERNAL;
+    config.hover_thrust.estimator.filter_enabled = false;
+    driver.controller().setConfig(config);
+    driver.start(Time(100.0));
+    hover_thrust_estimator::HoverThrustEstimatorRuntime reference;
+    reference.setConfig(config.hover_thrust.estimator);
+    BodyInertialInput imu;
+    imu.specific_force.z() = config.hover_thrust.estimator.gravity;
+
+    auto tick = [&](double requested, bool sample) {
+        const Time now(requested);
+        const double seconds = now.toSec();
+        if (sample) {
+            imu.stamp_sec = seconds;
+            driver.ingestBodyImu(imu, seconds);
+            driver.ingestThrust(.4, false, seconds, seconds);
+            driver.ingestAltitude(1., seconds, seconds);
+            ASSERT_TRUE(reference.ingestImu(imu.specific_force.z(), seconds, seconds).ok());
+            ASSERT_TRUE(reference.ingestThrust(.4, false, seconds, seconds).ok());
+            ASSERT_TRUE(reference.ingestAltitude(1., seconds, seconds).ok());
+        }
+        reference.update(seconds);
+        for (const auto& estimate : reference.publishedEstimates()) {
+            ingestHoverThrust(expected_sensor, estimate.output.hover_thrust, estimate.output.flags,
+                              estimate.stamp_sec, seconds);
+        }
+        driver.update(now);
+        EXPECT_EQ(sensor.hover_thrust_estimate_available,
+                  expected_sensor.hover_thrust_estimate_available);
+        EXPECT_EQ(sensor.hover_thrust_estimate_flags, expected_sensor.hover_thrust_estimate_flags);
+        EXPECT_DOUBLE_EQ(sensor.hover_thrust_estimate_stamp,
+                         expected_sensor.hover_thrust_estimate_stamp);
+        EXPECT_DOUBLE_EQ(sensor.hover_thrust_estimate, expected_sensor.hover_thrust_estimate);
+    };
+    // Input at 50 Hz, then silence through the estimator's existing sample timeout.
+    for (int i = 0; i < 1600; ++i)
+        tick(100.0 + i * .001, i < 600 && i % 20 == 0);
+    // A backwards simulation-time jump retains the runtime's existing gate behavior.
+    tick(100.3, false);
+    RecordProperty("continuous_owner_turns", std::to_string(reference.updateIndex()));
+    RecordProperty("embedded_owner_turns",
+                   std::to_string(driver.hoverThrustRuntime()->updateIndex()));
+    driver.stop();
+}
+
 TEST(InternalHoverThrust, ExplicitConfigurationSourcesAndDefaults) {
     auto read = [](const std::string& key, const std::string& val) {
         return readControllerConfig(ControllerParameters(

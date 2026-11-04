@@ -5,6 +5,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include "px4_multirotor_controller/common/core_log.h"
 #include "px4_multirotor_controller/driver/body_inertial_input.h"
@@ -76,6 +77,8 @@ class ControllerDriver {
         if (config.hover_thrust.source == HoverThrustSource::INTERNAL) {
             hover_thrust_ = std::make_unique<hover_thrust_estimator::HoverThrustEstimatorRuntime>();
             hover_thrust_->setConfig(config.hover_thrust.estimator);
+            last_hover_update_sec_ = now.toSec();
+            next_hover_deadline_sec_ = hover_thrust_->nextWake(now.toSec()).next_deadline_sec;
         }
         clock_ns_.store(now.toNSec());
         statistics_.start(now);
@@ -87,11 +90,16 @@ class ControllerDriver {
             return;
         clock_ns_.store(now.toNSec());
         statistics_.advance(now);
-        if (hover_thrust_) {
-            hover_thrust_->update(now.toSec());
+        const double now_sec = now.toSec();
+        if (hover_thrust_ &&
+            (hover_thrust_->hasPendingInput() || now_sec < last_hover_update_sec_ ||
+             (next_hover_deadline_sec_ && now_sec >= *next_hover_deadline_sec_))) {
+            hover_thrust_->update(now_sec);
+            last_hover_update_sec_ = now_sec;
+            next_hover_deadline_sec_ = hover_thrust_->nextWake(now_sec).next_deadline_sec;
             for (const auto& estimate : hover_thrust_->publishedEstimates()) {
                 ingestHoverThrust(sensor_, estimate.output.hover_thrust, estimate.output.flags,
-                                  estimate.stamp_sec, now.toSec());
+                                  estimate.stamp_sec, now_sec);
             }
         }
         controller_.update(now.toSec());
@@ -103,6 +111,7 @@ class ControllerDriver {
         active_ = false;
         nmpc_.stop();
         hover_thrust_.reset();
+        next_hover_deadline_sec_.reset();
     }
 
    private:
@@ -113,6 +122,8 @@ class ControllerDriver {
     SensorData& sensor_;
     DroneController controller_;
     std::unique_ptr<hover_thrust_estimator::HoverThrustEstimatorRuntime> hover_thrust_;
+    std::optional<double> next_hover_deadline_sec_;
+    double last_hover_update_sec_{0.0};
     SensorStatistics statistics_;
     std::atomic<uint64_t> clock_ns_{0};
     std::function<void()> on_nmpc_result_;

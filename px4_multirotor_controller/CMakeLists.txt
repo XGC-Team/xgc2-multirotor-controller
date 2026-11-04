@@ -28,6 +28,12 @@ find_package(xgc2_acados REQUIRED CONFIG)
 find_package(xgc2_state_machine REQUIRED CONFIG)
 find_package(Xgc2Module 0.3.0 REQUIRED CONFIG)
 find_package(HoverThrustEstimator 1.2.0 REQUIRED CONFIG)
+# Keep the headers of the selected hover runtime ahead of catkin's installed
+# headers. An overlay can otherwise link the new runtime but compile against a
+# different version already present under /opt/ros/noetic/include.
+set(CMAKE_NO_SYSTEM_FROM_IMPORTED ON)
+get_target_property(MULTIROTOR_HOVER_RUNTIME_INCLUDE_DIRS
+  HoverThrustEstimator::Runtime INTERFACE_INCLUDE_DIRECTORIES)
 # Empty uses the installed xgc2_math headers (APT: >= 0.5.12). Set this to a
 # math source include when that package is not installed yet. Do not hardcode
 # a worktree path; callers pass -DXGC2_MATH_INCLUDE_OVERRIDE=...
@@ -47,7 +53,9 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(JSONCPP REQUIRED jsoncpp)
 
-set(MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS ${hover_thrust_estimator_msgs_INCLUDE_DIRS})
+set(MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS
+  ${MULTIROTOR_HOVER_RUNTIME_INCLUDE_DIRS}
+  ${hover_thrust_estimator_msgs_INCLUDE_DIRS})
 
 ## Find Eigen3 (required for MpcTrajectoryState)
 find_package(Eigen3 REQUIRED)
@@ -798,3 +806,8 @@ if(CATKIN_ENABLE_TESTING)
     endforeach()
   endif()
 endif()
+
+# catkin's test helpers can add their own include paths after the earlier
+# directory declarations. Apply the selected runtime last so every target
+# sees that runtime's headers before the image's older installed headers.
+include_directories(BEFORE ${MULTIROTOR_HOVER_RUNTIME_INCLUDE_DIRS})
