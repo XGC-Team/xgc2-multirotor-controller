@@ -1,10 +1,9 @@
 // Deterministic replay of the reference trajectory runtime, for refactoring it safely.
 //
 // Drives ReferenceTrajectoryRuntime from a request stream (make_reference_stream.py) with explicit
-// time, exactly as ReferenceTrajectoryNode does at run time (reference_node_path.h): each message
-// goes through the input producer's accept + post, then the 100 Hz main loop updates the runtime.
-// Analytic and sampled references run on the update thread, so a plan result arrives at the next
-// update. Every output event and the message the output consumer would publish for it are written
+// time on a 100 Hz comparison grid (reference_node_path.h). Each request is accepted by the same
+// runtime as the ROS node, then the runtime updates on the grid. Every output effect and the
+// message the output consumer would publish for it are written
 // bit-exact (doubles as hex bits); when the active trajectory changes, its evaluator is sampled.
 // Two builds of the runtime can then be compared with `cmp`.
 //
@@ -34,7 +33,7 @@ using reference_replay::Record;
 
 namespace {
 
-constexpr uint64_t kTickNs = 10000000;  // main_frequency 100 Hz
+constexpr uint64_t kTickNs = 10000000;  // The original replay's 100 Hz comparison grid.
 
 FILE* out = nullptr;
 
@@ -116,15 +115,14 @@ int main(int argc, char** argv) {
         }
         const double now = mrt::Time().fromNSec(tick_ns).toSec();
         for (const Published& p : node.update(now)) {
-            const auto& e = p.event;
-            std::fprintf(out, "%" PRIu64 " ev %u ts %016" PRIx64 " seq %" PRIu64 " cat %d src %s",
-                         k, static_cast<unsigned>(e.id), reference_replay::trace::bits(e.timestamp),
-                         e.sequence, static_cast<int>(e.category), e.source.c_str());
-            if (e.id == mrt::output_event_type::PUBLISH_STATUS) {
+            const auto& e = p.effect;
+            std::fprintf(out, "%" PRIu64 " effect %u ts %016" PRIx64,
+                         k, static_cast<unsigned>(e.kind), reference_replay::trace::bits(e.timestamp));
+            if (e.kind == mrt::ReferenceEffectKind::Status) {
                 std::fputs(reference_replay::trace::text(p.status).c_str(), out);
-            } else if (e.id == mrt::output_event_type::PUBLISH_ACTIVE_ANALYTIC) {
+            } else if (e.kind == mrt::ReferenceEffectKind::ActiveAnalytic) {
                 std::fputs(reference_replay::trace::text(p.analytic).c_str(), out);
-            } else if (e.id == mrt::output_event_type::PUBLISH_ACTIVE_SAMPLED) {
+            } else if (e.kind == mrt::ReferenceEffectKind::ActiveSampled) {
                 std::fputs(reference_replay::trace::text(p.sampled).c_str(), out);
             }
             std::fputc('\n', out);

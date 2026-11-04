@@ -9,8 +9,6 @@
 
 namespace {
 
-namespace sm = ::state_machine;
-
 geometry_msgs::Pose pose(double x, double y, double z) {
     geometry_msgs::Pose out;
     out.position.x = x;
@@ -52,14 +50,6 @@ multirotor_reference_trajectory_msgs::AnalyticReference makeAnalyticCurveReferen
     return msg;
 }
 
-void post(multirotor_reference_trajectory::ReferenceTrajectoryRuntime& runtime, uint32_t event_id,
-          double timestamp) {
-    sm::Event event(event_id, sm::EventTimestamp{timestamp});
-    event.source = "runtime_test";
-    const auto status = runtime.postEvent(std::move(event));
-    ASSERT_TRUE(status.ok()) << status.message;
-}
-
 }  // namespace
 
 TEST(ReferenceTrajectoryRuntime, AnalyticCurveReferencesActivate) {
@@ -80,9 +70,9 @@ TEST(ReferenceTrajectoryRuntime, AnalyticCurveReferencesActivate) {
         runtime.update(0.0);
 
         const auto msg = makeAnalyticCurveReference(analytic_type);
-        ASSERT_TRUE(runtime.acceptAnalytic(multirotor_reference_trajectory::toCore(msg)))
+        ASSERT_TRUE(runtime.acceptAnalytic(multirotor_reference_trajectory::toCore(msg), 0.01))
             << "analytic_type=" << analytic_type;
-        ASSERT_TRUE(runtime.activatePending()) << "analytic_type=" << analytic_type;
+        runtime.update(0.01);
         ASSERT_NE(runtime.evaluator(), nullptr) << "analytic_type=" << analytic_type;
         EXPECT_EQ(runtime.activeType(),
                   multirotor_reference_trajectory::trajectory::TrajectoryModelType::kAnalytic);
@@ -111,8 +101,7 @@ TEST(ReferenceTrajectoryRuntime, ActiveAnalyticCanSwitchToAnotherAnalytic) {
 
     const auto line = makeAnalyticCurveReference(
         multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE);
-    ASSERT_TRUE(runtime.acceptAnalytic(multirotor_reference_trajectory::toCore(line)));
-    post(runtime, multirotor_reference_trajectory::event_type::ANALYTIC_RECEIVED, 0.02);
+    ASSERT_TRUE(runtime.acceptAnalytic(multirotor_reference_trajectory::toCore(line), 0.02));
     runtime.update(0.02);
 
     ASSERT_EQ(runtime.currentState(),
@@ -123,14 +112,46 @@ TEST(ReferenceTrajectoryRuntime, ActiveAnalyticCanSwitchToAnotherAnalytic) {
         multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LEMNISCATE);
     lemniscate.trajectory_id = line.trajectory_id + 100U;
     lemniscate.revision = line.revision + 1U;
-    ASSERT_TRUE(runtime.acceptAnalytic(multirotor_reference_trajectory::toCore(lemniscate)));
-    post(runtime, multirotor_reference_trajectory::event_type::ANALYTIC_RECEIVED, 0.03);
+    ASSERT_TRUE(runtime.acceptAnalytic(multirotor_reference_trajectory::toCore(lemniscate), 0.03));
     runtime.update(0.03);
 
     EXPECT_EQ(runtime.currentState(),
               multirotor_reference_trajectory_msgs::ReferenceStatus::STATE_ACTIVE);
     EXPECT_EQ(runtime.activeTrajectoryId(), lemniscate.trajectory_id);
     EXPECT_EQ(runtime.activeRevision(), lemniscate.revision);
+}
+
+TEST(ReferenceTrajectoryRuntime, ExpiredReferenceIdentityRemainsUntilReset) {
+    namespace mrt = multirotor_reference_trajectory;
+    mrt::ReferenceTrajectoryRuntime runtime;
+    mrt::ReferenceTrajectoryConfig config;
+    config.min_lead_time = 0.0;
+    config.trajectory_timeout = 0.5;
+    runtime.setConfig(config);
+    runtime.update(0.0);
+
+    auto message = makeAnalyticCurveReference(
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE);
+    message.start_time = ros::Time(1.0);
+    message.duration = 1.0;
+    ASSERT_TRUE(runtime.acceptAnalytic(mrt::toCore(message), 0.01));
+    runtime.update(0.01);
+    ASSERT_EQ(runtime.currentState(), mrt::reference::ReferenceStatus::STATE_ACTIVE);
+
+    runtime.update(2.51);
+    runtime.update(2.52);
+    const auto ready = runtime.makeStatus(2.52);
+    EXPECT_EQ(ready.state, mrt::reference::ReferenceStatus::STATE_READY);
+    EXPECT_EQ(ready.active_type, mrt::reference::ReferenceStatus::TYPE_ANALYTIC);
+    EXPECT_EQ(ready.active_trajectory_id, message.trajectory_id);
+    EXPECT_EQ(ready.active_revision, message.revision);
+
+    runtime.reset();
+    const auto reset = runtime.makeStatus(2.53);
+    EXPECT_EQ(reset.state, mrt::reference::ReferenceStatus::STATE_SELF_CHECK);
+    EXPECT_EQ(reset.active_type, mrt::reference::ReferenceStatus::TYPE_NONE);
+    EXPECT_EQ(reset.active_trajectory_id, 0U);
+    EXPECT_EQ(reset.active_revision, 0U);
 }
 
 int main(int argc, char** argv) {

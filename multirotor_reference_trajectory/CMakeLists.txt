@@ -11,6 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 find_package(xgc2_state_machine REQUIRED CONFIG)
 find_package(xgc2_math 0.5.12 REQUIRED CONFIG)
+find_package(Xgc2Module 0.3.0 REQUIRED CONFIG)
 
 find_package(Eigen3 REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -36,9 +37,6 @@ include_directories(
 ## link. The node (the ROS edge), the tests and the harness link it.
 add_library(multirotor_reference_trajectory_core
   src/multirotor_reference_trajectory_runtime.cpp
-  src/state_machine/self_check_state.cpp
-  src/state_machine/ready_state.cpp
-  src/state_machine/active_state.cpp
 )
 set_target_properties(multirotor_reference_trajectory_core PROPERTIES INCLUDE_DIRECTORIES "")
 target_include_directories(multirotor_reference_trajectory_core BEFORE PUBLIC
@@ -72,7 +70,7 @@ target_link_libraries(multirotor_reference_trajectory_node
 
 ## The aggregation module (xgc2-module module ABI): the same ROS-free core behind typed ports. Like the
 ## core it gets no ROS include directory and links no ROS library; -Wl,--no-undefined makes any ROS
-## symbol it used fail the link. Only the module entry point is exported (module_support/exports.map).
+## symbol it used fail the link. Only the module entry point is exported (the SDK version script).
 set(MODULE_SUPPORT_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../module_support/include)
 add_library(px4_multirotor_reference_module MODULE module/reference_module.cpp)
 set_target_properties(px4_multirotor_reference_module PROPERTIES
@@ -90,12 +88,13 @@ target_compile_definitions(px4_multirotor_reference_module PRIVATE
   PX4_MODULE_VERSION="${${PROJECT_NAME}_VERSION}")
 target_link_libraries(px4_multirotor_reference_module PRIVATE
   multirotor_reference_trajectory_core
+  Xgc2Module::SDK
   ${JSONCPP_LIBRARIES}
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(px4_multirotor_reference_module PRIVATE -Wall -Wextra)
   set_property(TARGET px4_multirotor_reference_module APPEND_STRING PROPERTY LINK_FLAGS
-    " -Wl,--no-undefined -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../module_support/exports.map")
+    " -Wl,--no-undefined -Wl,--version-script=${Xgc2Module_EXPORTS_MAP}")
 endif()
 
 install(TARGETS px4_multirotor_reference_module
@@ -141,7 +140,7 @@ if(CATKIN_ENABLE_TESTING)
         REFERENCE_MODULE_PATH="$<TARGET_FILE:px4_multirotor_reference_module>"
         REFERENCE_REPLAY_STREAM="${CMAKE_CURRENT_SOURCE_DIR}/test/replay/reference-requests.stream")
       target_link_libraries(${module_test} multirotor_reference_trajectory_core
-                                           ${catkin_LIBRARIES} dl pthread)
+                                           Xgc2Module::SDK ${catkin_LIBRARIES} dl pthread)
     endif()
   endforeach()
 

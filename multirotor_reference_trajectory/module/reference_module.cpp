@@ -16,15 +16,11 @@
 // The analytic port has several writers in an entity: the operator's or planner's requests and the
 // controller's reference activation request.
 //
-// A request is stamped by its producer with its receipt time, which becomes the time of the event
-// the runtime sees (the node uses ros::Time::now() in the callback). Every step reads the requests
-// that arrived; a step of the period then updates the runtime at the host clock and publishes what
-// its output events ask for, exactly as one iteration of the node's main loop does. A step that
-// only has requests to deliver leaves the update to the next period.
+// A request is stamped by its producer with its receipt time. Each step consumes the requests that
+// arrived and advances their owner; existing publication deadlines are armed on the host clock.
 //
 // Configuration (JSON object; the keys and defaults are those of the ROS node's private
-// parameters and config/multirotor_reference_trajectory.yaml): main_frequency (Hz, the step period
-// the module asks the host for), status_rate, active_publish_rate, validation_sample_dt,
+// parameters and config/multirotor_reference_trajectory.yaml): status_rate, active_publish_rate, validation_sample_dt,
 // trajectory_timeout, min_lead_time, max_velocity, max_acceleration, max_jerk, max_snap,
 // min_specific_thrust. A key the module does not know is an error. A configure() while running
 // restarts the runtime (the runtime's setConfig resets it), so it drops the active reference.
@@ -39,6 +35,7 @@
 #include <exception>
 #include <memory>
 #include <module_support/json_config.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -56,8 +53,6 @@ namespace {
 
 namespace mrt = multirotor_reference_trajectory;
 namespace conv = multirotor_reference_trajectory::module;
-namespace sm = state_machine;
-
 enum Port : uint32_t {
     kAnalytic,
     kSampled,
@@ -105,7 +100,6 @@ constexpr int kHealthDegraded = 1;
 
 struct Settings {
     mrt::ReferenceTrajectoryConfig runtime;
-    double main_frequency_hz{100.0};
 
     Settings() {
         // config/multirotor_reference_trajectory.yaml
@@ -116,7 +110,6 @@ struct Settings {
 Settings readSettings(module_support::JsonConfig& json) {
     Settings s;
     mrt::ReferenceTrajectoryConfig& c = s.runtime;
-    json.read("main_frequency", s.main_frequency_hz);
     json.read("status_rate", c.status_rate_hz);
     json.read("active_publish_rate", c.active_publish_rate_hz);
     json.read("validation_sample_dt", c.validation_sample_dt);
@@ -130,9 +123,6 @@ Settings readSettings(module_support::JsonConfig& json) {
     const std::string unknown = json.firstUnusedKey();
     if (!unknown.empty()) {
         throw std::invalid_argument("unknown configuration key '" + unknown + "'");
-    }
-    if (!std::isfinite(s.main_frequency_hz) || s.main_frequency_hz <= 0.0) {
-        throw std::invalid_argument("main_frequency must be a positive number");
     }
     return s;
 }
@@ -190,11 +180,16 @@ class ReferenceModule {
 
     xgc2_status start() {
         running_ = true;
+        period_disabled_ = false;
         applySettings();
         return XGC2_OK;
     }
 
     xgc2_status stop() {
+        if (armed_deadline_) {
+            host_->wake_at_ns(ctx_, -1);
+            armed_deadline_.reset();
+        }
         running_ = false;
         return XGC2_OK;
     }
@@ -203,22 +198,24 @@ class ReferenceModule {
     xgc2_status step(const xgc2_step_ctx* ctx) {
         if (!running_)
             return XGC2_ERR_STATE;
-        // The node's callbacks queue requests whenever they arrive and its loop updates the runtime
-        // at its own rate: a step that only has requests leaves the update to the period.
-        const bool update_due = (ctx->reasons & XGC2_STEP_TIMER) != 0;
+        const bool update_due = (ctx->reasons &
+            (XGC2_STEP_TIMER | XGC2_STEP_WAKE | XGC2_STEP_DEADLINE)) != 0;
+        if ((ctx->reasons & XGC2_STEP_DEADLINE) != 0)
+            armed_deadline_.reset();
         collectRequests();
         const double now = toSeconds(ctx->now_ns);
+        bool accepted = false;
         for (const Request& request : requests_)
-            accept(request);
-        if (!update_due)
+            accepted = accept(request) || accepted;
+        if (!update_due && !accepted)
             return XGC2_OK;
         runtime_->update(now);
-        const std::vector<sm::Event> outputs = runtime_->stateMachine().currentOutputEvents();
         // The health follows the last write: degraded after a refused one, ok again after a
         // successful one.
-        for (const sm::Event& event : outputs) {
-            output_failed_ = !publish(event, ctx->now_ns, now);
+        for (const auto& effect : runtime_->effects()) {
+            output_failed_ = !publish(effect, ctx->now_ns, now);
         }
+        armDeadline();
         reportIfChanged();
         return XGC2_OK;
     }
@@ -236,9 +233,30 @@ class ReferenceModule {
     // The runtime restarts, as the ROS node's runtime does when its config is set.
     void applySettings() {
         runtime_->setConfig(settings_.runtime);
-        host_->set_period_ns(ctx_, std::llround(1e9 / settings_.main_frequency_hz));
+        if (!period_disabled_) {
+            host_->set_period_ns(ctx_, 0);
+            period_disabled_ = true;
+        }
+        armDeadline();
         reported_ = false;
         reportIfChanged();
+    }
+
+    void armDeadline() {
+        const auto next = runtime_->nextWake();
+        if (!next) {
+            if (armed_deadline_) {
+                host_->wake_at_ns(ctx_, -1);
+                armed_deadline_.reset();
+            }
+            return;
+        }
+        const int64_t deadline = static_cast<int64_t>(
+            std::ceil(static_cast<long double>(*next) * 1e9L));
+        if (!armed_deadline_ || *armed_deadline_ != deadline) {
+            host_->wake_at_ns(ctx_, deadline);
+            armed_deadline_ = deadline;
+        }
     }
 
     // Everything that arrived on the request ports, in arrival order (the node's callbacks run in
@@ -257,61 +275,49 @@ class ReferenceModule {
             [](const Request& a, const Request& b) { return a.view.stamp_ns < b.view.stamp_ns; });
     }
 
-    // ReferenceInputProducer::post, at the request's receipt time.
-    void post(uint32_t event_id, const char* source, const Request& request) {
-        sm::Event event(event_id, sm::EventTimestamp{toSeconds(request.view.stamp_ns)});
-        event.source = source;
-        const sm::Status status = runtime_->postEvent(std::move(event));
-        if (!status.ok()) {
-            log(kLogWarn, std::string("cannot post event from ") + source + ": " + status.message);
-        }
-    }
-
-    void accept(const Request& request) {
+    bool accept(const Request& request) {
         try {
             switch (request.port) {
                 case kAnalytic:
-                    acceptAnalytic(request);
-                    break;
+                    return acceptAnalytic(request);
                 case kSampled:
-                    acceptSampled(request);
-                    break;
+                    return acceptSampled(request);
                 case kReset:
                     runtime_->reset();
-                    post(mrt::event_type::RESET_REQUESTED, "reset", request);
-                    break;
+                    return true;
                 default:
-                    break;
+                    return false;
             }
         } catch (const std::exception& e) {
             // A request the runtime cannot represent (a start time beyond the range of ROS time,
             // for example) is refused; the runtime keeps its state.
             log(kLogError, std::string("request refused: ") + e.what());
+            return false;
         }
     }
 
-    void acceptAnalytic(const Request& request) {
+    bool acceptAnalytic(const Request& request) {
         mrt::reference::AnalyticReference message;
         if (request.view.size != sizeof(xgc2_px4_reference_analytic_v1) ||
             !conv::toCore(*static_cast<const xgc2_px4_reference_analytic_v1*>(request.view.data),
                           message) ||
-            !runtime_->acceptAnalytic(message)) {
+            !runtime_->acceptAnalytic(message, toSeconds(request.view.stamp_ns))) {
             log(kLogWarn, "rejected analytic reference");
-            return;
+            return false;
         }
-        post(mrt::event_type::ANALYTIC_RECEIVED, "analytic_reference", request);
+        return true;
     }
 
-    void acceptSampled(const Request& request) {
+    bool acceptSampled(const Request& request) {
         mrt::reference::SampledReference message;
         if (request.view.size != sizeof(xgc2_px4_reference_sampled_v1) ||
             !conv::toCore(*static_cast<const xgc2_px4_reference_sampled_v1*>(request.view.data),
                           message) ||
-            !runtime_->acceptSampled(message)) {
+            !runtime_->acceptSampled(message, toSeconds(request.view.stamp_ns))) {
             log(kLogWarn, "rejected sampled reference");
-            return;
+            return false;
         }
-        post(mrt::event_type::SAMPLED_RECEIVED, "sampled_reference", request);
+        return true;
     }
 
     // Fills one payload in the port's slot; false when the slot is unavailable or the message does
@@ -332,18 +338,18 @@ class ReferenceModule {
     }
 
     // ReferenceOutputConsumer::handle. Returns false when the output could not be written.
-    bool publish(const sm::Event& event, int64_t now_ns, double now) {
-        if (event.id == mrt::output_event_type::PUBLISH_STATUS) {
-            const auto status = runtime_->makeStatus(event.timestamp > 0.0 ? event.timestamp : now);
+    bool publish(const mrt::ReferenceEffect& effect, int64_t now_ns, double now) {
+        if (effect.kind == mrt::ReferenceEffectKind::Status) {
+            const auto status = runtime_->makeStatus(effect.timestamp > 0.0 ? effect.timestamp : now);
             return write<xgc2_px4_reference_status_v1>(
                 kStatus, now_ns, [&](auto& out) { return conv::toPayload(status, out); });
         }
-        if (event.id == mrt::output_event_type::PUBLISH_ACTIVE_ANALYTIC) {
+        if (effect.kind == mrt::ReferenceEffectKind::ActiveAnalytic) {
             return write<xgc2_px4_reference_analytic_v1>(kActiveAnalytic, now_ns, [&](auto& out) {
                 return conv::toPayload(runtime_->activeAnalyticMessage(), out);
             });
         }
-        if (event.id == mrt::output_event_type::PUBLISH_ACTIVE_SAMPLED) {
+        if (effect.kind == mrt::ReferenceEffectKind::ActiveSampled) {
             return write<xgc2_px4_reference_sampled_v1>(kActiveSampled, now_ns, [&](auto& out) {
                 return conv::toPayload(runtime_->activeSampledMessage(), out);
             });
@@ -369,6 +375,8 @@ class ReferenceModule {
     std::unique_ptr<mrt::ReferenceTrajectoryRuntime> runtime_;
     std::vector<Request> requests_;
     bool running_{false};
+    bool period_disabled_{false};
+    std::optional<int64_t> armed_deadline_;
     bool output_failed_{false};
     bool reported_{false};
     uint8_t reported_state_{0};

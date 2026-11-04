@@ -39,27 +39,25 @@ ReferenceOutputConsumer::ReferenceOutputConsumer(
     reference_path_pub_ = nh.advertise<nav_msgs::Path>(reference_path_topic, queue_size, true);
 }
 
-bool ReferenceOutputConsumer::handle(const ::state_machine::Event& event) {
-    if (event.id == output_event_type::PUBLISH_STATUS) {
+void ReferenceOutputConsumer::handle(const ReferenceEffect& effect) {
+    if (effect.kind == ReferenceEffectKind::Status) {
         executor_.pushTask(makePublishTask(
             "PublishReferenceStatus", status_pub_,
-            toRos(runtime_.makeStatus(event.timestamp > 0.0 ? event.timestamp
+            toRos(runtime_.makeStatus(effect.timestamp > 0.0 ? effect.timestamp
                                                             : ros::Time::now().toSec()))));
-        return true;
+        return;
     }
-    if (event.id == output_event_type::PUBLISH_ACTIVE_ANALYTIC) {
+    if (effect.kind == ReferenceEffectKind::ActiveAnalytic) {
         executor_.pushTask(makePublishTask("PublishActiveAnalytic", active_analytic_pub_,
                                            toRos(runtime_.activeAnalyticMessage())));
-        publishReferencePath(event.timestamp);
-        return true;
+        publishReferencePath(effect.timestamp);
+        return;
     }
-    if (event.id == output_event_type::PUBLISH_ACTIVE_SAMPLED) {
+    if (effect.kind == ReferenceEffectKind::ActiveSampled) {
         executor_.pushTask(makePublishTask("PublishActiveSampled", active_sampled_pub_,
                                            toRos(runtime_.activeSampledMessage())));
-        publishReferencePath(event.timestamp);
-        return true;
+        publishReferencePath(effect.timestamp);
     }
-    return false;
 }
 
 nav_msgs::Path ReferenceOutputConsumer::makeReferencePath(double stamp_sec) const {

@@ -71,7 +71,7 @@ M decode(const std::vector<uint8_t>& d) {
 
 // What ReferenceOutputConsumer publishes for one output event of the runtime.
 struct Published {
-    ::state_machine::Event event;
+    mrt::ReferenceEffect effect;
     mrt::reference::ReferenceStatus status;      // PUBLISH_STATUS
     mrt::reference::AnalyticReference analytic;  // PUBLISH_ACTIVE_ANALYTIC
     mrt::reference::SampledReference sampled;    // PUBLISH_ACTIVE_SAMPLED
@@ -89,24 +89,24 @@ class NodePath {
         std::string trace;
         switch (r.kind) {
             case kAnalyticRequest:
-                if (runtime_.acceptAnalytic(mrt::toCore(decode<msgs::AnalyticReference>(r.data)))) {
-                    trace +=
-                        post(mrt::event_type::ANALYTIC_RECEIVED, "analytic_reference", receipt_sec);
+                if (runtime_.acceptAnalytic(mrt::toCore(decode<msgs::AnalyticReference>(r.data)),
+                                            receipt_sec)) {
+                    trace += "  accepted\n";
                 } else {
                     trace += "  rejected\n";
                 }
                 break;
             case kSampledRequest:
-                if (runtime_.acceptSampled(mrt::toCore(decode<msgs::SampledReference>(r.data)))) {
-                    trace +=
-                        post(mrt::event_type::SAMPLED_RECEIVED, "sampled_reference", receipt_sec);
+                if (runtime_.acceptSampled(mrt::toCore(decode<msgs::SampledReference>(r.data)),
+                                           receipt_sec)) {
+                    trace += "  accepted\n";
                 } else {
                     trace += "  rejected\n";
                 }
                 break;
             case kResetRequest:
                 runtime_.reset();
-                trace += post(mrt::event_type::RESET_REQUESTED, "reset", receipt_sec);
+                trace += "  reset\n";
                 break;
             default:
                 throw std::runtime_error("unknown record kind");
@@ -118,15 +118,15 @@ class NodePath {
     std::vector<Published> update(double now_sec) {
         runtime_.update(now_sec);
         std::vector<Published> published;
-        for (const auto& e : runtime_.stateMachine().currentOutputEvents()) {
+        for (const auto& e : runtime_.effects()) {
             Published p;
-            p.event = e;
+            p.effect = e;
             // ReferenceOutputConsumer::handle
-            if (e.id == mrt::output_event_type::PUBLISH_STATUS) {
+            if (e.kind == mrt::ReferenceEffectKind::Status) {
                 p.status = runtime_.makeStatus(e.timestamp > 0.0 ? e.timestamp : now_sec);
-            } else if (e.id == mrt::output_event_type::PUBLISH_ACTIVE_ANALYTIC) {
+            } else if (e.kind == mrt::ReferenceEffectKind::ActiveAnalytic) {
                 p.analytic = runtime_.activeAnalyticMessage();
-            } else if (e.id == mrt::output_event_type::PUBLISH_ACTIVE_SAMPLED) {
+            } else if (e.kind == mrt::ReferenceEffectKind::ActiveSampled) {
                 p.sampled = runtime_.activeSampledMessage();
             }
             published.push_back(std::move(p));
@@ -139,17 +139,6 @@ class NodePath {
     }
 
    private:
-    // ReferenceInputProducer::post
-    std::string post(uint32_t id, const char* source, double receipt_sec) {
-        ::state_machine::Event event(id, ::state_machine::EventTimestamp{receipt_sec});
-        event.source = source;
-        const auto status = runtime_.postEvent(std::move(event));
-        char line[160];
-        std::snprintf(line, sizeof line, "  post %u %s %s\n", id, source,
-                      status.ok() ? "ok" : status.message.c_str());
-        return line;
-    }
-
     mrt::ReferenceTrajectoryRuntime runtime_;
 };
 

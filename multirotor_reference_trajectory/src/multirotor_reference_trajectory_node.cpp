@@ -2,20 +2,39 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <utility>
 
 namespace multirotor_reference_trajectory {
+namespace {
+class OwnerTurn final : public ros::CallbackInterface {
+   public:
+    explicit OwnerTurn(std::function<void()> callback) : callback_(std::move(callback)) {}
+    CallResult call() override {
+        callback_();
+        return Success;
+    }
+   private:
+    std::function<void()> callback_;
+};
+}  // namespace
 
 ReferenceTrajectoryNode::ReferenceTrajectoryNode(ros::NodeHandle& nh)
     : nh_(nh), private_nh_("~"), output_executor_(nh_) {
     loadParams();
     runtime_.setConfig(config_);
-    output_dispatcher_.addConsumer(std::make_unique<ReferenceOutputConsumer>(
+    output_consumer_ = std::make_unique<ReferenceOutputConsumer>(
         nh_, output_executor_, runtime_, status_topic_, active_analytic_topic_,
         active_sampled_topic_, reference_path_topic_, reference_path_sample_dt_,
-        reference_path_preview_duration_, queue_size_));
+        reference_path_preview_duration_, queue_size_);
+    turn_callback_.reset(new OwnerTurn([this] { runTurn(); }));
+    deadline_timer_ = nh_.createTimer(ros::Duration(1.0), &ReferenceTrajectoryNode::onDeadline,
+                                      this, true, false);
     input_producer_ = std::make_unique<ReferenceInputProducer>(
-        nh_, runtime_, analytic_topic_, sampled_topic_, reset_topic_, queue_size_);
+        nh_, runtime_, analytic_topic_, sampled_topic_, reset_topic_, queue_size_,
+        [this] { requestTurn(); });
     output_executor_.start();
+    requestTurn();
     ROS_INFO(
         "[ReferenceTrajectoryNode] Initialized: analytic=%s sampled=%s "
         "status=%s active_analytic=%s active_sampled=%s reference_path=%s",
@@ -25,20 +44,56 @@ ReferenceTrajectoryNode::ReferenceTrajectoryNode(ros::NodeHandle& nh)
 }
 
 ReferenceTrajectoryNode::~ReferenceTrajectoryNode() {
+    deadline_timer_.stop();
+    nh_.getCallbackQueue()->removeByID(reinterpret_cast<uintptr_t>(this));
     output_executor_.stop();
 }
 
-void ReferenceTrajectoryNode::run(double main_frequency_hz) {
-    const double frequency =
-        std::isfinite(main_frequency_hz) && main_frequency_hz > 0.0 ? main_frequency_hz : 100.0;
-    ROS_INFO("[ReferenceTrajectoryNode] Starting main loop at %.1f Hz", frequency);
-    ros::Rate rate(frequency);
-    while (ros::ok()) {
-        ros::spinOnce();
-        runtime_.update(ros::Time::now().toSec());
-        dispatchOutputEvents(runtime_.stateMachine().currentOutputEvents());
-        rate.sleep();
+void ReferenceTrajectoryNode::run() {
+    ros::spin();
+}
+
+void ReferenceTrajectoryNode::requestTurn() {
+    if (turn_queued_)
+        return;
+    turn_queued_ = true;
+    nh_.getCallbackQueue()->addCallback(turn_callback_, reinterpret_cast<uintptr_t>(this));
+}
+
+void ReferenceTrajectoryNode::runTurn() {
+    turn_queued_ = false;
+    const double now = ros::Time::now().toSec();
+    runtime_.update(now);
+    for (const auto& effect : runtime_.effects())
+        output_consumer_->handle(effect);
+    armDeadline(now);
+}
+
+void ReferenceTrajectoryNode::onDeadline(const ros::TimerEvent&) {
+    armed_deadline_.reset();
+    requestTurn();
+}
+
+void ReferenceTrajectoryNode::armDeadline(double now) {
+    const auto next = runtime_.nextWake();
+    if (!next) {
+        deadline_timer_.stop();
+        armed_deadline_.reset();
+        return;
     }
+    if (*next <= now) {
+        requestTurn();
+        return;
+    }
+    if (armed_deadline_ && *armed_deadline_ == *next)
+        return;
+    const auto wait_ns = static_cast<int64_t>(
+        std::ceil((static_cast<long double>(*next) - static_cast<long double>(now)) * 1e9L));
+    ros::Duration delay;
+    delay.fromNSec(wait_ns);
+    deadline_timer_.setPeriod(delay, true);
+    deadline_timer_.start();
+    armed_deadline_ = next;
 }
 
 void ReferenceTrajectoryNode::loadParams() {
@@ -78,20 +133,6 @@ void ReferenceTrajectoryNode::loadParams() {
     private_nh_.param("max_snap", config_.limits.max_snap, config_.limits.max_snap);
     private_nh_.param("min_specific_thrust", config_.limits.min_specific_thrust,
                       config_.limits.min_specific_thrust);
-}
-
-void ReferenceTrajectoryNode::dispatchOutputEvents(
-    const std::vector<::state_machine::Event>& events) {
-    const auto result = output_dispatcher_.dispatch(events);
-    for (const auto& event : result.unhandled_events) {
-        ROS_WARN("[ReferenceTrajectoryNode] Unhandled output event id: %u",
-                 static_cast<unsigned>(event.id));
-    }
-    for (const auto& failure : result.failures) {
-        ROS_WARN("[ReferenceTrajectoryNode] Output consumer '%s' failed on event %u: %s",
-                 failure.consumer_name.c_str(), static_cast<unsigned>(failure.event.id),
-                 failure.message.c_str());
-    }
 }
 
 }  // namespace multirotor_reference_trajectory

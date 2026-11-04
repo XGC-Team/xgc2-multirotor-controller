@@ -25,6 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 find_package(xgc2_acados REQUIRED CONFIG)
 find_package(xgc2_state_machine REQUIRED CONFIG)
+find_package(Xgc2Module 0.3.0 REQUIRED CONFIG)
 find_package(HoverThrustEstimator 1.2.0 REQUIRED CONFIG)
 # Empty uses the installed xgc2_math headers (APT: >= 0.5.12). Set this to a
 # math source include when that package is not installed yet. Do not hardcode
@@ -495,7 +496,7 @@ target_link_libraries(${PROJECT_NAME}_node
 ## The aggregation module (xgc2-module module ABI): the same ROS-free core behind typed ports. Like the
 ## core it gets no ROS include directory and links no ROS library; -Wl,--no-undefined makes any ROS
 ## symbol it used fail the link. Only the module entry point is exported
-## (module_support/exports.map). The reference payload headers are those of the reference package
+## (the SDK version script). The reference payload headers are those of the reference package
 ## of this repository (a build dependency in package.xml).
 set(MODULE_SUPPORT_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../module_support/include)
 set(MULTIROTOR_REFERENCE_INCLUDE_DIR
@@ -514,11 +515,11 @@ target_include_directories(${PROJECT_NAME}_module BEFORE PRIVATE
 )
 target_compile_definitions(${PROJECT_NAME}_module PRIVATE
   PX4_MODULE_VERSION="${${PROJECT_NAME}_VERSION}")
-target_link_libraries(${PROJECT_NAME}_module PRIVATE px4_multirotor_controller_core)
+target_link_libraries(${PROJECT_NAME}_module PRIVATE px4_multirotor_controller_core Xgc2Module::SDK)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(${PROJECT_NAME}_module PRIVATE -Wall -Wextra)
   set_property(TARGET ${PROJECT_NAME}_module APPEND_STRING PROPERTY LINK_FLAGS
-    " -Wl,--no-undefined -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../module_support/exports.map")
+    " -Wl,--no-undefined -Wl,--version-script=${Xgc2Module_EXPORTS_MAP}")
 endif()
 
 #############
@@ -736,7 +737,7 @@ if(CATKIN_ENABLE_TESTING)
     target_compile_definitions(controller_module_test PRIVATE
       CONTROLLER_MODULE_PATH="$<TARGET_FILE:${PROJECT_NAME}_module>"
       REFERENCE_MODULE_DIRECTORIES="${CATKIN_DEVEL_PREFIX}/lib:${CATKIN_DEVEL_PREFIX}/../../lib")
-    target_link_libraries(controller_module_test px4_multirotor_controller_core dl pthread)
+    target_link_libraries(controller_module_test px4_multirotor_controller_core Xgc2Module::SDK dl pthread)
   endif()
 
   # The real ROS input producer against the module, on a private ROS master.
@@ -754,7 +755,7 @@ if(CATKIN_ENABLE_TESTING)
     target_compile_definitions(controller_transport_parity PRIVATE
       CONTROLLER_MODULE_PATH="$<TARGET_FILE:${PROJECT_NAME}_module>")
     target_link_libraries(controller_transport_parity px4_multirotor_controller_core
-                          ${catkin_LIBRARIES} dl pthread)
+                          Xgc2Module::SDK ${catkin_LIBRARIES} dl pthread)
   endif()
 
   # The module against the ROS node's behavior on the recorded flights and a scripted flight.
@@ -768,7 +769,7 @@ if(CATKIN_ENABLE_TESTING)
       CONTROLLER_MODULE_PATH="$<TARGET_FILE:${PROJECT_NAME}_module>"
       CONTROLLER_REPLAY_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/replay/data")
     target_link_libraries(controller_module_parity_test px4_multirotor_controller_core
-                          ${catkin_LIBRARIES} z dl pthread)
+                          Xgc2Module::SDK ${catkin_LIBRARIES} z dl pthread)
   endif()
 
   # The reference module, the controller module and a scripted vehicle in the real module host
@@ -782,6 +783,7 @@ if(CATKIN_ENABLE_TESTING)
       INCLUDE_DIRECTORIES "" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
     target_include_directories(px4_scripted_vehicle BEFORE PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include ${MODULE_SUPPORT_INCLUDE_DIR})
+    target_link_libraries(px4_scripted_vehicle PRIVATE Xgc2Module::SDK)
     target_compile_features(px4_scripted_vehicle PRIVATE cxx_std_17)
     foreach(backend nmpc dfbc)
       add_test(NAME chain_in_module_host_${backend}

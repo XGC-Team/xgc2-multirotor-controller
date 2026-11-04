@@ -7,6 +7,7 @@ export DEBIAN_FRONTEND=noninteractive
 "${SCRIPT_DIR}/setup_xgc2_apt_source.sh"
 apt-get install -y --no-install-recommends \
   libxgc2-math-dev \
+  libxgc2-module-dev \
   libxgc2-state-machine-dev \
   libxgc2-hover-thrust-core0 \
   libxgc2-hover-thrust-dev \
@@ -27,6 +28,7 @@ require_version() {
   }
 }
 require_version libxgc2-math-dev '0.5.12-1~'
+require_version libxgc2-module-dev '0.3.0-1~'
 require_version libxgc2-hover-thrust-core0 '1.2.0-1~focal'
 require_version libxgc2-hover-thrust-dev '1.2.0-1~focal'
 require_version "ros-${ROS_DISTRO:-noetic}-xgc2-multirotor-reference-trajectory-msgs" 1.4.0-1

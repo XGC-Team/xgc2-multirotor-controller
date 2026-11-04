@@ -6,7 +6,7 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
-#include <module_support/test_host.hpp>
+#include <xgc2/sdk/test_host.hpp>
 #include <string>
 
 #include "multirotor_reference_trajectory/payloads.h"
@@ -15,8 +15,8 @@
 
 namespace {
 
-using module_support::ModuleLibrary;
-using module_support::TestHost;
+using xgc2::sdk::test::ModuleLibrary;
+using xgc2::sdk::test::TestHost;
 namespace mrt = multirotor_reference_trajectory;
 namespace conv = multirotor_reference_trajectory::module;
 
@@ -45,7 +45,7 @@ class ReferenceModuleTest : public ::testing::Test {
     }
 
     void open(const std::string& config = "{}") {
-        host_ = std::make_unique<TestHost>(library_->desc());
+        host_ = std::make_unique<TestHost>(library_->desc(), xgc2::sdk::test::Threading::kHomeWorker);
         host_->setNow(kT0);
         ASSERT_EQ(host_->create(config), XGC2_OK);
         ASSERT_EQ(host_->start(), XGC2_OK);
@@ -165,7 +165,7 @@ TEST_F(ReferenceModuleTest, DescriptorDeclaresTheAbiAndTheTypedPorts) {
 TEST_F(ReferenceModuleTest, RejectsAnInvalidConfiguration) {
     for (const char* bad : {"[]", "{", "{\"main_frequency\": 0}", "{\"main_frequency\": \"fast\"}",
                             "{\"status_rte\": 10}", "{\"max_jerk\": null}"}) {
-        TestHost host(library_->desc());
+        TestHost host(library_->desc(), xgc2::sdk::test::Threading::kHomeWorker);
         EXPECT_EQ(host.create(bad), XGC2_ERR_INVALID) << bad;
         EXPECT_EQ(host.instance(), nullptr) << bad;
         EXPECT_FALSE(host.logs().empty()) << bad;
@@ -173,14 +173,15 @@ TEST_F(ReferenceModuleTest, RejectsAnInvalidConfiguration) {
 }
 
 TEST_F(ReferenceModuleTest, NamesTheUnknownKeyInTheError) {
-    TestHost host(library_->desc());
+    TestHost host(library_->desc(), xgc2::sdk::test::Threading::kHomeWorker);
     EXPECT_EQ(host.create("{\"status_rte\": 10}"), XGC2_ERR_INVALID);
     EXPECT_TRUE(host.logged(3, "unknown configuration key 'status_rte'"));
 }
 
-TEST_F(ReferenceModuleTest, StartAsksForTheNodePeriodAndReportsItsState) {
+TEST_F(ReferenceModuleTest, StartSchedulesTheInitialOwnerTurnAndReportsItsState) {
     open();
-    EXPECT_EQ(host_->periodNs(), 10000000);  // main_frequency 100 Hz, as the ROS node
+    EXPECT_EQ(host_->periodNs(), 0);
+    EXPECT_GE(host_->pendingDeadline(), 0);
     EXPECT_EQ(host_->lastReportDetail(), "SelfCheck");
     run(2);
     EXPECT_EQ(host_->lastReportDetail(), "Ready");
@@ -193,11 +194,11 @@ TEST_F(ReferenceModuleTest, StartAsksForTheNodePeriodAndReportsItsState) {
 
 TEST_F(ReferenceModuleTest, ConfigurationKeysOfTheNodeAreAccepted) {
     open(
-        "{\"main_frequency\": 50.0, \"status_rate\": 5.0, \"active_publish_rate\": 2.0, "
+        "{\"status_rate\": 5.0, \"active_publish_rate\": 2.0, "
         "\"validation_sample_dt\": 0.05, \"trajectory_timeout\": 1.0, \"min_lead_time\": 0.5, "
         "\"max_velocity\": 4.0, \"max_acceleration\": 6.0, \"max_jerk\": 0.0, \"max_snap\": 0.0, "
         "\"min_specific_thrust\": 0.1}");
-    EXPECT_EQ(host_->periodNs(), 20000000);
+    EXPECT_EQ(host_->periodNs(), 0);
 }
 
 TEST_F(ReferenceModuleTest, AnalyticRequestBecomesTheActiveReference) {
@@ -233,7 +234,7 @@ TEST_F(ReferenceModuleTest, AnalyticRequestBecomesTheActiveReference) {
     EXPECT_TRUE(host_->outputs("active_sampled").empty());
 }
 
-TEST_F(ReferenceModuleTest, AStepWithOnlyRequestsDeliversThemAndLeavesTheUpdateToThePeriod) {
+TEST_F(ReferenceModuleTest, RejectedInputDoesNotTriggerAnUnrelatedPublication) {
     open();
     run(5);
     host_->clearOutputs();
@@ -241,14 +242,56 @@ TEST_F(ReferenceModuleTest, AStepWithOnlyRequestsDeliversThemAndLeavesTheUpdateT
     auto bad = analytic(mrt::reference::AnalyticReference::ANALYTIC_HOLD, {}, 6.0);
     bad.origin_position[0] = std::nan("");  // a request the runtime refuses
     pushAnalytic(bad);
-    // Like the node's callback between two iterations of its loop: the request is delivered ...
     ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
     EXPECT_TRUE(host_->logged(2, "rejected analytic reference"));
-    // ... without an update of the runtime ...
     EXPECT_TRUE(host_->outputs("status").empty());
-    // ... which the next period makes.
-    ASSERT_EQ(host_->step(XGC2_STEP_TIMER), XGC2_OK);
+    // The already scheduled deadline still makes the status due.
+    ASSERT_EQ(host_->step(XGC2_STEP_DEADLINE), XGC2_OK);
     EXPECT_EQ(host_->outputs("status").size(), 1U);
+}
+
+TEST_F(ReferenceModuleTest, CompleteRequestWakesOwnerWithoutResettingUnrelatedDeadlines) {
+    open();
+    ASSERT_EQ(host_->step(XGC2_STEP_DEADLINE), XGC2_OK);
+    host_->clearOutputs();
+    host_->setNow(kT0 + 20000000);
+    pushAnalytic(analytic(mrt::reference::AnalyticReference::ANALYTIC_HOLD, {}, 30.0));
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    ASSERT_EQ(host_->outputs("active_analytic").size(), 1U);
+    ASSERT_EQ(host_->outputs("status").size(), 1U);
+    const auto deadline = host_->pendingDeadline();
+    const auto requests = host_->deadlineRequests().size();
+    ASSERT_GT(deadline, host_->now());
+
+    // A wake with no new request does not publish, or replace the pending phase.
+    host_->clearOutputs();
+    host_->setNow(kT0 + 30000000);
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    EXPECT_TRUE(host_->outputs("status").empty());
+    EXPECT_TRUE(host_->outputs("active_analytic").empty());
+    EXPECT_EQ(host_->deadlineRequests().size(), requests);
+    EXPECT_EQ(host_->pendingDeadline(), deadline);
+
+    for (int i = 0; i < 10; ++i) {
+        const int64_t next = host_->pendingDeadline();
+        ASSERT_GT(next, host_->now());
+        host_->setNow(next);
+        ASSERT_EQ(host_->step(XGC2_STEP_DEADLINE), XGC2_OK);
+    }
+    const auto active = host_->outputs("active_analytic");
+    ASSERT_EQ(active.size(), 10U);
+    for (size_t i = 1; i < active.size(); ++i)
+        EXPECT_NEAR(static_cast<double>(active[i].stamp_ns - active[i - 1].stamp_ns),
+                    100000000.0, 1000.0);
+    EXPECT_EQ(host_->periodNs(), 0);
+}
+
+TEST_F(ReferenceModuleTest, ARequestBeforeTheInitialTurnIsNotLost) {
+    open();
+    pushAnalytic(analytic(mrt::reference::AnalyticReference::ANALYTIC_HOLD, {}, 30.0));
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    EXPECT_EQ(host_->lastReportDetail(), "Active");
+    ASSERT_EQ(host_->outputs("active_analytic").size(), 1U);
 }
 
 TEST_F(ReferenceModuleTest, LifecycleAndStepsUseTheSameHomeWorker) {
@@ -370,11 +413,11 @@ TEST_F(ReferenceModuleTest, ConfigureWhileRunningAppliesAndRestartsTheRuntime) {
     pushAnalytic(analytic(mrt::reference::AnalyticReference::ANALYTIC_HOLD, {}, 30.0));
     run(5);
     ASSERT_EQ(host_->lastReportDetail(), "Active");
-    ASSERT_EQ(host_->configure("{\"main_frequency\": 200.0}"), XGC2_OK);
-    EXPECT_EQ(host_->periodNs(), 5000000);
+    ASSERT_EQ(host_->configure("{\"status_rate\": 5.0}"), XGC2_OK);
+    EXPECT_EQ(host_->periodNs(), 0);
     EXPECT_EQ(host_->lastReportDetail(), "SelfCheck");
-    EXPECT_EQ(host_->configure("{\"main_frequency\": -1}"), XGC2_ERR_INVALID);
-    EXPECT_EQ(host_->periodNs(), 5000000);  // the refused configuration changed nothing
+    EXPECT_EQ(host_->configure("{\"status_rte\": 10}"), XGC2_ERR_INVALID);
+    EXPECT_EQ(host_->periodNs(), 0);  // the refused configuration changed nothing
 }
 
 TEST_F(ReferenceModuleTest, AFailedOutputDegradesTheHealth) {
@@ -399,8 +442,7 @@ TEST_F(ReferenceModuleTest, RequestsAreProcessedInArrivalOrderAcrossPorts) {
     run(5);
     EXPECT_EQ(host_->lastReportDetail(), "Ready");
     EXPECT_TRUE(host_->outputs("active_analytic").empty());
-    // The request arrives in a later step than the reset: it is activated. (A request in the same
-    // step as a reset meets the runtime in SelfCheck, which does not take requests.)
+    // A request after the reset is activated.
     ASSERT_TRUE(host_->push("reset", reset, host_->now()));
     run(3);
     pushAnalytic(request);

@@ -7,14 +7,13 @@
 #include <ros/ros.h>
 
 #include <state_machine/runtime/async_task_executor.hpp>
-#include <state_machine/runtime/event_dispatcher.hpp>
 #include <string>
 
 #include "multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h"
 
 namespace multirotor_reference_trajectory {
 
-class ReferenceOutputConsumer final : public ::state_machine::runtime::EventConsumer {
+class ReferenceOutputConsumer final {
    public:
     ReferenceOutputConsumer(ros::NodeHandle& nh,
                             ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
@@ -25,10 +24,7 @@ class ReferenceOutputConsumer final : public ::state_machine::runtime::EventCons
                             double reference_path_sample_dt, double reference_path_preview_duration,
                             uint32_t queue_size);
 
-    std::string name() const override {
-        return "ReferenceOutputConsumer";
-    }
-    bool handle(const ::state_machine::Event& event) override;
+    void handle(const ReferenceEffect& effect);
 
    private:
     nav_msgs::Path makeReferencePath(double stamp_sec) const;

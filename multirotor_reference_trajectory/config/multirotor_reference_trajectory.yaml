@@ -3,7 +3,6 @@ active_analytic_topic: alg/multirotor_reference_trajectory/active/analytic
 active_publish_rate: 10.0
 active_sampled_topic: alg/multirotor_reference_trajectory/active/sampled
 analytic_topic: alg/multirotor_reference_trajectory/request/analytic
-main_frequency: 100.0
 max_acceleration: 0.0
 max_jerk: 0.0
 max_snap: 0.0

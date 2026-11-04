@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include <module_support/test_host.hpp>
+#include <xgc2/sdk/test_host.hpp>
 #include <string>
 #include <vector>
 
@@ -19,8 +19,8 @@
 
 namespace {
 
-using module_support::ModuleLibrary;
-using module_support::TestHost;
+using xgc2::sdk::test::ModuleLibrary;
+using xgc2::sdk::test::TestHost;
 using reference_replay::Published;
 using reference_replay::Record;
 namespace mrt = multirotor_reference_trajectory;
@@ -62,7 +62,7 @@ TEST(ReferenceModuleParity, PublishesWhatTheRosNodeCorePublishes) {
     ASSERT_FALSE(records.empty());
 
     ModuleLibrary library(REFERENCE_MODULE_PATH);
-    TestHost host(library.desc());
+    TestHost host(library.desc(), xgc2::sdk::test::Threading::kHomeWorker);
     // config/multirotor_reference_trajectory.yaml
     mrt::ReferenceTrajectoryConfig config;
     config.limits.min_specific_thrust = 0.1;
@@ -93,11 +93,11 @@ TEST(ReferenceModuleParity, PublishesWhatTheRosNodeCorePublishes) {
         // The same messages, in the order of the node's output events, per output port.
         std::vector<std::string> want_status, want_analytic, want_sampled;
         for (const Published& p : expected) {
-            if (p.event.id == mrt::output_event_type::PUBLISH_STATUS)
+            if (p.effect.kind == mrt::ReferenceEffectKind::Status)
                 want_status.push_back(trace::text(p.status));
-            if (p.event.id == mrt::output_event_type::PUBLISH_ACTIVE_ANALYTIC)
+            if (p.effect.kind == mrt::ReferenceEffectKind::ActiveAnalytic)
                 want_analytic.push_back(trace::text(p.analytic));
-            if (p.event.id == mrt::output_event_type::PUBLISH_ACTIVE_SAMPLED)
+            if (p.effect.kind == mrt::ReferenceEffectKind::ActiveSampled)
                 want_sampled.push_back(trace::text(p.sampled));
         }
         std::vector<std::string> got_status, got_analytic, got_sampled;

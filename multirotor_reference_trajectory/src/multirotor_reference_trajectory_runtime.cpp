@@ -2,24 +2,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <state_machine/adt_machine.hpp>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
-#include "multirotor_reference_trajectory/state_machine/active_state.h"
-#include "multirotor_reference_trajectory/state_machine/ready_state.h"
-#include "multirotor_reference_trajectory/state_machine/self_check_state.h"
-
 namespace multirotor_reference_trajectory {
 namespace {
-
-namespace sm = ::state_machine;
-
-void requireOk(const sm::Status& status, const char* operation) {
-    if (!status.ok()) {
-        throw std::runtime_error(std::string(operation) + ": " + status.message);
-    }
-}
 
 double finiteOr(double value, double fallback) {
     return std::isfinite(value) ? value : fallback;
@@ -54,9 +44,124 @@ double paramAt(const reference::AnalyticReference& msg, size_t index, double fal
 
 }  // namespace
 
+// The reference owner has one value state. Periodic publication phase belongs
+// to the state that entered it, while the last reference belongs to the
+// runtime because Ready status continues to report it after expiry.
+class ReferenceMachine {
+    struct Gate {
+        double last{0.0};
+        bool initialized{false};
+
+        bool due(double now, double rate) {
+            const double period = 1.0 / rate;
+            if (!initialized || now - last >= period) {
+                last = now;
+                initialized = true;
+                return true;
+            }
+            return false;
+        }
+
+        double next(double now, double rate) const {
+            if (!initialized)
+                return now;
+            return std::nextafter(last + 1.0 / rate, std::numeric_limits<double>::infinity());
+        }
+    };
+    struct SelfCheck {};
+    struct Ready { Gate status; };
+    struct Active { Gate status; Gate active; };
+    struct Turn {};
+    using Transition = ::state_machine::adt::Transition<SelfCheck, Ready, Active>;
+
+    static Transition ready(ReferenceTrajectoryRuntime& runtime) {
+        Ready state;
+        state.status.due(runtime.currentTime(), runtime.config().status_rate_hz);
+        runtime.emit(ReferenceEffectKind::Status);
+        return ::state_machine::adt::Enter{std::move(state)};
+    }
+
+    static Transition active(ReferenceTrajectoryRuntime& runtime) {
+        runtime.activatePending();
+        Active state;
+        state.status.due(runtime.currentTime(), runtime.config().status_rate_hz);
+        state.active.due(runtime.currentTime(), runtime.config().active_publish_rate_hz);
+        runtime.emit(ReferenceEffectKind::Status);
+        runtime.emitActive();
+        return ::state_machine::adt::Enter{std::move(state)};
+    }
+
+    struct Spec {
+        using State = std::variant<SelfCheck, Ready, Active>;
+        using Time = double;
+
+        static Transition handle(SelfCheck&, const Turn&, ReferenceTrajectoryRuntime& runtime) {
+            // A request accepted during SelfCheck is consumed in the same
+            // owner turn instead of being lost on the initial transition.
+            return runtime.hasPendingReference() ? ReferenceMachine::active(runtime)
+                                                 : ReferenceMachine::ready(runtime);
+        }
+        static Transition handle(Ready& state, const Turn&, ReferenceTrajectoryRuntime& runtime) {
+            if (runtime.hasPendingReference())
+                return ReferenceMachine::active(runtime);
+            if (state.status.due(runtime.currentTime(), runtime.config().status_rate_hz))
+                runtime.emit(ReferenceEffectKind::Status);
+            return ::state_machine::adt::Stay{};
+        }
+        static Transition handle(Active& state, const Turn&, ReferenceTrajectoryRuntime& runtime) {
+            if (runtime.hasPendingReference())
+                return ReferenceMachine::active(runtime);
+            if (runtime.activeExpired(runtime.currentTime()))
+                return ReferenceMachine::ready(runtime);
+            if (state.status.due(runtime.currentTime(), runtime.config().status_rate_hz))
+                runtime.emit(ReferenceEffectKind::Status);
+            if (state.active.due(runtime.currentTime(), runtime.config().active_publish_rate_hz))
+                runtime.emitActive();
+            return ::state_machine::adt::Stay{};
+        }
+    };
+
+   public:
+    ReferenceMachine() : machine_(SelfCheck{}, 0.0) {}
+
+    void update(ReferenceTrajectoryRuntime& runtime) {
+        auto transition = machine_.dispatch(Turn{}, runtime);
+        machine_.apply(std::move(transition), runtime.currentTime());
+    }
+
+    uint8_t state() const {
+        const auto& value = machine_.state();
+        if (std::holds_alternative<SelfCheck>(value))
+            return reference::ReferenceStatus::STATE_SELF_CHECK;
+        if (std::holds_alternative<Ready>(value))
+            return reference::ReferenceStatus::STATE_READY;
+        return reference::ReferenceStatus::STATE_ACTIVE;
+    }
+
+    std::optional<double> nextWake(const ReferenceTrajectoryRuntime& runtime) const {
+        const auto& value = machine_.state();
+        if (std::holds_alternative<SelfCheck>(value) || runtime.hasPendingReference())
+            return runtime.currentTime();
+        if (const auto* ready = std::get_if<Ready>(&value))
+            return ready->status.next(runtime.currentTime(), runtime.config().status_rate_hz);
+        const auto& active = std::get<Active>(value);
+        double next = std::min(active.status.next(runtime.currentTime(), runtime.config().status_rate_hz),
+                               active.active.next(runtime.currentTime(), runtime.config().active_publish_rate_hz));
+        if (const auto expiry = runtime.activeExpiry())
+            next = std::min(next, *expiry);
+        return next;
+    }
+
+   private:
+    ::state_machine::adt::AdtMachine<Spec> machine_;
+};
+
 ReferenceTrajectoryRuntime::ReferenceTrajectoryRuntime() {
+    effects_.reserve(2);
     reset();
 }
+
+ReferenceTrajectoryRuntime::~ReferenceTrajectoryRuntime() = default;
 
 void ReferenceTrajectoryRuntime::setConfig(const ReferenceTrajectoryConfig& config) {
     config_ = config;
@@ -79,197 +184,178 @@ void ReferenceTrajectoryRuntime::setConfig(const ReferenceTrajectoryConfig& conf
 }
 
 void ReferenceTrajectoryRuntime::reset() {
-    state_ = reference::ReferenceStatus::STATE_SELF_CHECK;
     current_time_sec_ = 0.0;
     flags_ = 0U;
-    pending_kind_ = PendingKind::kNone;
-    active_type_ = trajectory::TrajectoryModelType::kNone;
-    active_trajectory_id_ = 0U;
-    active_revision_ = 0U;
-    active_start_sec_ = 0.0;
-    active_duration_ = 0.0;
-    active_evaluator_.reset();
-    active_analytic_ = reference::AnalyticReference{};
-    active_sampled_ = reference::SampledReference{};
-    setupMachine();
-}
-
-sm::Status ReferenceTrajectoryRuntime::postEvent(sm::Event event) {
-    event.category = sm::EventCategory::kInput;
-    return machine_->postEvent(std::move(event));
+    pending_ = std::monostate{};
+    active_ = std::monostate{};
+    effects_.clear();
+    machine_ = std::make_unique<ReferenceMachine>();
 }
 
 void ReferenceTrajectoryRuntime::update(double now_sec) {
     current_time_sec_ = now_sec;
-    const auto transition_result = machine_->update({64, 64, false});
-    const auto tick_result =
-        transition_result.status.ok() ? machine_->update({64, 64, true}) : transition_result;
-    if (!tick_result.status.ok()) {
-        flags_ |= trajectory::kFlagInvalidInput;
-        state_ = reference::ReferenceStatus::STATE_SELF_CHECK;
-    }
+    effects_.clear();
+    machine_->update(*this);
 }
 
-bool ReferenceTrajectoryRuntime::acceptAnalytic(const reference::AnalyticReference& msg) {
+std::optional<double> ReferenceTrajectoryRuntime::nextWake() const {
+    return machine_->nextWake(*this);
+}
+
+uint8_t ReferenceTrajectoryRuntime::currentState() const {
+    return machine_->state();
+}
+
+void ReferenceTrajectoryRuntime::emit(ReferenceEffectKind kind) {
+    effects_.push_back({kind, current_time_sec_});
+}
+
+void ReferenceTrajectoryRuntime::emitActive() {
+    if (activeType() == trajectory::TrajectoryModelType::kAnalytic)
+        emit(ReferenceEffectKind::ActiveAnalytic);
+    else if (activeType() == trajectory::TrajectoryModelType::kSampled)
+        emit(ReferenceEffectKind::ActiveSampled);
+}
+
+bool ReferenceTrajectoryRuntime::acceptAnalytic(const reference::AnalyticReference& msg,
+                                                double receipt_sec) {
     uint32_t flags = 0U;
     auto evaluator = buildAnalyticEvaluator(msg, flags);
     if (!evaluator) {
         flags_ |= flags;
         return false;
     }
-    pending_analytic_ = msg;
-    pending_analytic_.start_time =
-        Time(adjustedStartTime(msg.start_time.toSec(), current_time_sec_, config_.min_lead_time));
-    pending_kind_ = PendingKind::kAnalytic;
+    auto adjusted = msg;
+    adjusted.start_time =
+        Time(adjustedStartTime(msg.start_time.toSec(), receipt_sec, config_.min_lead_time));
+    pending_ = AnalyticReference{std::move(adjusted), std::move(evaluator), flags};
     return true;
 }
 
-bool ReferenceTrajectoryRuntime::acceptSampled(const reference::SampledReference& msg) {
-    trajectory::SampledEvaluator3 evaluator;
+bool ReferenceTrajectoryRuntime::acceptSampled(const reference::SampledReference& msg,
+                                               double receipt_sec) {
+    auto evaluator = std::make_unique<trajectory::SampledEvaluator3>();
     uint32_t flags = 0U;
-    if (!buildSampledEvaluator(msg, evaluator, flags)) {
+    if (!buildSampledEvaluator(msg, *evaluator, flags)) {
         flags_ |= flags;
         return false;
     }
-    pending_sampled_ = msg;
-    pending_sampled_.start_time =
-        Time(adjustedStartTime(msg.start_time.toSec(), current_time_sec_, config_.min_lead_time));
-    pending_kind_ = PendingKind::kSampled;
+    auto adjusted = msg;
+    adjusted.start_time =
+        Time(adjustedStartTime(msg.start_time.toSec(), receipt_sec, config_.min_lead_time));
+    pending_ = SampledReference{std::move(adjusted), std::move(evaluator), flags};
     return true;
 }
 
 bool ReferenceTrajectoryRuntime::activatePending() {
-    if (pending_kind_ == PendingKind::kNone) {
-        return active_evaluator_ != nullptr;
+    if (std::holds_alternative<std::monostate>(pending_)) {
+        return evaluator() != nullptr;
     }
-    if (pending_kind_ == PendingKind::kAnalytic) {
-        uint32_t flags = 0U;
-        auto evaluator = buildAnalyticEvaluator(pending_analytic_, flags);
-        if (!evaluator) {
-            flags_ |= flags;
-            pending_kind_ = PendingKind::kNone;
-            return false;
-        }
-        setActiveAnalytic(pending_analytic_, std::move(evaluator), flags);
-        pending_kind_ = PendingKind::kNone;
-        return true;
-    }
-    if (pending_kind_ == PendingKind::kSampled) {
-        auto evaluator = std::make_unique<trajectory::SampledEvaluator3>();
-        uint32_t flags = 0U;
-        if (!buildSampledEvaluator(pending_sampled_, *evaluator, flags)) {
-            flags_ |= flags;
-            pending_kind_ = PendingKind::kNone;
-            return false;
-        }
-        setActiveSampled(pending_sampled_, std::move(evaluator), flags);
-        pending_kind_ = PendingKind::kNone;
-        return true;
-    }
-    return false;
+    if (const auto* analytic = std::get_if<AnalyticReference>(&pending_))
+        flags_ = analytic->flags;
+    else
+        flags_ = std::get<SampledReference>(pending_).flags;
+    active_ = std::move(pending_);
+    pending_ = std::monostate{};
+    return true;
 }
 
 bool ReferenceTrajectoryRuntime::activeExpired(double now_sec) const {
-    if (!active_evaluator_) {
+    const auto* active_evaluator = evaluator();
+    if (!active_evaluator) {
         return true;
     }
-    if (active_duration_ <= 0.0) {
+    const double duration = active_evaluator->duration();
+    if (duration <= 0.0) {
         return false;
     }
-    return now_sec > active_start_sec_ + active_duration_ + config_.trajectory_timeout;
+    const auto* analytic = std::get_if<AnalyticReference>(&active_);
+    const double start = analytic ? analytic->message.start_time.toSec()
+                                  : std::get<SampledReference>(active_).message.start_time.toSec();
+    return now_sec > start + duration + config_.trajectory_timeout;
 }
 
 bool ReferenceTrajectoryRuntime::hasPendingReference() const {
-    return pending_kind_ != PendingKind::kNone;
+    return !std::holds_alternative<std::monostate>(pending_);
 }
 
-void ReferenceTrajectoryRuntime::enterState(uint8_t state) {
-    state_ = state;
+std::optional<double> ReferenceTrajectoryRuntime::activeExpiry() const {
+    const auto* active_evaluator = evaluator();
+    if (!active_evaluator)
+        return current_time_sec_;
+    const double duration = active_evaluator->duration();
+    if (duration <= 0.0)
+        return std::nullopt;
+    const auto* analytic = std::get_if<AnalyticReference>(&active_);
+    const double start = analytic ? analytic->message.start_time.toSec()
+                                  : std::get<SampledReference>(active_).message.start_time.toSec();
+    return std::nextafter(start + duration + config_.trajectory_timeout,
+                          std::numeric_limits<double>::infinity());
+}
+
+trajectory::TrajectoryModelType ReferenceTrajectoryRuntime::activeType() const {
+    if (std::holds_alternative<AnalyticReference>(active_)) {
+        return trajectory::TrajectoryModelType::kAnalytic;
+    }
+    if (std::holds_alternative<SampledReference>(active_)) {
+        return trajectory::TrajectoryModelType::kSampled;
+    }
+    return trajectory::TrajectoryModelType::kNone;
+}
+
+uint32_t ReferenceTrajectoryRuntime::activeTrajectoryId() const {
+    if (const auto* analytic = std::get_if<AnalyticReference>(&active_)) {
+        return analytic->message.trajectory_id;
+    }
+    if (const auto* sampled = std::get_if<SampledReference>(&active_)) {
+        return sampled->message.trajectory_id;
+    }
+    return 0U;
+}
+
+uint32_t ReferenceTrajectoryRuntime::activeRevision() const {
+    if (const auto* analytic = std::get_if<AnalyticReference>(&active_)) {
+        return analytic->message.revision;
+    }
+    if (const auto* sampled = std::get_if<SampledReference>(&active_)) {
+        return sampled->message.revision;
+    }
+    return 0U;
+}
+
+const reference::AnalyticReference& ReferenceTrajectoryRuntime::activeAnalyticMessage() const {
+    return std::get<AnalyticReference>(active_).message;
+}
+
+const reference::SampledReference& ReferenceTrajectoryRuntime::activeSampledMessage() const {
+    return std::get<SampledReference>(active_).message;
+}
+
+const trajectory::TrajectoryEvaluator3* ReferenceTrajectoryRuntime::evaluator() const {
+    if (const auto* analytic = std::get_if<AnalyticReference>(&active_)) {
+        return analytic->evaluator.get();
+    }
+    if (const auto* sampled = std::get_if<SampledReference>(&active_)) {
+        return sampled->evaluator.get();
+    }
+    return nullptr;
 }
 
 reference::ReferenceStatus ReferenceTrajectoryRuntime::makeStatus(double stamp_sec) const {
     reference::ReferenceStatus status;
     status.header.stamp = Time(stamp_sec);
-    status.state = state_;
+    status.state = currentState();
     status.flags = flags_;
-    status.active_trajectory_id = active_trajectory_id_;
-    status.active_revision = active_revision_;
+    status.active_trajectory_id = activeTrajectoryId();
+    status.active_revision = activeRevision();
     status.active_type = reference::ReferenceStatus::TYPE_NONE;
-    if (active_type_ == trajectory::TrajectoryModelType::kAnalytic) {
+    if (activeType() == trajectory::TrajectoryModelType::kAnalytic) {
         status.active_type = reference::ReferenceStatus::TYPE_ANALYTIC;
 
-    } else if (active_type_ == trajectory::TrajectoryModelType::kSampled) {
+    } else if (activeType() == trajectory::TrajectoryModelType::kSampled) {
         status.active_type = reference::ReferenceStatus::TYPE_SAMPLED;
     }
     return status;
-}
-
-void ReferenceTrajectoryRuntime::setupMachine() {
-    auto builder = sm::StateMachine::builder("ReferenceTrajectoryStateMachine");
-    builder.region(region_type::REFERENCE)
-        .name("reference")
-        .order(0)
-        .initial(state_type::SelfCheck)
-        .state(state_type::SelfCheck)
-        .name("SelfCheck")
-        .impl(std::make_unique<SelfCheckState>(*this))
-        .state(state_type::Ready)
-        .name("Ready")
-        .impl(std::make_unique<ReadyState>(*this))
-        .state(state_type::Active)
-        .name("Active")
-        .impl(std::make_unique<ActiveState>(*this))
-        .endRegion();
-
-    builder.transition()
-        .from(state_type::SelfCheck)
-        .to(state_type::Ready)
-        .on(event_type::CONFIG_READY)
-        .priority(transition_priority::AUTOMATIC);
-    builder.transition()
-        .from(state_type::Ready)
-        .to(state_type::Active)
-        .on(event_type::ANALYTIC_RECEIVED)
-        .priority(transition_priority::REQUEST);
-    builder.transition()
-        .from(state_type::Ready)
-        .to(state_type::Active)
-        .on(event_type::SAMPLED_RECEIVED)
-        .priority(transition_priority::REQUEST);
-    builder.transition()
-        .from(state_type::Active)
-        .to(state_type::Active)
-        .on(event_type::ANALYTIC_RECEIVED)
-        .priority(transition_priority::REQUEST);
-    builder.transition()
-        .from(state_type::Active)
-        .to(state_type::Active)
-        .on(event_type::SAMPLED_RECEIVED)
-        .priority(transition_priority::REQUEST);
-    builder.transition()
-        .from(state_type::Active)
-        .to(state_type::SelfCheck)
-        .on(event_type::PLAN_FAILED)
-        .priority(transition_priority::AUTOMATIC);
-    builder.transition()
-        .from(state_type::Active)
-        .to(state_type::Ready)
-        .on(event_type::TRAJECTORY_EXPIRED)
-        .priority(transition_priority::AUTOMATIC);
-    builder.transition()
-        .from(state_type::Ready)
-        .to(state_type::SelfCheck)
-        .on(event_type::RESET_REQUESTED)
-        .priority(transition_priority::REQUEST);
-    builder.transition()
-        .from(state_type::Active)
-        .to(state_type::SelfCheck)
-        .on(event_type::RESET_REQUESTED)
-        .priority(transition_priority::REQUEST);
-    auto machine_result = builder.build();
-    requireOk(machine_result.status, "build reference trajectory state machine");
-    machine_ = std::move(machine_result.value);
-    requireOk(machine_->start(), "start reference trajectory state machine");
 }
 
 std::unique_ptr<trajectory::TrajectoryEvaluator3>
@@ -467,32 +553,6 @@ bool ReferenceTrajectoryRuntime::buildSampledEvaluator(const reference::SampledR
     flags |= trajectory::TrajectoryValidator3::validate(evaluator, config_.limits,
                                                         config_.validation_sample_dt);
     return (flags & (trajectory::kFlagInvalidInput | trajectory::kFlagNonFinite)) == 0U;
-}
-
-void ReferenceTrajectoryRuntime::setActiveAnalytic(
-    const reference::AnalyticReference& msg,
-    std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator, uint32_t flags) {
-    active_type_ = trajectory::TrajectoryModelType::kAnalytic;
-    active_trajectory_id_ = msg.trajectory_id;
-    active_revision_ = msg.revision;
-    active_start_sec_ = msg.start_time.toSec();
-    active_duration_ = evaluator ? evaluator->duration() : 0.0;
-    active_evaluator_ = std::move(evaluator);
-    active_analytic_ = msg;
-    flags_ = flags;
-}
-
-void ReferenceTrajectoryRuntime::setActiveSampled(
-    const reference::SampledReference& msg,
-    std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator, uint32_t flags) {
-    active_type_ = trajectory::TrajectoryModelType::kSampled;
-    active_trajectory_id_ = msg.trajectory_id;
-    active_revision_ = msg.revision;
-    active_start_sec_ = msg.start_time.toSec();
-    active_duration_ = evaluator ? evaluator->duration() : 0.0;
-    active_evaluator_ = std::move(evaluator);
-    active_sampled_ = msg;
-    flags_ = flags;
 }
 
 }  // namespace multirotor_reference_trajectory

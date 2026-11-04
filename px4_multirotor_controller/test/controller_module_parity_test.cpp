@@ -21,7 +21,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
-#include <module_support/test_host.hpp>
+#include <xgc2/sdk/test_host.hpp>
 #include <set>
 #include <string>
 #include <vector>
@@ -36,8 +36,8 @@ namespace {
 
 using controller_replay::OutputEvent;
 using controller_replay::Record;
-using module_support::ModuleLibrary;
-using module_support::TestHost;
+using xgc2::sdk::test::ModuleLibrary;
+using xgc2::sdk::test::TestHost;
 namespace pmc = px4_multirotor_controller;
 namespace conv = px4_multirotor_controller::module;
 namespace edge = ros_payload_mapping;
@@ -253,7 +253,7 @@ void replay(const std::vector<Record>& records, const std::string& module_config
             const pmc::ControllerConfig& oracle_config, Totals& totals) {
     ASSERT_FALSE(records.empty());
     ModuleLibrary library(CONTROLLER_MODULE_PATH);
-    TestHost host(library.desc());
+    TestHost host(library.desc(), xgc2::sdk::test::Threading::kHomeWorker);
     const uint64_t t0_ns = records.front().t_ns / kTickNs * kTickNs;
     const uint64_t t_end_ns = records.back().t_ns + 500000000ULL;
     host.setNow(static_cast<int64_t>(t0_ns));

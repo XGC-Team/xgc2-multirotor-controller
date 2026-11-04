@@ -2,15 +2,24 @@
 
 #include <cstdint>
 #include <memory>
-#include <state_machine/state_machine.hpp>
+#include <optional>
+#include <variant>
+#include <vector>
 #include <xgc2_math/trajectory.hpp>
 
 #include "multirotor_reference_trajectory/reference_types.h"
-#include "multirotor_reference_trajectory/state_machine/event_types.h"
 
 namespace multirotor_reference_trajectory {
 
 namespace trajectory = xgc2_math::trajectory;
+
+class ReferenceMachine;
+
+enum class ReferenceEffectKind { Status, ActiveAnalytic, ActiveSampled };
+struct ReferenceEffect {
+    ReferenceEffectKind kind;
+    double timestamp;
+};
 
 struct ReferenceTrajectoryConfig {
     double status_rate_hz{10.0};
@@ -23,90 +32,72 @@ struct ReferenceTrajectoryConfig {
 class ReferenceTrajectoryRuntime {
    public:
     ReferenceTrajectoryRuntime();
+    ~ReferenceTrajectoryRuntime();
     ReferenceTrajectoryRuntime(const ReferenceTrajectoryRuntime&) = delete;
     ReferenceTrajectoryRuntime& operator=(const ReferenceTrajectoryRuntime&) = delete;
 
     void setConfig(const ReferenceTrajectoryConfig& config);
     void reset();
-    ::state_machine::Status postEvent(::state_machine::Event event);
     void update(double now_sec);
+    std::optional<double> nextWake() const;
+    const std::vector<ReferenceEffect>& effects() const { return effects_; }
 
-    bool acceptAnalytic(const reference::AnalyticReference& msg);
-    bool acceptSampled(const reference::SampledReference& msg);
+    bool acceptAnalytic(const reference::AnalyticReference& msg, double receipt_sec);
+    bool acceptSampled(const reference::SampledReference& msg, double receipt_sec);
 
-    bool activatePending();
     bool activeExpired(double now_sec) const;
     bool hasPendingReference() const;
 
-    void enterState(uint8_t state);
-    uint8_t currentState() const {
-        return state_;
-    }
+    uint8_t currentState() const;
     double currentTime() const {
         return current_time_sec_;
     }
     const ReferenceTrajectoryConfig& config() const {
         return config_;
     }
-    trajectory::TrajectoryModelType activeType() const {
-        return active_type_;
-    }
-    uint32_t activeTrajectoryId() const {
-        return active_trajectory_id_;
-    }
-    uint32_t activeRevision() const {
-        return active_revision_;
-    }
+    trajectory::TrajectoryModelType activeType() const;
+    uint32_t activeTrajectoryId() const;
+    uint32_t activeRevision() const;
     uint32_t flags() const {
         return flags_;
     }
 
-    const reference::AnalyticReference& activeAnalyticMessage() const {
-        return active_analytic_;
-    }
-    const reference::SampledReference& activeSampledMessage() const {
-        return active_sampled_;
-    }
+    const reference::AnalyticReference& activeAnalyticMessage() const;
+    const reference::SampledReference& activeSampledMessage() const;
     reference::ReferenceStatus makeStatus(double stamp_sec) const;
-    const trajectory::TrajectoryEvaluator3* evaluator() const {
-        return active_evaluator_.get();
-    }
-    ::state_machine::StateMachine& stateMachine() {
-        return *machine_;
-    }
-
+    const trajectory::TrajectoryEvaluator3* evaluator() const;
    private:
-    enum class PendingKind { kNone, kAnalytic, kSampled };
+    friend class ReferenceMachine;
 
-    void setupMachine();
+    struct AnalyticReference {
+        reference::AnalyticReference message;
+        std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator;
+        uint32_t flags;
+    };
+    struct SampledReference {
+        reference::SampledReference message;
+        std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator;
+        uint32_t flags;
+    };
+
+    using Reference = std::variant<std::monostate, AnalyticReference, SampledReference>;
+    bool activatePending();
+    void emit(ReferenceEffectKind kind);
+    void emitActive();
+    std::optional<double> activeExpiry() const;
     std::unique_ptr<trajectory::TrajectoryEvaluator3> buildAnalyticEvaluator(
         const reference::AnalyticReference& msg, uint32_t& flags) const;
     bool buildSampledEvaluator(const reference::SampledReference& msg,
                                trajectory::SampledEvaluator3& evaluator, uint32_t& flags) const;
-    void setActiveAnalytic(const reference::AnalyticReference& msg,
-                           std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator,
-                           uint32_t flags);
-    void setActiveSampled(const reference::SampledReference& msg,
-                          std::unique_ptr<trajectory::TrajectoryEvaluator3> evaluator,
-                          uint32_t flags);
-
     ReferenceTrajectoryConfig config_{};
-    std::unique_ptr<::state_machine::StateMachine> machine_;
-    uint8_t state_{reference::ReferenceStatus::STATE_SELF_CHECK};
+    std::unique_ptr<ReferenceMachine> machine_;
     double current_time_sec_{0.0};
     uint32_t flags_{0U};
 
-    PendingKind pending_kind_{PendingKind::kNone};
-    reference::AnalyticReference pending_analytic_;
-    reference::SampledReference pending_sampled_;
-    trajectory::TrajectoryModelType active_type_{trajectory::TrajectoryModelType::kNone};
-    uint32_t active_trajectory_id_{0U};
-    uint32_t active_revision_{0U};
-    double active_start_sec_{0.0};
-    double active_duration_{0.0};
-    std::unique_ptr<trajectory::TrajectoryEvaluator3> active_evaluator_;
-    reference::AnalyticReference active_analytic_;
-    reference::SampledReference active_sampled_;
+    Reference pending_;
+    // The last reference remains visible in status after Active expires to Ready.
+    Reference active_;
+    std::vector<ReferenceEffect> effects_;
 };
 
 }  // namespace multirotor_reference_trajectory

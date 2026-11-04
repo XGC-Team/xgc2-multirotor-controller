@@ -61,7 +61,7 @@ required_files=(
   multirotor_reference_trajectory/module/reference_module.cpp
   px4_multirotor_controller/include/px4_multirotor_controller/payloads.h
   px4_multirotor_controller/module/controller_module.cpp
-  module_support/include/xgc2/module.h
+  module_support/include/module_support/json_config.hpp
 )
 
 for file in "${required_files[@]}"; do
@@ -124,7 +124,8 @@ if grep -R --exclude='check_package_compliance.sh' --exclude='check_module_packa
   exit 1
 fi
 
-grep -q "xgc2_module_entry" module_support/exports.map
+grep -q 'Xgc2Module_EXPORTS_MAP' multirotor_reference_trajectory/CMakeLists.txt
+grep -q 'Xgc2Module_EXPORTS_MAP' px4_multirotor_controller/CMakeLists.txt
 grep -q "libpx4_multirotor_reference_module.so" .xgc2/product.yml
 grep -q "libpx4_multirotor_controller_module.so" .xgc2/product.yml
 

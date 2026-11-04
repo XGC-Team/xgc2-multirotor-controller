@@ -10,7 +10,7 @@
 #include <fstream>
 #include <memory>
 #include <module_support/json_config.hpp>
-#include <module_support/test_host.hpp>
+#include <xgc2/sdk/test_host.hpp>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -24,8 +24,8 @@
 namespace {
 
 using module_support::JsonConfig;
-using module_support::ModuleLibrary;
-using module_support::TestHost;
+using xgc2::sdk::test::ModuleLibrary;
+using xgc2::sdk::test::TestHost;
 using vehicle_sim::kMs;
 using vehicle_sim::Vehicle;
 namespace pmc = px4_multirotor_controller;
@@ -64,7 +64,7 @@ class ControllerModuleTest : public ::testing::Test {
     }
 
     void open(const std::string& json) {
-        host_ = std::make_unique<TestHost>(library_->desc());
+        host_ = std::make_unique<TestHost>(library_->desc(), xgc2::sdk::test::Threading::kHomeWorker);
         host_->setNow(vehicle_sim::kStart);
         ASSERT_EQ(host_->create(json), XGC2_OK);
         ASSERT_EQ(host_->start(), XGC2_OK);
@@ -234,7 +234,7 @@ TEST_F(ControllerModuleTest, RefusesAnInvalidConfiguration) {
         {"{\"world_boundary_json\": \"{}\"}", "world_boundary_json"},
     };
     for (const Bad& b : bad) {
-        TestHost host(library_->desc());
+        TestHost host(library_->desc(), xgc2::sdk::test::Threading::kHomeWorker);
         EXPECT_EQ(host.create(b.json), XGC2_ERR_INVALID) << b.json;
         EXPECT_EQ(host.instance(), nullptr) << b.json;
         EXPECT_TRUE(host.logged(3, b.message)) << b.json;
@@ -420,7 +420,7 @@ class ControllerChainTest : public ControllerModuleTest {
 
     void openChain(const std::string& backend) {
         open(config(std::string(kFlightConfig) + ", \"tracking_backend\": \"" + backend + "\""));
-        reference_ = std::make_unique<TestHost>(reference_library_->desc());
+        reference_ = std::make_unique<TestHost>(reference_library_->desc(), xgc2::sdk::test::Threading::kHomeWorker);
         reference_->setNow(vehicle_sim::kStart);
         ASSERT_EQ(reference_->create("{}"), XGC2_OK);
         ASSERT_EQ(reference_->start(), XGC2_OK);

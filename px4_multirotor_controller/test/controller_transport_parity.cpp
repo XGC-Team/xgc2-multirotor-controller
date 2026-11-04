@@ -15,7 +15,7 @@
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
 
-#include <module_support/test_host.hpp>
+#include <xgc2/sdk/test_host.hpp>
 #include <string>
 
 #include "px4_multirotor_controller/driver/controller_config.h"
@@ -27,8 +27,8 @@ using namespace px4_multirotor_controller;
 namespace edge = ros_payload_mapping;
 
 TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
-    module_support::ModuleLibrary library(CONTROLLER_MODULE_PATH);
-    module_support::TestHost host(library.desc());
+    xgc2::sdk::test::ModuleLibrary library(CONTROLLER_MODULE_PATH);
+    xgc2::sdk::test::TestHost host(library.desc(), xgc2::sdk::test::Threading::kHomeWorker);
     host.setNow(static_cast<int64_t>(Time(100.0).toNSec()));
     ASSERT_EQ(host.create("{\"world_boundary_json\": \"null\", \"tracking_backend\": \"smc\"}"),
               XGC2_OK);

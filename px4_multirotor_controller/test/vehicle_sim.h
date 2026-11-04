@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
-#include <module_support/test_host.hpp>
+#include <xgc2/sdk/test_host.hpp>
 #include <string>
 #include <vector>
 
@@ -20,7 +20,7 @@
 
 namespace vehicle_sim {
 
-using module_support::TestHost;
+using xgc2::sdk::test::TestHost;
 
 constexpr int64_t kMs = 1000000;
 constexpr int64_t kStart = 100000000000LL;  // 100 s

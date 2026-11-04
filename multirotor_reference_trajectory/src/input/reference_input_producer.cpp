@@ -10,8 +10,9 @@ ReferenceInputProducer::ReferenceInputProducer(ros::NodeHandle& nh,
                                                ReferenceTrajectoryRuntime& runtime,
                                                const std::string& analytic_topic,
                                                const std::string& sampled_topic,
-                                               const std::string& reset_topic, uint32_t queue_size)
-    : runtime_(runtime) {
+                                               const std::string& reset_topic, uint32_t queue_size,
+                                               std::function<void()> on_input)
+    : runtime_(runtime), on_input_(std::move(on_input)) {
     analytic_sub_ =
         nh.subscribe(analytic_topic, queue_size, &ReferenceInputProducer::analyticCallback, this);
     sampled_sub_ =
@@ -26,11 +27,11 @@ void ReferenceInputProducer::analyticCallback(
         ROS_ERROR("[ReferenceInputProducer] Null analytic reference");
         return;
     }
-    if (!runtime_.acceptAnalytic(toCore(*msg))) {
+    if (!runtime_.acceptAnalytic(toCore(*msg), ros::Time::now().toSec())) {
         ROS_WARN_THROTTLE(1.0, "[ReferenceInputProducer] Rejected analytic reference");
         return;
     }
-    post(event_type::ANALYTIC_RECEIVED, "analytic_reference");
+    on_input_();
 }
 
 void ReferenceInputProducer::sampledCallback(
@@ -39,28 +40,17 @@ void ReferenceInputProducer::sampledCallback(
         ROS_ERROR("[ReferenceInputProducer] Null sampled reference");
         return;
     }
-    if (!runtime_.acceptSampled(toCore(*msg))) {
+    if (!runtime_.acceptSampled(toCore(*msg), ros::Time::now().toSec())) {
         ROS_WARN_THROTTLE(1.0, "[ReferenceInputProducer] Rejected sampled reference");
         return;
     }
-    post(event_type::SAMPLED_RECEIVED, "sampled_reference");
+    on_input_();
 }
 
 void ReferenceInputProducer::resetCallback(const std_msgs::Empty::ConstPtr& msg) {
     (void)msg;
     runtime_.reset();
-    post(event_type::RESET_REQUESTED, "reset");
-}
-
-void ReferenceInputProducer::post(uint32_t event_id, const char* source) {
-    ::state_machine::Event event(event_id,
-                                 ::state_machine::EventTimestamp{ros::Time::now().toSec()});
-    event.source = source;
-    const auto status = runtime_.postEvent(std::move(event));
-    if (!status.ok()) {
-        ROS_WARN_THROTTLE(1.0, "[ReferenceInputProducer] Failed to post event %u from %s: %s",
-                          event_id, source, status.message.c_str());
-    }
+    on_input_();
 }
 
 }  // namespace multirotor_reference_trajectory

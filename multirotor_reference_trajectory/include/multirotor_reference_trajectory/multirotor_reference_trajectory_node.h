@@ -1,12 +1,12 @@
 #pragma once
 
 #include <ros/ros.h>
+#include <ros/callback_queue_interface.h>
 
 #include <memory>
+#include <optional>
 #include <state_machine/runtime/async_task_executor.hpp>
-#include <state_machine/runtime/event_dispatcher.hpp>
 #include <string>
-#include <vector>
 
 #include "multirotor_reference_trajectory/input/reference_input_producer.h"
 #include "multirotor_reference_trajectory/multirotor_reference_trajectory_runtime.h"
@@ -19,18 +19,25 @@ class ReferenceTrajectoryNode {
     explicit ReferenceTrajectoryNode(ros::NodeHandle& nh);
     ~ReferenceTrajectoryNode();
 
-    void run(double main_frequency_hz);
+    void run();
 
    private:
     void loadParams();
-    void dispatchOutputEvents(const std::vector<::state_machine::Event>& events);
+    void requestTurn();
+    void runTurn();
+    void onDeadline(const ros::TimerEvent&);
+    void armDeadline(double now);
 
     ros::NodeHandle nh_;
     ros::NodeHandle private_nh_;
     ReferenceTrajectoryRuntime runtime_;
     ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> output_executor_;
-    ::state_machine::runtime::EventDispatcher output_dispatcher_;
+    std::unique_ptr<ReferenceOutputConsumer> output_consumer_;
     std::unique_ptr<ReferenceInputProducer> input_producer_;
+    ros::CallbackInterfacePtr turn_callback_;
+    ros::Timer deadline_timer_;
+    std::optional<double> armed_deadline_;
+    bool turn_queued_{false};
 
     uint32_t queue_size_{10U};
     std::string analytic_topic_{"alg/multirotor_reference_trajectory/request/analytic"};
