@@ -151,6 +151,44 @@ TEST_F(PositionDistanceRuntimeTest, UnobservedPairCannotApproveTakeoff) {
     EXPECT_EQ(state(), state_type::TakeoffInit);
 }
 
+class SameTurnCommandTest : public PositionDistanceRuntimeTest,
+                            public ::testing::WithParamInterface<bool> {};
+
+TEST_P(SameTurnCommandTest, LandWinsOverTrackingRegardlessOfArrivalOrder) {
+    start(TrackingBackend::DFBC);
+    enterFlightState(state_type::Hover);
+    auto& machine = controller_->getStateMachine();
+    const uint32_t first = GetParam() ? event_type::LANDING_REQUESTED
+                                      : event_type::TRAJECTORY_TRACKING_REQUESTED;
+    const uint32_t second = GetParam() ? event_type::TRAJECTORY_TRACKING_REQUESTED
+                                       : event_type::LANDING_REQUESTED;
+    ASSERT_TRUE(machine.postEvent(::state_machine::Event(first)).ok());
+    ASSERT_TRUE(machine.postEvent(::state_machine::Event(second)).ok());
+    tick();
+    ASSERT_EQ(state(), state_type::Landing);
+    for (const auto& output : machine.currentOutputEvents()) {
+        EXPECT_NE(output.id, output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(BothArrivalOrders, SameTurnCommandTest, ::testing::Bool());
+
+TEST_F(PositionDistanceRuntimeTest, SameTurnPositionSafetyWinsOverTracking) {
+    start(TrackingBackend::DFBC);
+    enterFlightState(state_type::Hover);
+    sensor_.vrpn_x = 1.01;
+    sensor_.vrpn_pose_stats.is_new = true;
+    auto& machine = controller_->getStateMachine();
+    ASSERT_TRUE(machine.postEvent(
+        ::state_machine::Event(event_type::TRAJECTORY_TRACKING_REQUESTED)).ok());
+    tick();
+    ASSERT_TRUE(controller_->getPositionDistance().exceeded);
+    ASSERT_EQ(state(), state_type::Landing);
+    for (const auto& output : machine.currentOutputEvents()) {
+        EXPECT_NE(output.id, output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION);
+    }
+}
+
 class PositionDistanceFlightTest : public PositionDistanceRuntimeTest,
                                    public ::testing::WithParamInterface<uint32_t> {};
 
