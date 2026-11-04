@@ -14,7 +14,6 @@ namespace px4_multirotor_controller {
 SensorInputProducer::SensorInputProducer(ros::NodeHandle& nh, SensorData& sensor_data,
                                          ros1_utils::PositionQualityStats& vrpn_quality_stats,
                                          SensorStatistics& statistics, uint32_t queue_size,
-                                         EventSink event_sink,
                                          std::function<void()> on_state_message,
                                          ControllerDriver* driver)
     : driver_(driver),
@@ -22,7 +21,6 @@ SensorInputProducer::SensorInputProducer(ros::NodeHandle& nh, SensorData& sensor
       sensor_data_(sensor_data),
       vrpn_quality_stats_(vrpn_quality_stats),
       queue_size_(queue_size),
-      event_sink_(std::move(event_sink)),
       on_state_message_(std::move(on_state_message)),
       statistics_(statistics) {
     statistics_.setQualityOutput(SensorStream::Pose, &vrpn_quality_stats_.effective_frequency_hz);
@@ -172,15 +170,12 @@ void SensorInputProducer::localPosCallback(const geometry_msgs::PoseStamped::Con
         driver_->ingestAltitude(msg->pose.position.z,
                                 msg->header.stamp.isZero() ? now : msg->header.stamp.toSec(), now);
     }
-    postInputEvent(event_type::INPUT_LOCAL_POSITION_UPDATED, "mavros/local_position/pose");
 }
 
 void SensorInputProducer::velocityCallback(const geometry_msgs::TwistStamped::ConstPtr& msg) {
     sensor_data_.local_vx = msg->twist.linear.x;
     sensor_data_.local_vy = msg->twist.linear.y;
     sensor_data_.local_vz = msg->twist.linear.z;
-    postInputEvent(event_type::INPUT_LOCAL_VELOCITY_UPDATED,
-                   "mavros/local_position/velocity_local");
 }
 
 void SensorInputProducer::localPvCallback(const geometry_msgs::PoseStamped::ConstPtr& position,
@@ -205,7 +200,6 @@ void SensorInputProducer::imuCallback(const sensor_msgs::Imu::ConstPtr& msg) {
         input.stamp_sec = msg->header.stamp.isZero() ? now : msg->header.stamp.toSec();
         driver_->ingestBodyImu(input, now);
     }
-    postInputEvent(event_type::INPUT_IMU_UPDATED, "mavros/imu/data");
 }
 
 void SensorInputProducer::targetAttitudeCallback(const mavros_msgs::AttitudeTarget::ConstPtr& msg) {
@@ -247,7 +241,6 @@ void SensorInputProducer::stateEstimateCallback(
     sensor_data_.uav_state_filter_inertial_stamp = msg->filter_inertial_stamp_sec;
     sensor_data_.uav_state_filter_pose_stamp = msg->filter_pose_stamp_sec;
     sensor_data_.uav_state_last_vrpn_pose_stamp = msg->last_vrpn_pose_stamp_sec;
-    postInputEvent(event_type::INPUT_UAV_STATE_ESTIMATE_UPDATED, "alg/state_estimator/state");
 }
 
 void SensorInputProducer::stateCallback(const mavros_msgs::State::ConstPtr& msg) {
@@ -261,12 +254,10 @@ void SensorInputProducer::stateCallback(const mavros_msgs::State::ConstPtr& msg)
     sensor_data_.fcu_manual_input = msg->manual_input;
     sensor_data_.fcu_mode = msg->mode;
     sensor_data_.fcu_system_status = msg->system_status;
-    postInputEvent(event_type::INPUT_FCU_STATE_UPDATED, "mavros/state");
 }
 
 void SensorInputProducer::batteryCallback(const sensor_msgs::BatteryState::ConstPtr& msg) {
     sensor_data_.battery_percentage = msg->percentage;
-    postInputEvent(event_type::INPUT_BATTERY_UPDATED, "mavros/battery");
 }
 
 void SensorInputProducer::vrpnPoseCallback(const geometry_msgs::PoseStamped::ConstPtr& msg) {
@@ -281,25 +272,6 @@ void SensorInputProducer::vrpnPoseCallback(const geometry_msgs::PoseStamped::Con
                                                          sensor_data_.vrpn_z);
     if (vrpn_quality_stats_.frame_is_valid)
         statistics_.markValidFrame(SensorStream::Pose);
-    postInputEvent(event_type::INPUT_VRPN_POSE_UPDATED, "pose");
-}
-
-void SensorInputProducer::postInputEvent(::state_machine::EventId event_id, const char* source) {
-    if (!event_sink_) {
-        ROS_ERROR("[SensorInputProducer] Event sink is not configured");
-        return;
-    }
-
-    ::state_machine::Event event(event_id,
-                                 ::state_machine::EventTimestamp{ros::Time::now().toSec()});
-    event.source = source;
-    const auto status = event_sink_(std::move(event));
-    if (!status.ok()) {
-        ROS_ERROR_THROTTLE(1.0,
-                           "[SensorInputProducer] Failed to post input event %u "
-                           "from %s: %s",
-                           event_id, source, status.message.c_str());
-    }
 }
 
 }  // namespace px4_multirotor_controller

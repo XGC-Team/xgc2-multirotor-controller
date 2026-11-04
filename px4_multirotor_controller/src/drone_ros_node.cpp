@@ -74,7 +74,6 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
 
     sensor_input_producer_ = std::make_unique<SensorInputProducer>(
         nh_, sensor_data_, vrpn_quality_stats_, driver_.statistics(), kRosQueueSize,
-        post_input_event,
         [this] {
             if (px4_service_consumer_) {
                 px4_service_consumer_->initializeClientsIfNeeded();
@@ -96,7 +95,7 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     command_input_producer_ =
         std::make_unique<CommandInputProducer>(nh_, post_input_event, kRosQueueSize);
     trajectory_input_producer_ = std::make_unique<TrajectoryInputProducer>(
-        nh_, controller_, sensor_data_, post_input_event, kRosQueueSize);
+        nh_, controller_, sensor_data_, kRosQueueSize);
 
     output_event_executor_.start();
     sensor_input_producer_->start();

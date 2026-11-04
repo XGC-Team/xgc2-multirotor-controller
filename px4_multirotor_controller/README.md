@@ -72,7 +72,7 @@ A layout never changes; a different layout gets a new schema id.
   of its safety logic and count every message; a state port would merge a burst of two messages within
   one step. The active reference is a state port: only the newest one counts.
 - **Sample stamps.** The stamp the producer gives to `write_commit` is the time the message was
-  received, in the host clock domain; it is the time of the receive statistics and of the input event,
+  received, in the host clock domain; it is the time of the receive statistics and of a command,
   like `ros::Time::now()` in the node's callbacks. The stamp fields inside a payload are the message's
   own header stamp (sec/nsec). The estimator and hover-thrust stamps are compared with the controller's
   clock, so they must be in the host clock domain too.

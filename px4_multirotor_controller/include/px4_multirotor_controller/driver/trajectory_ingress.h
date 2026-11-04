@@ -18,7 +18,7 @@ enum class PlannerSetpointResult {
     kNotUsed,                // the tracking backend takes no planner setpoint
     kRejectedEffectiveTime,  // the backend needs a finite PVA and a header stamp
     kRejectedSmcFrame,       // SMC needs world frame 1 and every P/V/A axis, with FORCE clear
-    kCached,                 // cached as the next trajectory segment: post the input event
+    kCached,                 // cached as the next trajectory segment
 };
 
 // A PositionTarget from a planner (alg/setpoint_raw/local), received at ingress.receipt_time.
@@ -48,7 +48,7 @@ inline PlannerSetpointResult ingestPlannerSetpoint(DroneController& controller,
 }
 
 // A hover thrust estimate. stamp_sec is the message stamp (zero when unstamped, then the receipt
-// time stands in). Returns true when the estimate is usable: post the input event.
+// time stands in). Returns true when the estimate is usable.
 inline bool ingestHoverThrust(SensorData& sensor, double hover_thrust, uint32_t flags,
                               double stamp_sec, double receipt_sec) {
     if (!std::isfinite(hover_thrust) || hover_thrust <= 0.0 || hover_thrust >= 1.0) {

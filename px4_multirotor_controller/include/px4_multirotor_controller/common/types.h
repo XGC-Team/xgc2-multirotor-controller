@@ -232,19 +232,9 @@ constexpr uint32_t LANDING_REQUESTED = 2;
 constexpr uint32_t HOVER_REQUESTED = 3;
 constexpr uint32_t TRAJECTORY_TRACKING_REQUESTED = 6;
 
-constexpr uint32_t INPUT_LOCAL_POSITION_UPDATED = 50;
-constexpr uint32_t INPUT_LOCAL_VELOCITY_UPDATED = 51;
-constexpr uint32_t INPUT_IMU_UPDATED = 52;
-constexpr uint32_t INPUT_FCU_STATE_UPDATED = 53;
-constexpr uint32_t INPUT_BATTERY_UPDATED = 54;
-constexpr uint32_t INPUT_VRPN_POSE_UPDATED = 55;
-constexpr uint32_t INPUT_MPC_TRAJECTORY_UPDATED = 57;
-constexpr uint32_t INPUT_HOVER_THRUST_UPDATED = 58;
-constexpr uint32_t INPUT_REFERENCE_TRAJECTORY_UPDATED = 59;
 constexpr uint32_t INPUT_NMPC_SOLVE_SUCCEEDED = 60;
 constexpr uint32_t INPUT_NMPC_SOLVE_FAILED = 61;
 constexpr uint32_t INPUT_NMPC_SOLVE_TIMED_OUT = 62;
-constexpr uint32_t INPUT_UAV_STATE_ESTIMATE_UPDATED = 63;
 
 // 内部条件事件
 constexpr uint32_t ALTITUDE_REACHED = 10;

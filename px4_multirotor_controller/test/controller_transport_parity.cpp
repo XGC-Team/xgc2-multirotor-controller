@@ -51,14 +51,7 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
     });
     ros_driver.controller().setConfig(readControllerConfig(parameters));
     ros1_utils::PositionQualityStats quality;
-    unsigned callbacks = 0;
-    SensorInputProducer producer(
-        nh, data, quality, ros_driver.statistics(), 20,
-        [&](::state_machine::Event event) {
-            ++callbacks;
-            return ros_driver.controller().getStateMachine().postEvent(std::move(event));
-        },
-        [] {});
+    SensorInputProducer producer(nh, data, quality, ros_driver.statistics(), 20, [] {});
     producer.start();
     ros_driver.start(Time(100.0));
     auto local = nh.advertise<geometry_msgs::PoseStamped>("mavros/local_position/pose", 20);
@@ -83,7 +76,6 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
         ros::Time::setNow(ros::Time(time));
         host.setNow(static_cast<int64_t>(Time(time).toNSec()));
         if (send) {
-            const auto before = callbacks;
             geometry_msgs::PoseStamped p;
             p.header.stamp = ros::Time(time);
             p.pose.orientation.w = 1.0;
@@ -110,11 +102,16 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
             ASSERT_TRUE(host.push("imu", edge::imuSample(i.header.stamp), receipt));
             ASSERT_TRUE(host.push("fcu_state", edge::map(s), receipt));
             const auto delivery_deadline = ros::WallTime::now() + ros::WallDuration(2.0);
-            while (callbacks < before + 5 && ros::WallTime::now() < delivery_deadline) {
+            auto all_received = [&] {
+                return data.local_pos_stats.is_new && data.vrpn_pose_stats.is_new &&
+                       data.local_velocity_stats.is_new && data.imu_stats.is_new &&
+                       data.state_stats.is_new;
+            };
+            while (!all_received() && ros::WallTime::now() < delivery_deadline) {
                 ros::spinOnce();
                 ros::WallDuration(0.002).sleep();
             }
-            EXPECT_EQ(callbacks, before + 5);
+            EXPECT_TRUE(all_received());
             EXPECT_EQ(data.local_pos_stats.last_message_time.toNSec(),
                       static_cast<uint64_t>(host.now()));
         }
@@ -147,11 +144,7 @@ TEST(ControllerTransports, RosLocalPvUsesActualExactTimePairs) {
     config.tracking_backend = TrackingBackend::PVA_SMC;
     driver.controller().setConfig(config);
     ros1_utils::PositionQualityStats quality;
-    unsigned callbacks = 0;
-    SensorInputProducer producer(
-        nh, data, quality, driver.statistics(), 20,
-        [&](::state_machine::Event) { ++callbacks; return ::state_machine::Status{}; },
-        [] {}, &driver);
+    SensorInputProducer producer(nh, data, quality, driver.statistics(), 20, [] {}, &driver);
     producer.start();
     auto local = nh.advertise<geometry_msgs::PoseStamped>("mavros/local_position/pose", 20);
     auto velocity = nh.advertise<geometry_msgs::TwistStamped>(
@@ -174,11 +167,12 @@ TEST(ControllerTransports, RosLocalPvUsesActualExactTimePairs) {
     local.publish(position);
     velocity.publish(speed);
     const auto delivered = ros::WallTime::now() + ros::WallDuration(2.0);
-    while (callbacks < 2 && ros::WallTime::now() < delivered) {
+    while (!(data.local_pos_stats.is_new && data.local_velocity_stats.is_new) &&
+           ros::WallTime::now() < delivered) {
         ros::spinOnce();
         ros::WallDuration(0.002).sleep();
     }
-    ASSERT_EQ(callbacks, 2U);
+    ASSERT_TRUE(data.local_pos_stats.is_new && data.local_velocity_stats.is_new);
     EXPECT_FALSE(data.paired_local_pv.has_value());
     EXPECT_DOUBLE_EQ(data.local_x, 3.0);
     EXPECT_DOUBLE_EQ(data.local_vx, 9.0);

@@ -12,9 +12,9 @@
 namespace px4_multirotor_controller {
 
 TrajectoryInputProducer::TrajectoryInputProducer(ros::NodeHandle& nh, DroneController& controller,
-                                                 SensorData& sensor_data, EventSink event_sink,
+                                                 SensorData& sensor_data,
                                                  uint32_t queue_size)
-    : controller_(controller), sensor_data_(sensor_data), event_sink_(std::move(event_sink)) {
+    : controller_(controller), sensor_data_(sensor_data) {
     alg_setpoint_sub_ = nh.subscribe("alg/setpoint_raw/local", queue_size,
                                      &TrajectoryInputProducer::algSetpointCallback, this);
     active_analytic_sub_ =
@@ -60,7 +60,6 @@ void TrajectoryInputProducer::algSetpointCallback(
                               "PVA and a non-zero header stamp");
             return;
         case PlannerSetpointResult::kCached:
-            postInputEvent(event_type::INPUT_MPC_TRAJECTORY_UPDATED, "alg/setpoint_raw/local");
             return;
     }
 }
@@ -76,8 +75,6 @@ void TrajectoryInputProducer::activeAnalyticCallback(
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active analytic trajectory");
         return;
     }
-    postInputEvent(event_type::INPUT_REFERENCE_TRAJECTORY_UPDATED,
-                   "alg/multirotor_reference_trajectory/active/analytic");
 }
 
 void TrajectoryInputProducer::activeSampledCallback(
@@ -91,38 +88,14 @@ void TrajectoryInputProducer::activeSampledCallback(
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active sampled trajectory");
         return;
     }
-    postInputEvent(event_type::INPUT_REFERENCE_TRAJECTORY_UPDATED,
-                   "alg/multirotor_reference_trajectory/active/sampled");
 }
 
 void TrajectoryInputProducer::hoverThrustCallback(
     const hover_thrust_estimator_msgs::HoverThrustEstimate::ConstPtr& msg) {
     // No message is an unusable estimate, like one that is out of range.
-    const bool usable = ingestHoverThrust(
+    ingestHoverThrust(
         sensor_data_, msg ? msg->hover_thrust : std::nan(""), msg ? msg->flags : 0U,
         msg ? msg->header.stamp.toSec() : 0.0, ros::Time::now().toSec());
-    if (usable) {
-        postInputEvent(event_type::INPUT_HOVER_THRUST_UPDATED, "hover_thrust/estimate_state");
-    }
-}
-
-void TrajectoryInputProducer::postInputEvent(::state_machine::EventId event_id,
-                                             const char* source) {
-    if (!event_sink_) {
-        ROS_ERROR("[TrajectoryInputProducer] Event sink is not configured");
-        return;
-    }
-
-    ::state_machine::Event event(event_id,
-                                 ::state_machine::EventTimestamp{ros::Time::now().toSec()});
-    event.source = source;
-    const auto status = event_sink_(std::move(event));
-    if (!status.ok()) {
-        ROS_ERROR_THROTTLE(1.0,
-                           "[TrajectoryInputProducer] Failed to post input event "
-                           "%u from %s: %s",
-                           event_id, source, status.message.c_str());
-    }
 }
 
 }  // namespace px4_multirotor_controller

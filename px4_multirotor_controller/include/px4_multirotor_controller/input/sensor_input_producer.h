@@ -16,7 +16,6 @@
 
 #include <functional>
 #include <memory>
-#include <state_machine/state_machine.hpp>
 #include <string>
 
 #include "px4_multirotor_controller/driver/sensor_statistics.h"
@@ -27,11 +26,9 @@ class ControllerDriver;
 
 class SensorInputProducer {
    public:
-    using EventSink = std::function<::state_machine::Status(::state_machine::Event)>;
-
     SensorInputProducer(ros::NodeHandle& nh, SensorData& sensor_data,
                         ros1_utils::PositionQualityStats& vrpn_quality_stats,
-                        SensorStatistics& statistics, uint32_t queue_size, EventSink event_sink,
+                        SensorStatistics& statistics, uint32_t queue_size,
                         std::function<void()> on_state_message, ControllerDriver* driver = nullptr);
 
     void setVrpnQualityConfig(const ros1_utils::PositionQualityConfig& config);
@@ -54,14 +51,12 @@ class SensorInputProducer {
     void stateCallback(const mavros_msgs::State::ConstPtr& msg);
     void batteryCallback(const sensor_msgs::BatteryState::ConstPtr& msg);
     void vrpnPoseCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
-    void postInputEvent(::state_machine::EventId event_id, const char* source);
 
     ControllerDriver* driver_{nullptr};
     ros::NodeHandle& nh_;
     SensorData& sensor_data_;
     ros1_utils::PositionQualityStats& vrpn_quality_stats_;
     uint32_t queue_size_{5};
-    EventSink event_sink_;
     std::function<void()> on_state_message_;
     SensorStatistics& statistics_;
     std::vector<ros::Subscriber> subscribers_;

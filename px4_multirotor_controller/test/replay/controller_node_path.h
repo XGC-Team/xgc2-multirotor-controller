@@ -216,8 +216,6 @@ class NodePath {
                 sensor_.uav_state_filter_inertial_stamp = m.filter_inertial_stamp_sec;
                 sensor_.uav_state_filter_pose_stamp = m.filter_pose_stamp_sec;
                 sensor_.uav_state_last_vrpn_pose_stamp = m.last_vrpn_pose_stamp_sec;
-                post(pmc::event_type::INPUT_UAV_STATE_ESTIMATE_UPDATED, now,
-                     "alg/state_estimator/state");
                 break;
             }
             case kLocalPose: {
@@ -229,8 +227,6 @@ class NodePath {
                 sensor_.local_qy = m.pose.orientation.y;
                 sensor_.local_qz = m.pose.orientation.z;
                 sensor_.local_qw = m.pose.orientation.w;
-                post(pmc::event_type::INPUT_LOCAL_POSITION_UPDATED, now,
-                     "mavros/local_position/pose");
                 break;
             }
             case kLocalVelocity: {
@@ -238,12 +234,9 @@ class NodePath {
                 sensor_.local_vx = m.twist.linear.x;
                 sensor_.local_vy = m.twist.linear.y;
                 sensor_.local_vz = m.twist.linear.z;
-                post(pmc::event_type::INPUT_LOCAL_VELOCITY_UPDATED, now,
-                     "mavros/local_position/velocity_local");
                 break;
             }
             case kImu:
-                post(pmc::event_type::INPUT_IMU_UPDATED, now, "mavros/imu/data");
                 break;
             case kFcuState: {
                 const auto m = decode<mavros_msgs::State>(r.data);
@@ -253,13 +246,11 @@ class NodePath {
                 sensor_.fcu_manual_input = m.manual_input;
                 sensor_.fcu_mode = m.mode;
                 sensor_.fcu_system_status = m.system_status;
-                post(pmc::event_type::INPUT_FCU_STATE_UPDATED, now, "mavros/state");
                 break;
             }
             case kBattery: {
                 const auto m = decode<sensor_msgs::BatteryState>(r.data);
                 sensor_.battery_percentage = m.percentage;
-                post(pmc::event_type::INPUT_BATTERY_UPDATED, now, "mavros/battery");
                 break;
             }
             case kVrpnPose: {
@@ -271,7 +262,6 @@ class NodePath {
                 sensor_.vrpn_qy = m.pose.orientation.y;
                 sensor_.vrpn_qz = m.pose.orientation.z;
                 sensor_.vrpn_qw = m.pose.orientation.w;
-                post(pmc::event_type::INPUT_VRPN_POSE_UPDATED, now, "pose");
                 break;
             }
             case kCommand: {
@@ -306,7 +296,6 @@ class NodePath {
                     !traj.is_valid)
                     break;
                 pmc::cacheTrajectorySample(controller_.mpcTrajectoryBuffer(), traj, receipt, cfg);
-                post(pmc::event_type::INPUT_MPC_TRAJECTORY_UPDATED, now, "alg/setpoint_raw/local");
                 break;
             }
             case kHoverThrust: {  // TrajectoryInputProducer::hoverThrustCallback
@@ -322,31 +311,23 @@ class NodePath {
                     (m.header.stamp.isZero() ? receipt.toSec() : m.header.stamp.toSec());
                 sensor_.hover_thrust_estimate_available = true;
                 sensor_.hover_thrust_estimate_flags = m.flags;
-                post(pmc::event_type::INPUT_HOVER_THRUST_UPDATED, now,
-                     "hover_thrust/estimate_state");
                 break;
             }
             case kActiveAnalytic:
             case kActiveSampled: {  // TrajectoryInputProducer::active{Analytic,Sampled}Callback
                 auto& cache = controller_.activeTrajectoryCache();
-                bool accepted = false;
-                const char* source = "";
                 if (r.kind == kActiveAnalytic) {
-                    accepted = cache.updateAnalytic(
+                    cache.updateAnalytic(
                         pmc::toCoreReference(
                             decode<multirotor_reference_trajectory_msgs::AnalyticReference>(
                                 r.data)),
                         receipt);
-                    source = "alg/multirotor_reference_trajectory/active/analytic";
                 } else {
-                    accepted = cache.updateSampled(
+                    cache.updateSampled(
                         pmc::toCoreReference(
                             decode<multirotor_reference_trajectory_msgs::SampledReference>(r.data)),
                         receipt);
-                    source = "alg/multirotor_reference_trajectory/active/sampled";
                 }
-                if (accepted)
-                    post(pmc::event_type::INPUT_REFERENCE_TRAJECTORY_UPDATED, now, source);
                 break;
             }
             default:

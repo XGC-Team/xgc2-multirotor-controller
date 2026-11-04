@@ -2,7 +2,7 @@
 //
 // Drives DroneController + its state machine from a recorded input stream (bag_to_stream.py) with
 // explicit time, exactly as DroneRosNode does at run time (controller_node_path.h): each message
-// fills SensorData the way the input producers do and posts the same input event; topic stats
+// fills SensorData the way the input producers do; topic stats
 // follow ros1_utils::TopicStatsManager (is_active/is_new on arrival, a 0.1 s timer with the 2.5 s
 // timeout); the control loop ticks at 1 kHz (main.cpp). Every output event and the setpoint
 // snapshots the ROS consumers publish are written bit-exact (doubles as hex bits), so two builds of
