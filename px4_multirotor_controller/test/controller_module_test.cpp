@@ -376,6 +376,42 @@ TEST_F(ControllerModuleTest, PvaSmcUsesOnlyAnExplicitCompleteLocalPair) {
     EXPECT_FALSE(vehicle_->failed);
 }
 
+TEST_F(ControllerModuleTest, PvaSmcLiftsAtControlTimeEvenWithPx4LocalZohConfigured) {
+    open(config(std::string(kFlightConfig) +
+                ", \"tracking_backend\": \"pva_smc\", \"px4_local_lift\": \"zero_order_hold\", "
+                "\"smc\": {\"k1\": 0.4, \"k2\": 0.4, \"boundary_layer\": 0.15}"));
+    ASSERT_TRUE(reach("Ready", 3.0));
+    xgc2_px4_command_v1 command{};
+    std::strcpy(command.text, "takeoff");
+    ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
+    ASSERT_TRUE(reach("Hover", 20.0)) << vehicle_->state();
+    std::strcpy(command.text, "custom1");
+    ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
+    ASSERT_TRUE(reach("Custom1", 3.0)) << vehicle_->state();
+
+    xgc2_px4_local_pv_v1 pair{};
+    pair.position[2] = 1.5;
+    ASSERT_TRUE(host_->push("local_pv", pair, vehicle_->now()));
+    vehicle_->run(0.001);
+    xgc2_px4_position_target_v1 reference{};
+    reference.coordinate_frame = 1;
+    reference.type_mask = pmc::kDefaultPvaLocalTypeMask;
+    reference.position[0] = 1.0;
+    reference.position[2] = 1.5;
+    reference.velocity[0] = 0.4;
+    reference.acceleration[0] = 0.3;
+    reference.stamp_sec = static_cast<uint32_t>(vehicle_->now() / 1000000000LL);
+    reference.stamp_nsec = static_cast<uint32_t>(vehicle_->now() % 1000000000LL);
+    ASSERT_TRUE(host_->push("alg_setpoint", reference, vehicle_->now()));
+    const auto before = vehicle_->setpoints;
+    vehicle_->run(0.001);
+    ASSERT_EQ(vehicle_->setpoints, before + 1);
+    EXPECT_NEAR(vehicle_->last_setpoint.position[0], 1.00040015, 1e-12);
+    EXPECT_NEAR(vehicle_->last_setpoint.velocity[0], 0.4003, 1e-12);
+    EXPECT_NEAR(vehicle_->last_setpoint.acceleration[0], 0.7, 1e-12);
+    EXPECT_EQ(vehicle_->last_setpoint.type_mask, pmc::kDefaultPvaLocalTypeMask);
+}
+
 TEST_F(ControllerModuleTest, CommandsAreMappedAsTheRosNodeMapsThem) {
     open(config(kFlightConfig));
     ASSERT_TRUE(reach("Ready", 3.0));

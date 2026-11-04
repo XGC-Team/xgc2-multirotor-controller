@@ -125,10 +125,7 @@ void Custom1State::handlePvaSmcMode(::state_machine::StateContext& ctx, double c
     const auto& paired = controller_.getSensorData().paired_local_pv;
     if (!reference.is_valid || !paired || (!frame_switched && !shouldPublish(current_time)))
         return;
-    const Time lift_time = config.px4_local_lift == Px4LocalLiftMode::ZeroOrderHold
-                               ? reference.planning_time
-                               : now;
-    const Setpoint lifted = liftWorldLocal(reference, lift_time, config.local_type_mask,
+    const Setpoint lifted = liftWorldLocal(reference, now, config.local_type_mask,
                                            config.enable_yaw_control);
     controller_.getSetpoint() = pvaSmcSetpoint(lifted, *paired, config);
     ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
