@@ -154,6 +154,37 @@ TEST(ReferenceTrajectoryRuntime, ExpiredReferenceIdentityRemainsUntilReset) {
     EXPECT_EQ(reset.active_revision, 0U);
 }
 
+TEST(ReferenceTrajectoryRuntime, ReceiptLeadFutureStartAndStrictExpiry) {
+    namespace mrt = multirotor_reference_trajectory;
+    mrt::ReferenceTrajectoryRuntime runtime;
+    mrt::ReferenceTrajectoryConfig config;
+    config.min_lead_time = 0.2;
+    config.trajectory_timeout = 0.5;
+    runtime.setConfig(config);
+    runtime.update(100.0);
+    auto message = makeAnalyticCurveReference(
+        multirotor_reference_trajectory_msgs::AnalyticReference::ANALYTIC_LINE);
+    message.duration = 2.0;
+    message.start_time = ros::Time(100.05);
+    ASSERT_TRUE(runtime.acceptAnalytic(mrt::toCore(message), 100.01));
+    runtime.update(100.01);
+    EXPECT_NEAR(runtime.activeAnalyticMessage().start_time.toSec(), 100.21, 1e-9);
+
+    message.start_time = ros::Time(105.0);
+    message.trajectory_id += 1;
+    ASSERT_TRUE(runtime.acceptAnalytic(mrt::toCore(message), 100.02));
+    runtime.update(100.02);
+    ASSERT_DOUBLE_EQ(runtime.activeAnalyticMessage().start_time.toSec(), 105.0);
+    ASSERT_NE(runtime.evaluator(), nullptr);
+    EXPECT_DOUBLE_EQ(runtime.evaluator()->duration(), 2.0);
+
+    runtime.update(107.5);  // Equal to start + duration + timeout: still active.
+    EXPECT_EQ(runtime.currentState(), mrt::reference::ReferenceStatus::STATE_ACTIVE);
+    runtime.update(107.500001);
+    EXPECT_EQ(runtime.currentState(), mrt::reference::ReferenceStatus::STATE_READY);
+    EXPECT_EQ(runtime.activeTrajectoryId(), message.trajectory_id);
+}
+
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

@@ -294,6 +294,34 @@ TEST_F(ReferenceModuleTest, ARequestBeforeTheInitialTurnIsNotLost) {
     ASSERT_EQ(host_->outputs("active_analytic").size(), 1U);
 }
 
+TEST_F(ReferenceModuleTest, ReplacingActiveReferenceKeepsTheStatusPhase) {
+    open();
+    ASSERT_EQ(host_->step(XGC2_STEP_DEADLINE), XGC2_OK);
+    host_->setNow(kT0 + 20000000);
+    auto request = analytic(mrt::reference::AnalyticReference::ANALYTIC_HOLD, {}, 30.0);
+    pushAnalytic(request);
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    const auto status_deadline = host_->pendingDeadline();
+    ASSERT_GT(status_deadline, host_->now());
+    host_->clearOutputs();
+
+    host_->setNow(kT0 + 50000000);
+    request.trajectory_id = 12;
+    pushAnalytic(request);
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    ASSERT_EQ(host_->outputs("active_analytic").size(), 1U);
+    EXPECT_TRUE(host_->outputs("status").empty());
+    EXPECT_EQ(host_->pendingDeadline(), status_deadline);
+
+    host_->clearOutputs();
+    host_->setNow(status_deadline);
+    ASSERT_EQ(host_->step(XGC2_STEP_DEADLINE), XGC2_OK);
+    ASSERT_EQ(host_->outputs("status").size(), 1U);
+    EXPECT_TRUE(host_->outputs("active_analytic").empty());
+    const auto status = host_->outputsAs<xgc2_px4_reference_status_v1>("status");
+    EXPECT_EQ(status.back().active_trajectory_id, 12U);
+}
+
 TEST_F(ReferenceModuleTest, LifecycleAndStepsUseTheSameHomeWorker) {
     // The runtime's state machine accepts updates from one thread only, as guaranteed by sticky
     // per-instance affinity throughout the lifecycle, including stop/start.
@@ -346,6 +374,28 @@ TEST_F(ReferenceModuleTest, SampledRequestIsPublishedWithItsUsedPoints) {
     EXPECT_EQ(head.points[39].position[2], request->points[39].position[2]);
     const auto status = host_->outputsAs<xgc2_px4_reference_status_v1>("status");
     EXPECT_EQ(status.back().active_type, mrt::reference::ReferenceStatus::TYPE_SAMPLED);
+}
+
+TEST_F(ReferenceModuleTest, SampledRequestKeepsReceiptLeadAndAnExplicitFutureStart) {
+    open();
+    ASSERT_EQ(host_->step(XGC2_STEP_DEADLINE), XGC2_OK);
+    host_->setNow(kT0 + 15000000);
+    auto request = sampled(40);
+    ASSERT_TRUE(host_->push("sampled", *request, host_->now()));
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    auto active = host_->outputsAs<xgc2_px4_reference_sampled_v1>("active_sampled");
+    ASSERT_FALSE(active.empty());
+    EXPECT_NEAR(active.back().start_sec + 1e-9 * active.back().start_nsec, 1000.215, 1e-9);
+
+    host_->clearOutputs();
+    request->start_sec = 1005;
+    request->start_nsec = 0;
+    ASSERT_TRUE(host_->push("sampled", *request, host_->now()));
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    active = host_->outputsAs<xgc2_px4_reference_sampled_v1>("active_sampled");
+    ASSERT_FALSE(active.empty());
+    EXPECT_EQ(active.back().start_sec, 1005U);
+    EXPECT_EQ(active.back().start_nsec, 0U);
 }
 
 TEST_F(ReferenceModuleTest, RejectedRequestsLeaveTheRuntimeReady) {

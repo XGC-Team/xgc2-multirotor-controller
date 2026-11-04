@@ -109,8 +109,15 @@ class ReferenceMachine {
             return ::state_machine::adt::Stay{};
         }
         static Transition handle(Active& state, const Turn&, ReferenceTrajectoryRuntime& runtime) {
-            if (runtime.hasPendingReference())
-                return ReferenceMachine::active(runtime);
+            if (runtime.hasPendingReference()) {
+                runtime.activatePending();
+                if (state.status.due(runtime.currentTime(), runtime.config().status_rate_hz))
+                    runtime.emit(ReferenceEffectKind::Status);
+                state.active = Gate{};
+                state.active.due(runtime.currentTime(), runtime.config().active_publish_rate_hz);
+                runtime.emitActive();
+                return ::state_machine::adt::Stay{};
+            }
             if (runtime.activeExpired(runtime.currentTime()))
                 return ReferenceMachine::ready(runtime);
             if (state.status.due(runtime.currentTime(), runtime.config().status_rate_hz))
