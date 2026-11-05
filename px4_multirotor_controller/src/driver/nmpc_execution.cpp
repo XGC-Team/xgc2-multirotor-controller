@@ -50,14 +50,20 @@ bool NmpcExecution::handle(const ::state_machine::Event& event) {
         return true;
     }
 
+    bool accepted = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (stop_ || busy_ || has_pending_) {
-            reject(sequence, generation, nmpc_solver_status::kDispatcherBusy);
-            return true;
+        if (!stop_ && !busy_ && !has_pending_) {
+            pending_ = std::move(request);
+            has_pending_ = true;
+            accepted = true;
         }
-        pending_ = std::move(request);
-        has_pending_ = true;
+    }
+    if (!accepted) {
+        // A rejection can wake the owner synchronously. Publish and notify
+        // without holding the handoff mutex so that owner may re-enter it.
+        reject(sequence, generation, nmpc_solver_status::kDispatcherBusy);
+        return true;
     }
     condition_.notify_one();
     return true;

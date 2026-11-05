@@ -287,6 +287,141 @@ TEST(NmpcExecution, WorkerIsIdleWhenItsResultIsNotified) {
     execution.stop();
 }
 
+TEST(NmpcExecution, BusyNotificationCanReenterWorkerOwner) {
+    SensorData data;
+    DroneController controller(data);
+    controller.setConfig(ControllerConfig{});
+    reference::AnalyticReference ref;
+    ref.start_time = ref.header.stamp = Time(100.0);
+    ref.duration = 60.0;
+    ref.analytic_type = reference::AnalyticReference::ANALYTIC_HOLD;
+    ref.origin.position.z = 1.0;
+    ref.origin.orientation.w = 1.0;
+    ASSERT_TRUE(controller.activeTrajectoryCache().updateAnalytic(ref, Time(100.0)));
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool entered = false;
+    bool release = false;
+    std::atomic<unsigned> notifications{0};
+    NmpcExecution* owner = nullptr;
+    NmpcExecution execution(controller, [] { return Time(100.01); },
+        [&] {
+            owner->start();  // valid re-entry; an already running worker is left untouched
+            ++notifications;
+        },
+        [&](const NmpcExecution::Request&) {
+            std::unique_lock<std::mutex> lock(mutex);
+            entered = true;
+            condition.notify_all();
+            condition.wait(lock, [&] { return release; });
+            NmpcSolveResult result;
+            result.success = true;
+            return result;
+        });
+    owner = &execution;
+    execution.start();
+    controller.nmpcResultBuffer().beginGeneration();
+    auto request = [&] {
+        auto& buffer = controller.nmpcResultBuffer();
+        ::state_machine::Event event(output_event_type::REQUEST_NMPC_SOLVE,
+                                     ::state_machine::EventTimestamp{100.01});
+        event.correlation_id = buffer.reserveRequestSequence();
+        event.payload["control_generation"] = static_cast<int64_t>(buffer.activeGeneration());
+        return event;
+    };
+    ASSERT_TRUE(execution.handle(request()));
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        ASSERT_TRUE(condition.wait_for(lock, std::chrono::seconds(2), [&] { return entered; }));
+    }
+    ASSERT_TRUE(execution.handle(request()));  // busy rejection notifies synchronously
+    EXPECT_EQ(notifications.load(), 1U);
+    NmpcSolveResult result;
+    ASSERT_TRUE(controller.nmpcResultBuffer().consumeNewerThan(0, result));
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.solver_status, nmpc_solver_status::kDispatcherBusy);
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        release = true;
+    }
+    condition.notify_all();
+    execution.stop();
+}
+
+TEST(NmpcExecution, StopInvalidatesWhileBusyRejectionIsPreparing) {
+    SensorData data;
+    DroneController controller(data);
+    controller.setConfig(ControllerConfig{});
+    reference::AnalyticReference ref;
+    ref.start_time = ref.header.stamp = Time(100.0);
+    ref.duration = 60.0;
+    ref.analytic_type = reference::AnalyticReference::ANALYTIC_HOLD;
+    ref.origin.position.z = 1.0;
+    ref.origin.orientation.w = 1.0;
+    ASSERT_TRUE(controller.activeTrajectoryCache().updateAnalytic(ref, Time(100.0)));
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool solving = false, release_solve = false, rejecting = false, release_rejection = false;
+    std::atomic<unsigned> notifications{0};
+    NmpcExecution execution(controller,
+        [&] {
+            std::unique_lock<std::mutex> lock(mutex);
+            rejecting = true;
+            condition.notify_all();
+            condition.wait(lock, [&] { return release_rejection; });
+            return Time(100.01);
+        },
+        [&] { ++notifications; },
+        [&](const NmpcExecution::Request&) {
+            std::unique_lock<std::mutex> lock(mutex);
+            solving = true;
+            condition.notify_all();
+            condition.wait(lock, [&] { return release_solve; });
+            NmpcSolveResult result;
+            result.success = true;
+            return result;
+        });
+    execution.start();
+    controller.nmpcResultBuffer().beginGeneration();
+    auto request = [&] {
+        auto& buffer = controller.nmpcResultBuffer();
+        ::state_machine::Event event(output_event_type::REQUEST_NMPC_SOLVE,
+                                     ::state_machine::EventTimestamp{100.01});
+        event.correlation_id = buffer.reserveRequestSequence();
+        event.payload["control_generation"] = static_cast<int64_t>(buffer.activeGeneration());
+        return event;
+    };
+    ASSERT_TRUE(execution.handle(request()));
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        ASSERT_TRUE(condition.wait_for(lock, std::chrono::seconds(2), [&] { return solving; }));
+    }
+    auto rejected = std::async(std::launch::async, [&] { return execution.handle(request()); });
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        ASSERT_TRUE(condition.wait_for(lock, std::chrono::seconds(2), [&] { return rejecting; }));
+    }
+    auto stopped = std::async(std::launch::async, [&] { execution.stop(); });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (controller.nmpcResultBuffer().activeGeneration() != 0 &&
+           std::chrono::steady_clock::now() < deadline)
+        std::this_thread::yield();
+    EXPECT_EQ(controller.nmpcResultBuffer().activeGeneration(), 0U);
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        release_rejection = true;
+        release_solve = true;
+    }
+    condition.notify_all();
+    ASSERT_EQ(rejected.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_TRUE(rejected.get());
+    ASSERT_EQ(stopped.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    stopped.get();
+    EXPECT_EQ(notifications.load(), 0U);
+    NmpcSolveResult result;
+    EXPECT_FALSE(controller.nmpcResultBuffer().consumeNewerThan(0, result));
+}
+
 TEST(NmpcResultFreshness, FutureDuplicateMalformedAndDisabledTimeoutPolicy) {
     NmpcResultBuffer buffer; const auto generation = buffer.beginGeneration();
     NmpcSolveResult result; result.control_generation = generation;
