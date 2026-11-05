@@ -267,8 +267,8 @@ class NodePath {
             case kCommand: {
                 // CommandInputProducer::commandCallback
                 const auto m = decode<std_msgs::String>(r.data);
-                if (const auto event = pmc::commandInputEvent(m.data); event)
-                    post(*event, now, "command");
+                if (const auto command = pmc::parseFlightCommand(m.data); command)
+                    controller_.postCommand(*command, now);
                 break;
             }
             case kAlgSetpoint: {  // TrajectoryInputProducer::algSetpointCallback
@@ -397,12 +397,6 @@ class NodePath {
                     track.stats->is_active = (next_stats_ - track.times.back()) <= 2.5;
             }
         }
-    }
-
-    void post(sm::EventId id, double now, const char* source) {
-        sm::Event event(id, sm::EventTimestamp{now});
-        event.source = source;
-        controller_.getStateMachine().postEvent(std::move(event));
     }
 
     // NmpcExecution::handle + workerLoop, inline: the node's NMPC dispatcher with the solve done at

@@ -368,6 +368,19 @@ void DroneController::update(double current_time) {
     }
 }
 
+::state_machine::Status DroneController::postCommand(FlightCommand command, double receipt_sec) {
+    ::state_machine::EventId id = 0;
+    switch (command) {
+        case FlightCommand::Takeoff: id = event_type::TAKEOFF_REQUESTED; break;
+        case FlightCommand::Land: id = event_type::LANDING_REQUESTED; break;
+        case FlightCommand::Hover: id = event_type::HOVER_REQUESTED; break;
+        case FlightCommand::Track: id = event_type::TRAJECTORY_TRACKING_REQUESTED; break;
+    }
+    ::state_machine::Event event(id, ::state_machine::EventTimestamp{receipt_sec});
+    event.source = "command";
+    return state_machine_->postEvent(std::move(event));
+}
+
 ControllerConfig DroneController::getConfig() const {
     std::lock_guard<std::mutex> lock(config_mutex_);
     return config_;

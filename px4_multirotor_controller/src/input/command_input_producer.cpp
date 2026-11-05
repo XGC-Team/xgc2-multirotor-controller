@@ -9,9 +9,9 @@
 #include "px4_multirotor_controller/driver/command_input.h"
 
 namespace px4_multirotor_controller {
-CommandInputProducer::CommandInputProducer(ros::NodeHandle& nh, EventSink event_sink,
+CommandInputProducer::CommandInputProducer(ros::NodeHandle& nh, CommandSink command_sink,
                                            uint32_t queue_size)
-    : event_sink_(std::move(event_sink)) {
+    : command_sink_(std::move(command_sink)) {
     command_sub_ =
         nh.subscribe("/command", queue_size, &CommandInputProducer::commandCallback, this);
 }
@@ -32,22 +32,18 @@ void CommandInputProducer::commandCallback(const std_msgs::String::ConstPtr& msg
         return;
     }
 
-    const auto event_id = commandInputEvent(msg->data);
-    if (!event_id) {
+    const auto command = parseFlightCommand(msg->data);
+    if (!command) {
         ROS_WARN("[CommandInputProducer] Unknown command: %s", msg->data.c_str());
         return;
     }
 
-    ::state_machine::Event event(*event_id,
-                                 ::state_machine::EventTimestamp{ros::Time::now().toSec()});
-    event.source = "command";
-
-    if (!event_sink_) {
+    if (!command_sink_) {
         ROS_ERROR("[CommandInputProducer] Event sink is not configured");
         return;
     }
 
-    auto status = event_sink_(std::move(event));
+    auto status = command_sink_(*command, ros::Time::now().toSec());
     if (!status.ok()) {
         ROS_ERROR("[CommandInputProducer] Failed to post command event %s: %s", msg->data.c_str(),
                   status.message.c_str());

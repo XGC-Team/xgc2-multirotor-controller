@@ -7,6 +7,7 @@
 #include <state_machine/state_machine.hpp>
 
 #include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/driver/command_input.h"
 #include "px4_multirotor_controller/uav/active_trajectory_cache.h"
 #include "px4_multirotor_controller/uav/mpc_trajectory_buffer.h"
 #include "px4_multirotor_controller/uav/nmpc_result_buffer.h"
@@ -25,6 +26,8 @@ class DroneController {
     // 主更新循环（由ROS节点在每个控制周期调用）
     // current_time: 当前时间戳（秒），用于频率控制
     void update(double current_time);
+
+    ::state_machine::Status postCommand(FlightCommand command, double receipt_sec);
 
     // 数据访问接口（供State对象使用）
     const SensorData& getSensorData() const {

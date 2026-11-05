@@ -412,18 +412,6 @@ class ControllerModule {
         });
     }
 
-    void post(Runtime& rt, sm::EventId id, double receipt_sec, const char* source) {
-        sm::Event event(id, sm::EventTimestamp{receipt_sec});
-        event.source = source;
-        const sm::Status status =
-            rt.driver.controller().getStateMachine().postEvent(std::move(event));
-        if (!status.ok() && (post_failures_++ % 1000) == 0) {
-            log(kLogError, std::string("cannot post input event from ") + source + ": " +
-                               status.message + " (failures: " + std::to_string(post_failures_) +
-                               ")");
-        }
-    }
-
     // One input, as the node's input producer for that topic handles it.
     void apply(Runtime& rt, const Input& input) {
         if (input.view.size != kPorts[input.port].size) {
@@ -526,8 +514,12 @@ class ControllerModule {
             case kCommand: {
                 const auto& m = *static_cast<const xgc2_px4_command_v1*>(data);
                 const std::string text = boundedString(m.text, sizeof m.text);
-                if (const auto event = pmc::commandInputEvent(text); event) {
-                    post(rt, *event, receipt_sec, "command");
+                if (const auto command = pmc::parseFlightCommand(text); command) {
+                    const auto status = rt.driver.controller().postCommand(*command, receipt_sec);
+                    if (!status.ok() && (post_failures_++ % 1000) == 0) {
+                        log(kLogError, "cannot post input event from command: " + status.message +
+                                           " (failures: " + std::to_string(post_failures_) + ")");
+                    }
                 } else {
                     log(kLogWarn, "unknown command: " + text);
                 }

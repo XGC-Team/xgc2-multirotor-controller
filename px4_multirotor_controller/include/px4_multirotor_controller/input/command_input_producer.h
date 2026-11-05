@@ -5,19 +5,20 @@
 
 #include <functional>
 #include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/driver/command_input.h"
 
 namespace px4_multirotor_controller {
 
 class CommandInputProducer {
    public:
-    using EventSink = std::function<::state_machine::Status(::state_machine::Event)>;
+    using CommandSink = std::function<::state_machine::Status(FlightCommand, double)>;
 
-    CommandInputProducer(ros::NodeHandle& nh, EventSink event_sink, uint32_t queue_size);
+    CommandInputProducer(ros::NodeHandle& nh, CommandSink command_sink, uint32_t queue_size);
 
    private:
     void commandCallback(const std_msgs::String::ConstPtr& msg);
 
-    EventSink event_sink_;
+    CommandSink command_sink_;
     ros::Subscriber command_sub_;
 };
 

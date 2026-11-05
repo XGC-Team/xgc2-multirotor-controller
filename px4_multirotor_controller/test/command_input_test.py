@@ -44,17 +44,17 @@ MAIN = r'''
 #include "px4_multirotor_controller/input/command_input_producer.h"
 #include "px4_multirotor_controller/common/types.h"
 int main() {
- ros::NodeHandle node; std::vector<state_machine::Event> events;
- px4_multirotor_controller::CommandInputProducer input(node, [&](state_machine::Event event) {
- events.push_back(event); return state_machine::Status{}; }, 10);
+ using px4_multirotor_controller::FlightCommand;
+ ros::NodeHandle node; std::vector<std::pair<FlightCommand, double>> commands;
+ px4_multirotor_controller::CommandInputProducer input(node, [&](FlightCommand command, double time) {
+ commands.emplace_back(command, time); return state_machine::Status{}; }, 10);
  auto send=[&](const std::string& command) { auto m=std::make_shared<std_msgs::String>(); m->data=command; node.callback(m); };
- using namespace px4_multirotor_controller::event_type;
- send("custom1"); assert(events.back().id==TRAJECTORY_TRACKING_REQUESTED);
- for(auto command:{"land","Land","LAND"}) { send(command); assert(events.back().id==LANDING_REQUESTED); }
- send("hover"); assert(events.back().id==HOVER_REQUESTED);
- send("takeoff"); assert(events.back().id==TAKEOFF_REQUESTED);
- const auto count=events.size(); send("stop"); send("Stop"); send("STOP"); send("unknown"); send(""); node.callback(nullptr); assert(events.size()==count);
- for(const auto& e:events) assert(e.source=="command");
+ for(auto command:{"custom1","Custom1","CUSTOM1","start","Start","START","track","Track","TRACK"}) { send(command); assert(commands.back().first==FlightCommand::Track); }
+ for(auto command:{"land","Land","LAND"}) { send(command); assert(commands.back().first==FlightCommand::Land); }
+ for(auto command:{"hover","Hover","HOVER"}) { send(command); assert(commands.back().first==FlightCommand::Hover); }
+ for(auto command:{"takeoff","Takeoff","TAKEOFF"}) { send(command); assert(commands.back().first==FlightCommand::Takeoff); }
+ const auto count=commands.size(); send("stop"); send("Stop"); send("STOP"); send("unknown"); send("tAkEoFf"); send(""); node.callback(nullptr); assert(commands.size()==count);
+ for(const auto& command:commands) assert(command.second==1.0);
 }
 '''
 with tempfile.TemporaryDirectory(prefix="xgc-command-input-") as directory:

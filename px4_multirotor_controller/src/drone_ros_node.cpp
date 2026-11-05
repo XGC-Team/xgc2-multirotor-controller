@@ -65,8 +65,8 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     output_event_dispatcher_.addConsumer(std::make_unique<ReferenceActivationOutputConsumer>(
         nh_, output_event_executor_, controller_, kRosQueueSize));
 
-    auto post_input_event = [this](::state_machine::Event event) {
-        return controller_.getStateMachine().postEvent(std::move(event));
+    auto post_command = [this](FlightCommand command, double receipt_sec) {
+        return controller_.postCommand(command, receipt_sec);
     };
 
     output_event_dispatcher_.addConsumer(
@@ -93,7 +93,7 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     publishLoadFact(vrpn_pose_topic, state_estimate_topic);
 
     command_input_producer_ =
-        std::make_unique<CommandInputProducer>(nh_, post_input_event, kRosQueueSize);
+        std::make_unique<CommandInputProducer>(nh_, post_command, kRosQueueSize);
     trajectory_input_producer_ = std::make_unique<TrajectoryInputProducer>(
         nh_, controller_, sensor_data_, kRosQueueSize);
 
