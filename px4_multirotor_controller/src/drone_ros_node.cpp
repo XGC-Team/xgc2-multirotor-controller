@@ -10,9 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
-#include <functional>
 #include <stdexcept>
-#include <utility>
 #include <vector>
 
 #include "px4_multirotor_controller/control/trajectory_lifter.h"
@@ -28,17 +26,6 @@ namespace px4_multirotor_controller {
 namespace {
 
 constexpr uint32_t kRosQueueSize = 5;
-
-class OwnerTurn final : public ros::CallbackInterface {
-   public:
-    explicit OwnerTurn(std::function<void()> callback) : callback_(std::move(callback)) {}
-    CallResult call() override {
-        callback_();
-        return Success;
-    }
-   private:
-    std::function<void()> callback_;
-};
 
 std::uint64_t clockNanoseconds(clockid_t clock) {
     timespec stamp{};
@@ -64,9 +51,8 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
 
     ros1_utils::getParamWithLog(nh_private_, "debug_print", debug_print_, "Debug print");
     loadControllerConfig();
-    turn_callback_.reset(new OwnerTurn([this] { runTurn(); }));
-    deadline_timer_ = nh_.createTimer(ros::Duration(1.0), &DroneRosNode::onDeadline,
-                                      this, true, false);
+    turn_.emplace(*nh_.getCallbackQueue(), [this] { runTurn(); });
+    deadline_.emplace(nh_, [this] { requestTurn(); });
 
     px4_service_consumer_ = std::make_unique<Px4ServiceOutputConsumer>(nh_, output_worker_);
     control_consumer_ = std::make_unique<ControlOutputConsumer>(
@@ -143,11 +129,11 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
 DroneRosNode::~DroneRosNode() {
     ROS_INFO("[DroneRosNode] Shutting down...");
 
-    deadline_timer_.stop();
+    deadline_->cancel();
     {
         std::lock_guard<std::mutex> lock(turn_mutex_);
         accepting_turns_ = false;
-        nh_.getCallbackQueue()->removeByID(reinterpret_cast<uintptr_t>(this));
+        turn_->cancel();
     }
     // 显式停止异步输出事件队列
     // 关键：必须在 nh_ 析构前停止，确保后台线程不再访问 nh_
@@ -166,16 +152,15 @@ void DroneRosNode::run() {
 
 void DroneRosNode::requestTurn() {
     std::lock_guard<std::mutex> lock(turn_mutex_);
-    if (!accepting_turns_ || turn_queued_)
+    if (!accepting_turns_)
         return;
-    turn_queued_ = true;
-    nh_.getCallbackQueue()->addCallback(turn_callback_, reinterpret_cast<uintptr_t>(this));
+    turn_->request();
 }
 
 void DroneRosNode::runTurn() {
     {
         std::lock_guard<std::mutex> lock(turn_mutex_);
-        turn_queued_ = false;
+        turn_->beginTurn();
     }
     const double current_time = ros::Time::now().toSec();
     sensor_input_producer_->syncStats();
@@ -186,27 +171,19 @@ void DroneRosNode::runTurn() {
     if (continuation) requestTurn();
 }
 
-void DroneRosNode::onDeadline(const ros::TimerEvent&) {
-    armed_deadline_.reset();
-    requestTurn();
-}
-
 void DroneRosNode::armDeadline() {
     const auto next = driver_.nextWake(true);
     const uint64_t now = ros::Time::now().toNSec();
     if (!next || *next <= now) {
-        deadline_timer_.stop();
-        armed_deadline_.reset();
+        deadline_->cancel();
         if (next) requestTurn();
         return;
     }
-    if (armed_deadline_ && *armed_deadline_ == *next)
-        return;
-    ros::Duration delay;
-    delay.fromNSec(static_cast<int64_t>(*next - now));
-    deadline_timer_.setPeriod(delay, true);
-    deadline_timer_.start();
-    armed_deadline_ = next;
+    deadline_->arm(*next, [next, now] {
+        ros::Duration delay;
+        delay.fromNSec(static_cast<int64_t>(*next - now));
+        return delay;
+    });
 }
 
 void DroneRosNode::dispatchOutputEffects(const std::vector<FlightEffect>& effects) {

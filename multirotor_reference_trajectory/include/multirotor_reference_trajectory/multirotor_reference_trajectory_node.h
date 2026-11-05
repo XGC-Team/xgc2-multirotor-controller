@@ -2,6 +2,7 @@
 
 #include <ros/ros.h>
 #include <ros/callback_queue_interface.h>
+#include <state_machine/ros1_queued_owner.hpp>
 
 #include <memory>
 #include <optional>
@@ -24,7 +25,6 @@ class ReferenceTrajectoryNode {
     void loadParams();
     void requestTurn();
     void runTurn();
-    void onDeadline(const ros::TimerEvent&);
     void armDeadline(double now);
 
     ros::NodeHandle nh_;
@@ -33,10 +33,8 @@ class ReferenceTrajectoryNode {
     ReferenceOutputWorker output_worker_;
     std::unique_ptr<ReferenceOutputConsumer> output_consumer_;
     std::unique_ptr<ReferenceInputProducer> input_producer_;
-    ros::CallbackInterfacePtr turn_callback_;
-    ros::Timer deadline_timer_;
-    std::optional<double> armed_deadline_;
-    bool turn_queued_{false};
+    std::optional<state_machine::Ros1QueuedTurn> turn_;
+    std::optional<state_machine::Ros1DomainDeadline<double>> deadline_;
 
     uint32_t queue_size_{10U};
     std::string analytic_topic_{"alg/multirotor_reference_trajectory/request/analytic"};

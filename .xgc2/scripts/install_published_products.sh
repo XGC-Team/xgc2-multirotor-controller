@@ -29,7 +29,7 @@ require_version() {
 }
 require_version libxgc2-math-dev '0.5.12-1~'
 require_version libxgc2-module-dev '0.3.0-1~'
-require_version libxgc2-state-machine-dev '0.2.0-2~focal'
+require_version libxgc2-state-machine-dev '0.2.0-3~focal'
 require_version libxgc2-hover-thrust-core0 '1.2.0-2~focal'
 require_version libxgc2-hover-thrust-dev '1.2.0-2~focal'
 require_version "ros-${ROS_DISTRO:-noetic}-xgc2-multirotor-reference-trajectory-msgs" 1.4.0-1

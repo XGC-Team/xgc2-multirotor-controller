@@ -55,6 +55,7 @@
 // wakes the host from its own worker.
 
 #include <algorithm>
+#include <state_machine/sync_runtime_tick_adapter.hpp>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -248,18 +249,9 @@ class ControllerModule {
 
     void armDeadline() {
         const auto next = runtime_->driver.nextWake(false);
-        if (!next) {
-            if (armed_deadline_) {
-                host_->wake_at_ns(ctx_, -1);
-                armed_deadline_.reset();
-            }
-            return;
-        }
-        const int64_t deadline = static_cast<int64_t>(*next);
-        if (!armed_deadline_ || *armed_deadline_ != deadline) {
-            host_->wake_at_ns(ctx_, deadline);
-            armed_deadline_ = deadline;
-        }
+        const std::optional<int64_t> deadline = next
+            ? std::optional<int64_t>{static_cast<int64_t>(*next)} : std::nullopt;
+        deadline_.arm(deadline, [this](int64_t value) { host_->wake_at_ns(ctx_, value); });
     }
 
     // Parses the configuration and, when it is valid, makes it the controller's.
@@ -304,10 +296,7 @@ class ControllerModule {
             // Joins the solver thread: no wake() is called after this returns.
             LogScope scope(this);
             runtime_->driver.stop();
-            if (armed_deadline_) {
-                host_->wake_at_ns(ctx_, -1);
-                armed_deadline_.reset();
-            }
+            deadline_.arm(std::nullopt, [this](int64_t value) { host_->wake_at_ns(ctx_, value); });
             runtime_.reset();
         }
         return XGC2_OK;
@@ -320,7 +309,7 @@ class ControllerModule {
         Runtime& rt = *runtime_;
         const pmc::Time now = time(ctx->now_ns);
         if ((ctx->reasons & XGC2_STEP_DEADLINE) != 0)
-            armed_deadline_.reset();
+            deadline_.consumed();
         collectInputs(ctx);
         bool relevant_input = false;
         for (const Input& input : inputs_) {
@@ -722,7 +711,7 @@ class ControllerModule {
     const xgc2_host_api* host_;
     void* ctx_;
     pmc::ControllerConfig config_;
-    std::optional<int64_t> armed_deadline_;
+    ::state_machine::SyncRuntimeTickAdapter deadline_;
     bool period_disabled_{false};
     std::unique_ptr<Runtime> runtime_;
     std::vector<Input> inputs_;

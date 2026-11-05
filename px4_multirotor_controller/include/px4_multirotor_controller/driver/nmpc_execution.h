@@ -1,8 +1,6 @@
 #pragma once
-#include <condition_variable>
 #include <functional>
-#include <mutex>
-#include <thread>
+#include <state_machine/async_worker.hpp>
 #include "px4_multirotor_controller/drone_controller.h"
 #include "px4_multirotor_controller/uav/nmpc_tracking_backend.h"
 namespace px4_multirotor_controller {
@@ -22,11 +20,10 @@ public:
  bool handle(const FlightNmpcRequest&);
  void setDiagnosticSink(DiagnosticSink sink) { diagnostic_sink_ = std::move(sink); }
 private:
- void workerLoop(); void reject(uint64_t, uint64_t, int); void notifyResult(uint64_t);
+ NmpcSolveResult solve(const Request&, bool&, uint64_t&); void reject(uint64_t, uint64_t, int); void notifyResult(uint64_t);
  DroneController& controller_; Clock clock_; Completion on_result_; DiagnosticSink diagnostic_sink_;
  Compute compute_;
  UavNmpcTrackingBackend backend_;
- std::mutex mutex_; std::condition_variable condition_; std::thread worker_;
- bool stop_{false}; bool busy_{false}; bool has_pending_{false}; Request pending_;
+ ::state_machine::AsyncWorker<Request, NmpcSolveResult> worker_;
 };
 }

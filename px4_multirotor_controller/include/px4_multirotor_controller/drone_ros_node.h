@@ -3,6 +3,7 @@
 #include <ros/ros.h>
 #include <ros/callback_queue_interface.h>
 #include <ros1_utils/topic_stats.h>
+#include <state_machine/ros1_queued_owner.hpp>
 
 #include <memory>
 #include <mutex>
@@ -31,7 +32,6 @@ class DroneRosNode {
    private:
     void requestTurn();
     void runTurn();
-    void onDeadline(const ros::TimerEvent&);
     void armDeadline();
     void dispatchOutputEffects(const std::vector<FlightEffect>& effects);
     void loadControllerConfig();
@@ -62,11 +62,9 @@ class DroneRosNode {
     std::unique_ptr<SensorInputProducer> sensor_input_producer_;
     std::unique_ptr<CommandInputProducer> command_input_producer_;
     std::unique_ptr<TrajectoryInputProducer> trajectory_input_producer_;
-    ros::CallbackInterfacePtr turn_callback_;
-    ros::Timer deadline_timer_;
-    std::optional<uint64_t> armed_deadline_;
+    std::optional<state_machine::Ros1QueuedTurn> turn_;
+    std::optional<state_machine::Ros1DomainDeadline<uint64_t>> deadline_;
     std::mutex turn_mutex_;
-    bool turn_queued_{false};
     bool accepting_turns_{true};
 };
 

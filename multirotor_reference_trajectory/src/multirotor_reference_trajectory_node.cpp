@@ -2,23 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <functional>
-#include <utility>
 
 namespace multirotor_reference_trajectory {
-namespace {
-class OwnerTurn final : public ros::CallbackInterface {
-   public:
-    explicit OwnerTurn(std::function<void()> callback) : callback_(std::move(callback)) {}
-    CallResult call() override {
-        callback_();
-        return Success;
-    }
-   private:
-    std::function<void()> callback_;
-};
-}  // namespace
-
 ReferenceTrajectoryNode::ReferenceTrajectoryNode(ros::NodeHandle& nh)
     : nh_(nh), private_nh_("~") {
     loadParams();
@@ -27,9 +12,8 @@ ReferenceTrajectoryNode::ReferenceTrajectoryNode(ros::NodeHandle& nh)
         nh_, output_worker_, runtime_, status_topic_, active_analytic_topic_,
         active_sampled_topic_, reference_path_topic_, reference_path_sample_dt_,
         reference_path_preview_duration_, queue_size_);
-    turn_callback_.reset(new OwnerTurn([this] { runTurn(); }));
-    deadline_timer_ = nh_.createTimer(ros::Duration(1.0), &ReferenceTrajectoryNode::onDeadline,
-                                      this, true, false);
+    turn_.emplace(*nh_.getCallbackQueue(), [this] { runTurn(); });
+    deadline_.emplace(nh_, [this] { requestTurn(); });
     input_producer_ = std::make_unique<ReferenceInputProducer>(
         nh_, runtime_, analytic_topic_, sampled_topic_, reset_topic_, queue_size_,
         [this] { requestTurn(); });
@@ -44,8 +28,8 @@ ReferenceTrajectoryNode::ReferenceTrajectoryNode(ros::NodeHandle& nh)
 }
 
 ReferenceTrajectoryNode::~ReferenceTrajectoryNode() {
-    deadline_timer_.stop();
-    nh_.getCallbackQueue()->removeByID(reinterpret_cast<uintptr_t>(this));
+    deadline_->cancel();
+    turn_->cancel();
     output_worker_.stop();
 }
 
@@ -54,14 +38,11 @@ void ReferenceTrajectoryNode::run() {
 }
 
 void ReferenceTrajectoryNode::requestTurn() {
-    if (turn_queued_)
-        return;
-    turn_queued_ = true;
-    nh_.getCallbackQueue()->addCallback(turn_callback_, reinterpret_cast<uintptr_t>(this));
+    turn_->request();
 }
 
 void ReferenceTrajectoryNode::runTurn() {
-    turn_queued_ = false;
+    turn_->beginTurn();
     const double now = ros::Time::now().toSec();
     runtime_.update(now);
     for (const auto& effect : runtime_.effects())
@@ -69,31 +50,23 @@ void ReferenceTrajectoryNode::runTurn() {
     armDeadline(now);
 }
 
-void ReferenceTrajectoryNode::onDeadline(const ros::TimerEvent&) {
-    armed_deadline_.reset();
-    requestTurn();
-}
-
 void ReferenceTrajectoryNode::armDeadline(double now) {
     const auto next = runtime_.nextWake();
     if (!next) {
-        deadline_timer_.stop();
-        armed_deadline_.reset();
+        deadline_->cancel();
         return;
     }
     if (*next <= now) {
         requestTurn();
         return;
     }
-    if (armed_deadline_ && *armed_deadline_ == *next)
-        return;
-    const auto wait_ns = static_cast<int64_t>(
-        std::ceil((static_cast<long double>(*next) - static_cast<long double>(now)) * 1e9L));
-    ros::Duration delay;
-    delay.fromNSec(wait_ns);
-    deadline_timer_.setPeriod(delay, true);
-    deadline_timer_.start();
-    armed_deadline_ = next;
+    deadline_->arm(*next, [next, now] {
+        const auto wait_ns = static_cast<int64_t>(
+            std::ceil((static_cast<long double>(*next) - static_cast<long double>(now)) * 1e9L));
+        ros::Duration delay;
+        delay.fromNSec(wait_ns);
+        return delay;
+    });
 }
 
 void ReferenceTrajectoryNode::loadParams() {

@@ -18,7 +18,7 @@ apt:
   - ros-noetic-xgc2-multirotor-controller
   depends:
   - libeigen3-dev
-  - libxgc2-state-machine-dev (>= 0.2.0-2~focal)
+  - libxgc2-state-machine-dev (>= 0.2.0-3~focal)
   - libxgc2-math-dev (>= 0.5.12-1~)
   - libxgc2-hover-thrust-core0 (>= 1.2.0-2~focal)
   - libxgc2-hover-thrust-dev (>= 1.2.0-2~focal)

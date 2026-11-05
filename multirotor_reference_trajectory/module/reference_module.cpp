@@ -30,6 +30,7 @@
 // update and destroy the runtime on the same home worker.
 
 #include <algorithm>
+#include <state_machine/sync_runtime_tick_adapter.hpp>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -186,10 +187,7 @@ class ReferenceModule {
     }
 
     xgc2_status stop() {
-        if (armed_deadline_) {
-            host_->wake_at_ns(ctx_, -1);
-            armed_deadline_.reset();
-        }
+        deadline_.arm(std::nullopt, [this](int64_t value) { host_->wake_at_ns(ctx_, value); });
         running_ = false;
         return XGC2_OK;
     }
@@ -201,7 +199,7 @@ class ReferenceModule {
         const bool update_due = (ctx->reasons &
             (XGC2_STEP_TIMER | XGC2_STEP_WAKE | XGC2_STEP_DEADLINE)) != 0;
         if ((ctx->reasons & XGC2_STEP_DEADLINE) != 0)
-            armed_deadline_.reset();
+            deadline_.consumed();
         collectRequests();
         const double now = toSeconds(ctx->now_ns);
         bool accepted = false;
@@ -244,19 +242,10 @@ class ReferenceModule {
 
     void armDeadline() {
         const auto next = runtime_->nextWake();
-        if (!next) {
-            if (armed_deadline_) {
-                host_->wake_at_ns(ctx_, -1);
-                armed_deadline_.reset();
-            }
-            return;
-        }
-        const int64_t deadline = static_cast<int64_t>(
-            std::ceil(static_cast<long double>(*next) * 1e9L));
-        if (!armed_deadline_ || *armed_deadline_ != deadline) {
-            host_->wake_at_ns(ctx_, deadline);
-            armed_deadline_ = deadline;
-        }
+        const std::optional<int64_t> deadline = next
+            ? std::optional<int64_t>{static_cast<int64_t>(
+                  std::ceil(static_cast<long double>(*next) * 1e9L))} : std::nullopt;
+        deadline_.arm(deadline, [this](int64_t value) { host_->wake_at_ns(ctx_, value); });
     }
 
     // Everything that arrived on the request ports, in arrival order (the node's callbacks run in
@@ -376,7 +365,7 @@ class ReferenceModule {
     std::vector<Request> requests_;
     bool running_{false};
     bool period_disabled_{false};
-    std::optional<int64_t> armed_deadline_;
+    ::state_machine::SyncRuntimeTickAdapter deadline_;
     bool output_failed_{false};
     bool reported_{false};
     uint8_t reported_state_{0};

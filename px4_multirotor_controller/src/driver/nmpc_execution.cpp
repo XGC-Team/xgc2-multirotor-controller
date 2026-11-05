@@ -3,21 +3,19 @@
 #include <cmath>
 namespace px4_multirotor_controller {
 NmpcExecution::NmpcExecution(DroneController& controller, Clock clock, Completion on_result, Compute compute)
- : controller_(controller), clock_(std::move(clock)), on_result_(std::move(on_result)), compute_(std::move(compute)) {}
+ : controller_(controller), clock_(std::move(clock)), on_result_(std::move(on_result)), compute_(std::move(compute)),
+   worker_([this, entered = false, entered_generation = uint64_t{0}](const Request& request) mutable {
+               return solve(request, entered, entered_generation);
+           },
+           [this](const NmpcSolveResult& result) { return controller_.nmpcResultBuffer().store(result); },
+           [this](const NmpcSolveResult& result) { notifyResult(result.control_generation); }) {}
 NmpcExecution::~NmpcExecution() { stop(); }
-void NmpcExecution::start() {
- std::lock_guard<std::mutex> lock(mutex_);
- if (worker_.joinable()) return;
- stop_ = false; busy_ = false; has_pending_ = false; pending_ = Request{};
- worker_ = std::thread(&NmpcExecution::workerLoop, this);
-}
+void NmpcExecution::start() { worker_.start(); }
 void NmpcExecution::stop() {
- { std::lock_guard<std::mutex> lock(mutex_); stop_ = true; has_pending_ = false; pending_ = Request{}; }
+ worker_.close();
  controller_.nmpcResultBuffer().invalidateGeneration();
- condition_.notify_all();
- if (worker_.joinable()) worker_.join();
+ worker_.join();
  backend_.exit();
- { std::lock_guard<std::mutex> lock(mutex_); busy_ = false; }
 }
 bool NmpcExecution::handle(const FlightNmpcRequest& effect) {
     // A raw nonfinite event time cannot be represented by the original Time.
@@ -44,69 +42,40 @@ bool NmpcExecution::handle(const FlightNmpcRequest& effect) {
         return true;
     }
 
-    bool accepted = false;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!stop_ && !busy_ && !has_pending_) {
-            pending_ = std::move(request);
-            has_pending_ = true;
-            accepted = true;
-        }
-    }
-    if (!accepted) {
+    if (!worker_.trySubmit(std::move(request))) {
         // A rejection can wake the owner synchronously. Publish and notify
         // without holding the handoff mutex so that owner may re-enter it.
         reject(sequence, generation, nmpc_solver_status::kDispatcherBusy);
         return true;
     }
-    condition_.notify_one();
     return true;
 }
 
-void NmpcExecution::workerLoop() {
-    bool entered = false;
-    uint64_t entered_generation = 0;
-    while (true) {
-        Request request;
-        {
-            std::unique_lock<std::mutex> lock(mutex_);
-            condition_.wait(lock, [this] { return stop_ || has_pending_; });
-            if (stop_) return;
-            request = std::move(pending_);
-            has_pending_ = false;
-            busy_ = true;
-        }
-        NmpcSolveResult result;
-        if (controller_.nmpcResultBuffer().isGenerationActive(request.generation)) {
-            if (compute_) {
-                result = compute_(request);
+NmpcSolveResult NmpcExecution::solve(const Request& request, bool& entered, uint64_t& entered_generation) {
+    NmpcSolveResult result;
+    if (controller_.nmpcResultBuffer().isGenerationActive(request.generation)) {
+        if (compute_) {
+            result = compute_(request);
+        } else {
+            backend_.configure(request.config);
+            if (entered_generation != request.generation) {
+                backend_.exit(); entered = false; entered_generation = request.generation;
+            }
+            if (!entered) entered = backend_.enter(request.sensor);
+            if (entered) {
+                result.success = backend_.compute(request.sensor, request.references, request.now, result.target);
+                result.solver_status = backend_.status();
+                result.solve_time_ms = backend_.solveTimeMs();
+                if (diagnostic_sink_ && controller_.nmpcResultBuffer().isGenerationActive(request.generation)) diagnostic_sink_(request.sequence, request.now, backend_, result.success);
             } else {
-                backend_.configure(request.config);
-                if (entered_generation != request.generation) {
-                    backend_.exit(); entered = false; entered_generation = request.generation;
-                }
-                if (!entered) entered = backend_.enter(request.sensor);
-                if (entered) {
-                    result.success = backend_.compute(request.sensor, request.references, request.now, result.target);
-                    result.solver_status = backend_.status();
-                    result.solve_time_ms = backend_.solveTimeMs();
-                    if (diagnostic_sink_ && controller_.nmpcResultBuffer().isGenerationActive(request.generation)) diagnostic_sink_(request.sequence, request.now, backend_, result.success);
-                } else {
-                    result.solver_status = nmpc_solver_status::kBackendUnavailable;
-                }
+                result.solver_status = nmpc_solver_status::kBackendUnavailable;
             }
         }
-        result.sequence = request.sequence;
-        result.control_generation = request.generation;
-        result.stamp = request.now;
-        const bool stored = controller_.nmpcResultBuffer().store(result);
-        // The worker is idle before its owner hears of the result: the owner may be woken by the
-        // completion and request the next solve at once, and must not find the worker busy.
-        { std::lock_guard<std::mutex> lock(mutex_); busy_ = false; }
-        if (stored) {
-            notifyResult(request.generation);
-        }
     }
+    result.sequence = request.sequence;
+    result.control_generation = request.generation;
+    result.stamp = request.now;
+    return result;
 }
 
 void NmpcExecution::reject(uint64_t sequence, uint64_t generation, int solver_status) {
