@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <state_machine/state_machine.hpp>
 
 #include "px4_multirotor_controller/common/types.h"
@@ -28,6 +29,8 @@ class DroneController {
     void update(double current_time);
 
     ::state_machine::Status postCommand(FlightCommand command, double receipt_sec);
+    FlightState flightState() const;
+    std::string flightStateName() const;
 
     // 数据访问接口（供State对象使用）
     const SensorData& getSensorData() const {

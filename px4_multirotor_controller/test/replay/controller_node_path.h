@@ -358,8 +358,7 @@ class NodePath {
                                          controller_.getSensorData(), controller_.getConfig());
                     break;
                 case pmc::output_event_type::PUBLISH_CONTROLLER_STATUS:
-                    out.status =
-                        controller_.getStateMachine().currentStateName(pmc::region_type::CONTROL);
+                    out.status = controller_.flightStateName();
                     if (out.status.empty())
                         out.status = "Unknown";
                     break;
@@ -377,7 +376,7 @@ class NodePath {
     }
 
     std::string state() {
-        return controller_.getStateMachine().currentStateName(pmc::region_type::CONTROL);
+        return controller_.flightStateName();
     }
     pmc::DroneController& controller() {
         return controller_;

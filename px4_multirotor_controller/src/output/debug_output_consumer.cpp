@@ -54,7 +54,7 @@ bool DebugOutputConsumer::handle(const ::state_machine::Event& event) {
     switch (event.id) {
         case output_event_type::PUBLISH_CONTROLLER_STATUS: {
             std_msgs::String msg;
-            msg.data = controller_.getStateMachine().currentStateName(region_type::CONTROL);
+            msg.data = controller_.flightStateName();
             if (msg.data.empty()) {
                 msg.data = "Unknown";
             }

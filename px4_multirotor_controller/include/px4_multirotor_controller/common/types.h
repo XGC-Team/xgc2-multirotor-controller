@@ -214,6 +214,19 @@ constexpr uint32_t Landing = 9;  // 降落
 constexpr uint32_t Custom1 = 11;  // 自定义状态1
 }  // namespace state_type
 
+// The active flight leaf, as seen by controller consumers.
+enum class FlightState : uint32_t {
+    SelfCheck = state_type::SelfCheck,
+    Ready = state_type::Ready,
+    TakeoffInit = state_type::TakeoffInit,
+    TakeoffOffboardRequest = state_type::TakeoffOffboardRequest,
+    TakeoffArmRequest = state_type::TakeoffArmRequest,
+    TakeoffAscending = state_type::TakeoffAscending,
+    Hover = state_type::Hover,
+    Landing = state_type::Landing,
+    Custom1 = state_type::Custom1,
+};
+
 namespace region_type {
 constexpr uint32_t HEALTH = 1;
 constexpr uint32_t CONTROL = 2;

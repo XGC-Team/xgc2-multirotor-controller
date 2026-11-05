@@ -120,7 +120,7 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
         }
         ros_driver.update(Time(time));
         EXPECT_EQ(host.step(), XGC2_OK);
-        EXPECT_EQ(ros_driver.controller().getStateMachine().currentStateName(region_type::CONTROL),
+        EXPECT_EQ(ros_driver.controller().flightStateName(),
                   host.lastReportDetail())
             << "at t=" << time;
         ros_driver.statistics().resetNewFlags();

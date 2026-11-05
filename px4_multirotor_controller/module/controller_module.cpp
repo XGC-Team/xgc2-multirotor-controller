@@ -383,9 +383,8 @@ class ControllerModule {
     }
 
     bool onTheGround() const {
-        const sm::StateId state =
-            runtime_->driver.controller().getStateMachine().currentState(pmc::region_type::CONTROL);
-        return state == pmc::state_type::SelfCheck || state == pmc::state_type::Ready;
+        const auto state = runtime_->driver.controller().flightState();
+        return state == pmc::FlightState::SelfCheck || state == pmc::FlightState::Ready;
     }
 
     // The samples that arrived, in arrival order (the node's callbacks run in that order inside
@@ -692,8 +691,7 @@ class ControllerModule {
                 break;
             case pmc::output_event_type::PUBLISH_CONTROLLER_STATUS:  // DebugOutputConsumer
                 write<xgc2_px4_controller_status_v1>(kStatus, now_ns, [&](auto& m) {
-                    std::string state =
-                        controller.getStateMachine().currentStateName(pmc::region_type::CONTROL);
+                    std::string state = controller.flightStateName();
                     if (state.empty())
                         state = "Unknown";
                     stamp(now, m.stamp_sec, m.stamp_nsec);
@@ -709,8 +707,7 @@ class ControllerModule {
     // The flight state as the instance's detail; degraded while the last output could not be
     // written.
     void reportIfChanged() {
-        const std::string state = runtime_->driver.controller().getStateMachine().currentStateName(
-            pmc::region_type::CONTROL);
+        const std::string state = runtime_->driver.controller().flightStateName();
         const int health = output_failed_ ? kHealthDegraded : kHealthOk;
         if (reported_ && state == reported_state_ && health == reported_health_)
             return;

@@ -48,7 +48,7 @@ class PositionDistanceRuntimeTest : public ::testing::Test {
     }
 
     uint32_t state() {
-        return controller_->getStateMachine().currentState(region_type::CONTROL);
+        return static_cast<uint32_t>(controller_->flightState());
     }
 
     void request(uint32_t event_id) {
@@ -169,6 +169,20 @@ TEST_P(SameTurnCommandTest, LandWinsOverTrackingRegardlessOfArrivalOrder) {
     }
 }
 
+TEST_P(SameTurnCommandTest, HoverWinsOverTrackingDuringAscentInEitherArrivalOrder) {
+    start(TrackingBackend::DFBC);
+    enterFlightState(state_type::TakeoffAscending);
+    const FlightCommand first = GetParam() ? FlightCommand::Hover : FlightCommand::Track;
+    const FlightCommand second = GetParam() ? FlightCommand::Track : FlightCommand::Hover;
+    ASSERT_TRUE(controller_->postCommand(first, now_).ok());
+    ASSERT_TRUE(controller_->postCommand(second, now_).ok());
+    tick();
+    EXPECT_EQ(state(), state_type::Hover);
+    EXPECT_FALSE(controller_->custom1Requested());
+    tick();
+    EXPECT_EQ(state(), state_type::Hover);
+}
+
 INSTANTIATE_TEST_SUITE_P(BothArrivalOrders, SameTurnCommandTest, ::testing::Bool());
 
 TEST_F(PositionDistanceRuntimeTest, SameTurnPositionSafetyWinsOverTracking) {
@@ -184,6 +198,15 @@ TEST_F(PositionDistanceRuntimeTest, SameTurnPositionSafetyWinsOverTracking) {
     for (const auto& output : machine.currentOutputEvents()) {
         EXPECT_NE(output.id, output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION);
     }
+}
+
+TEST_F(PositionDistanceRuntimeTest, LandWinsOverArmedReturnDuringTakeoffInit) {
+    start();
+    enterFlightState(state_type::TakeoffInit);
+    sensor_.fcu_armed = true;
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Land, now_).ok());
+    tick();
+    EXPECT_EQ(state(), state_type::Landing);
 }
 
 class PositionDistanceFlightTest : public PositionDistanceRuntimeTest,

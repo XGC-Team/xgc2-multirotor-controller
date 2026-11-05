@@ -381,6 +381,14 @@ void DroneController::update(double current_time) {
     return state_machine_->postEvent(std::move(event));
 }
 
+FlightState DroneController::flightState() const {
+    return static_cast<FlightState>(state_machine_->currentState(region_type::CONTROL));
+}
+
+std::string DroneController::flightStateName() const {
+    return state_machine_->currentStateName(region_type::CONTROL);
+}
+
 ControllerConfig DroneController::getConfig() const {
     std::lock_guard<std::mutex> lock(config_mutex_);
     return config_;
