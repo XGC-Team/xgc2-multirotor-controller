@@ -65,28 +65,33 @@ void SensorInputProducer::start() {
                 stateEstimateCallback(message);
             }));
     }
-    subscribers_.push_back(nh_.subscribe<geometry_msgs::PoseStamped>(
-        "mavros/local_position/pose", queue_size_,
-        [this](const geometry_msgs::PoseStamped::ConstPtr& message) {
-            statistics_.observe(SensorStream::LocalPose, toCoreTime(ros::Time::now()));
-            localPosCallback(message);
-        }));
-    subscribers_.push_back(nh_.subscribe<geometry_msgs::TwistStamped>(
-        "mavros/local_position/velocity_local", queue_size_,
-        [this](const geometry_msgs::TwistStamped::ConstPtr& message) {
-            statistics_.observe(SensorStream::LocalVelocity, toCoreTime(ros::Time::now()));
-            velocityCallback(message);
-        }));
+    auto on_position = [this](const geometry_msgs::PoseStamped::ConstPtr& message) {
+        statistics_.observe(SensorStream::LocalPose, toCoreTime(ros::Time::now()));
+        localPosCallback(message);
+    };
+    auto on_velocity = [this](const geometry_msgs::TwistStamped::ConstPtr& message) {
+        statistics_.observe(SensorStream::LocalVelocity, toCoreTime(ros::Time::now()));
+        velocityCallback(message);
+    };
     if (driver_ && driver_->controller().getConfig().tracking_backend == TrackingBackend::PVA_SMC) {
         paired_position_ = std::make_unique<message_filters::Subscriber<geometry_msgs::PoseStamped>>(
             nh_, "mavros/local_position/pose", queue_size_);
         paired_velocity_ = std::make_unique<message_filters::Subscriber<geometry_msgs::TwistStamped>>(
             nh_, "mavros/local_position/velocity_local", queue_size_);
+        // Keep each individual input and its statistics before the synchronizer
+        // sees the same message; the filter owns the only ROS subscription.
+        paired_position_->registerCallback(on_position);
+        paired_velocity_->registerCallback(on_velocity);
         local_pv_sync_ = std::make_unique<message_filters::Synchronizer<LocalPvPolicy>>(
             LocalPvPolicy(queue_size_), *paired_position_, *paired_velocity_);
         local_pv_sync_->registerCallback(boost::bind(&SensorInputProducer::localPvCallback, this,
                                                     boost::placeholders::_1,
                                                     boost::placeholders::_2));
+    } else {
+        subscribers_.push_back(nh_.subscribe<geometry_msgs::PoseStamped>(
+            "mavros/local_position/pose", queue_size_, on_position));
+        subscribers_.push_back(nh_.subscribe<geometry_msgs::TwistStamped>(
+            "mavros/local_position/velocity_local", queue_size_, on_velocity));
     }
     subscribers_.push_back(nh_.subscribe<sensor_msgs::Imu>(
         "mavros/imu/data", queue_size_, [this](const sensor_msgs::Imu::ConstPtr& message) {

@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 #include <mavros_msgs/State.h>
 #include <ros/ros.h>
+#include <ros/callback_queue.h>
 #include <sensor_msgs/Imu.h>
 
 #include <xgc2/sdk/test_host.hpp>
@@ -71,6 +72,8 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
     ASSERT_TRUE(local.getNumSubscribers() && pose.getNumSubscribers() &&
                 velocity.getNumSubscribers() && imu.getNumSubscribers() &&
                 state.getNumSubscribers());
+    EXPECT_EQ(local.getNumSubscribers(), 1U);
+    EXPECT_EQ(velocity.getNumSubscribers(), 1U);
 
     auto tick = [&](double time, bool send) {
         ros::Time::setNow(ros::Time(time));
@@ -137,12 +140,16 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
 }
 
 TEST(ControllerTransports, RosLocalPvUsesActualExactTimePairs) {
+    ros::CallbackQueue queue;
     ros::NodeHandle nh("controller_exact_pair");
+    nh.setCallbackQueue(&queue);
     SensorData data;
     ControllerDriver driver(data);
     ControllerConfig config;
     config.tracking_backend = TrackingBackend::PVA_SMC;
+    config.hover_thrust.source = HoverThrustSource::INTERNAL;
     driver.controller().setConfig(config);
+    driver.start(Time(200.0));
     ros1_utils::PositionQualityStats quality;
     SensorInputProducer producer(nh, data, quality, driver.statistics(), 20, [] {}, &driver);
     producer.start();
@@ -152,26 +159,42 @@ TEST(ControllerTransports, RosLocalPvUsesActualExactTimePairs) {
     const auto connected = ros::WallTime::now() + ros::WallDuration(3.0);
     while ((!local.getNumSubscribers() || !velocity.getNumSubscribers()) &&
            ros::WallTime::now() < connected) {
-        ros::spinOnce();
+        queue.callAvailable();
         ros::WallDuration(0.002).sleep();
     }
-    ASSERT_GT(local.getNumSubscribers(), 0U);
-    ASSERT_GT(velocity.getNumSubscribers(), 0U);
+    ASSERT_EQ(local.getNumSubscribers(), 1U);
+    ASSERT_EQ(velocity.getNumSubscribers(), 1U);
+    RecordProperty("pose_publisher_connections", std::to_string(local.getNumSubscribers()));
+    RecordProperty("velocity_publisher_connections", std::to_string(velocity.getNumSubscribers()));
+
+    // The private ROS callback queue measures subscription callbacks rather than
+    // publisher links, which roscpp may share for same-node subscriptions.
+    auto callbacksForOneMessage = [&] {
+        unsigned calls = 0;
+        const auto deadline = ros::WallTime::now() + ros::WallDuration(2.0);
+        while (ros::WallTime::now() < deadline) {
+            const auto result = queue.callOne(ros::WallDuration(0.05));
+            if (result == ros::CallbackQueue::Called) {
+                ++calls;
+            } else if (calls && result == ros::CallbackQueue::Empty) {
+                break;
+            }
+        }
+        return calls;
+    };
 
     geometry_msgs::PoseStamped position;
     position.header.stamp = ros::Time(100, 20);
     position.pose.position.x = 3.0;
+    position.pose.position.z = 1.2;
     geometry_msgs::TwistStamped speed;
     speed.header.stamp = ros::Time(100, 21);
     speed.twist.linear.x = 9.0;
+    ros::Time::setNow(ros::Time(201, 0));
     local.publish(position);
+    EXPECT_EQ(callbacksForOneMessage(), 1U);
     velocity.publish(speed);
-    const auto delivered = ros::WallTime::now() + ros::WallDuration(2.0);
-    while (!(data.local_pos_stats.is_new && data.local_velocity_stats.is_new) &&
-           ros::WallTime::now() < delivered) {
-        ros::spinOnce();
-        ros::WallDuration(0.002).sleep();
-    }
+    EXPECT_EQ(callbacksForOneMessage(), 1U);
     ASSERT_TRUE(data.local_pos_stats.is_new && data.local_velocity_stats.is_new);
     EXPECT_FALSE(data.paired_local_pv.has_value());
     EXPECT_DOUBLE_EQ(data.local_x, 3.0);
@@ -179,15 +202,27 @@ TEST(ControllerTransports, RosLocalPvUsesActualExactTimePairs) {
 
     speed.header.stamp = position.header.stamp;
     speed.twist.linear.x = 5.0;
+    ros::Time::setNow(ros::Time(201, 20000000));
     velocity.publish(speed);
-    const auto paired = ros::WallTime::now() + ros::WallDuration(2.0);
-    while (!data.paired_local_pv && ros::WallTime::now() < paired) {
-        ros::spinOnce();
-        ros::WallDuration(0.002).sleep();
-    }
+    EXPECT_EQ(callbacksForOneMessage(), 1U);
     ASSERT_TRUE(data.paired_local_pv);
     EXPECT_DOUBLE_EQ(data.paired_local_pv->position.x(), 3.0);
     EXPECT_DOUBLE_EQ(data.paired_local_pv->velocity.x(), 5.0);
+    EXPECT_DOUBLE_EQ(data.local_vx, 5.0);
+
+    ros::Time::setNow(ros::Time(201, 40000000));
+    position.header.stamp = ros::Time(100, 22);
+    position.pose.position.x = 4.0;
+    position.pose.position.z = 1.4;
+    local.publish(position);
+    EXPECT_EQ(callbacksForOneMessage(), 1U);
+    EXPECT_DOUBLE_EQ(data.local_x, 4.0);
+    EXPECT_DOUBLE_EQ(driver.hoverThrustRuntime()->input().altitude.value, 1.4);
+    EXPECT_DOUBLE_EQ(data.paired_local_pv->position.x(), 3.0);
+    driver.statistics().advance(Time(201.2));
+    EXPECT_NEAR(data.local_pos_stats.frequency_hz, 25.0, 1e-6);
+    EXPECT_NEAR(data.local_velocity_stats.frequency_hz, 50.0, 1e-6);
+    driver.stop();
 }
 
 int main(int argc, char** argv) {
