@@ -30,7 +30,7 @@
 // update and destroy the runtime on the same home worker.
 
 #include <algorithm>
-#include <state_machine/sync_runtime_tick_adapter.hpp>
+#include <state_machine/owner_schedule.hpp>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -187,7 +187,8 @@ class ReferenceModule {
     }
 
     xgc2_status stop() {
-        deadline_.arm(std::nullopt, [this](int64_t value) { host_->wake_at_ns(ctx_, value); });
+        deadline_.update(std::nullopt, [this](int64_t value) { host_->wake_at_ns(ctx_, value); },
+                         [this] { host_->wake_at_ns(ctx_, -1); });
         running_ = false;
         return XGC2_OK;
     }
@@ -245,7 +246,8 @@ class ReferenceModule {
         const std::optional<int64_t> deadline = next
             ? std::optional<int64_t>{static_cast<int64_t>(
                   std::ceil(static_cast<long double>(*next) * 1e9L))} : std::nullopt;
-        deadline_.arm(deadline, [this](int64_t value) { host_->wake_at_ns(ctx_, value); });
+        deadline_.update(deadline, [this](int64_t value) { host_->wake_at_ns(ctx_, value); },
+                         [this] { host_->wake_at_ns(ctx_, -1); });
     }
 
     // Everything that arrived on the request ports, in arrival order (the node's callbacks run in
@@ -365,7 +367,7 @@ class ReferenceModule {
     std::vector<Request> requests_;
     bool running_{false};
     bool period_disabled_{false};
-    ::state_machine::SyncRuntimeTickAdapter deadline_;
+    ::state_machine::DeadlineArm<int64_t> deadline_;
     bool output_failed_{false};
     bool reported_{false};
     uint8_t reported_state_{0};

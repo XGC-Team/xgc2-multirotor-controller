@@ -60,7 +60,7 @@
   <build_depend>eigen</build_depend>
   <build_depend>libjsoncpp-dev</build_depend>
   <build_depend version_gte="0.3.0-1~">libxgc2-module-dev</build_depend>
-  <build_depend version_gte="0.2.0-3~focal">libxgc2-state-machine-dev</build_depend>
+  <build_depend version_gte="0.2.0-4~focal">libxgc2-state-machine-dev</build_depend>
   <build_depend version_gte="0.5.12-1~">libxgc2-math-dev</build_depend>
   <build_depend version_gte="1.2.0-2~focal">libxgc2-hover-thrust-dev</build_depend>
   <build_depend>ros1_utils</build_depend>
@@ -80,7 +80,7 @@
   <build_export_depend>message_filters</build_export_depend>
   <build_export_depend>eigen</build_export_depend>
   <build_export_depend>libjsoncpp-dev</build_export_depend>
-  <build_export_depend version_gte="0.2.0-3~focal">libxgc2-state-machine-dev</build_export_depend>
+  <build_export_depend version_gte="0.2.0-4~focal">libxgc2-state-machine-dev</build_export_depend>
   <build_export_depend version_gte="0.5.12-1~">libxgc2-math-dev</build_export_depend>
   <build_export_depend version_gte="1.2.0-2~focal">libxgc2-hover-thrust-dev</build_export_depend>
   <build_export_depend>ros1_utils</build_export_depend>
@@ -99,7 +99,7 @@
   <exec_depend>message_filters</exec_depend>
   <exec_depend>eigen</exec_depend>
   <exec_depend>libjsoncpp-dev</exec_depend>
-  <exec_depend version_gte="0.2.0-3~focal">libxgc2-state-machine-dev</exec_depend>
+  <exec_depend version_gte="0.2.0-4~focal">libxgc2-state-machine-dev</exec_depend>
   <exec_depend version_gte="0.5.12-1~">libxgc2-math-dev</exec_depend>
   <exec_depend version_gte="1.2.0-2~focal">libxgc2-hover-thrust-core0</exec_depend>
   <exec_depend version_gte="1.2.0-2~focal">libxgc2-hover-thrust-dev</exec_depend>

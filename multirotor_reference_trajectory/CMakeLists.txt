@@ -6,10 +6,11 @@ find_package(catkin REQUIRED COMPONENTS
   multirotor_reference_trajectory_msgs
   nav_msgs
   roscpp
+  ros1_utils
   rospy
   std_msgs
 )
-find_package(xgc2_state_machine 0.2.0 REQUIRED CONFIG COMPONENTS workers ros1)
+find_package(xgc2_state_machine 0.2.0 REQUIRED CONFIG COMPONENTS workers)
 find_package(xgc2_math 0.5.12 REQUIRED CONFIG)
 find_package(Xgc2Module 0.3.0 REQUIRED CONFIG)
 
@@ -20,7 +21,7 @@ pkg_check_modules(JSONCPP REQUIRED jsoncpp)
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES multirotor_reference_trajectory_core
-  CATKIN_DEPENDS geometry_msgs multirotor_reference_trajectory_msgs nav_msgs roscpp rospy
+  CATKIN_DEPENDS geometry_msgs multirotor_reference_trajectory_msgs nav_msgs roscpp ros1_utils rospy
                  std_msgs
   CFG_EXTRAS multirotor_reference_trajectory-dependencies.cmake
 )
@@ -66,7 +67,6 @@ add_dependencies(multirotor_reference_trajectory_node ${${PROJECT_NAME}_EXPORTED
 target_link_libraries(multirotor_reference_trajectory_node
   multirotor_reference_trajectory_core
   xgc2_state_machine::workers
-  xgc2_state_machine::ros1
   xgc2_math::trajectory
   ${catkin_LIBRARIES}
   pthread

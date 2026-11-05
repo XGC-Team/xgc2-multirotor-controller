@@ -55,7 +55,7 @@
 // wakes the host from its own worker.
 
 #include <algorithm>
-#include <state_machine/sync_runtime_tick_adapter.hpp>
+#include <state_machine/owner_schedule.hpp>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -251,7 +251,8 @@ class ControllerModule {
         const auto next = runtime_->driver.nextWake(false);
         const std::optional<int64_t> deadline = next
             ? std::optional<int64_t>{static_cast<int64_t>(*next)} : std::nullopt;
-        deadline_.arm(deadline, [this](int64_t value) { host_->wake_at_ns(ctx_, value); });
+        deadline_.update(deadline, [this](int64_t value) { host_->wake_at_ns(ctx_, value); },
+                         [this] { host_->wake_at_ns(ctx_, -1); });
     }
 
     // Parses the configuration and, when it is valid, makes it the controller's.
@@ -296,7 +297,8 @@ class ControllerModule {
             // Joins the solver thread: no wake() is called after this returns.
             LogScope scope(this);
             runtime_->driver.stop();
-            deadline_.arm(std::nullopt, [this](int64_t value) { host_->wake_at_ns(ctx_, value); });
+            deadline_.update(std::nullopt, [this](int64_t value) { host_->wake_at_ns(ctx_, value); },
+                             [this] { host_->wake_at_ns(ctx_, -1); });
             runtime_.reset();
         }
         return XGC2_OK;
@@ -711,7 +713,7 @@ class ControllerModule {
     const xgc2_host_api* host_;
     void* ctx_;
     pmc::ControllerConfig config_;
-    ::state_machine::SyncRuntimeTickAdapter deadline_;
+    ::state_machine::DeadlineArm<int64_t> deadline_;
     bool period_disabled_{false};
     std::unique_ptr<Runtime> runtime_;
     std::vector<Input> inputs_;

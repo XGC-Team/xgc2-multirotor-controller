@@ -2,8 +2,8 @@
 
 #include <ros/ros.h>
 #include <ros/callback_queue_interface.h>
+#include <ros1_utils/queued_owner.h>
 #include <ros1_utils/topic_stats.h>
-#include <state_machine/ros1_queued_owner.hpp>
 
 #include <memory>
 #include <mutex>
@@ -62,8 +62,8 @@ class DroneRosNode {
     std::unique_ptr<SensorInputProducer> sensor_input_producer_;
     std::unique_ptr<CommandInputProducer> command_input_producer_;
     std::unique_ptr<TrajectoryInputProducer> trajectory_input_producer_;
-    std::optional<state_machine::Ros1QueuedTurn> turn_;
-    std::optional<state_machine::Ros1DomainDeadline<uint64_t>> deadline_;
+    std::optional<ros1_utils::QueuedOwnerTurn> turn_;
+    std::optional<ros1_utils::DomainDeadline<uint64_t>> deadline_;
     std::mutex turn_mutex_;
     bool accepting_turns_{true};
 };
