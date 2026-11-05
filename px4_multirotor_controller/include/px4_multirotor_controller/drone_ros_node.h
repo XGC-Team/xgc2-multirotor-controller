@@ -1,7 +1,7 @@
 #pragma once
 
-#include <ros/ros.h>
 #include <ros/callback_queue_interface.h>
+#include <ros/ros.h>
 #include <ros1_utils/queued_owner.h>
 #include <ros1_utils/topic_stats.h>
 

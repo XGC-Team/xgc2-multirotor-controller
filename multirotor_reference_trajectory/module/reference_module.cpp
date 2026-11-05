@@ -187,8 +187,9 @@ class ReferenceModule {
     }
 
     xgc2_status stop() {
-        deadline_.update(std::nullopt, [this](int64_t value) { host_->wake_at_ns(ctx_, value); },
-                         [this] { host_->wake_at_ns(ctx_, -1); });
+        deadline_.update(
+            std::nullopt, [this](int64_t value) { host_->wake_at_ns(ctx_, value); },
+            [this] { host_->wake_at_ns(ctx_, -1); });
         running_ = false;
         return XGC2_OK;
     }
@@ -246,8 +247,9 @@ class ReferenceModule {
         const std::optional<int64_t> deadline = next
             ? std::optional<int64_t>{static_cast<int64_t>(
                   std::ceil(static_cast<long double>(*next) * 1e9L))} : std::nullopt;
-        deadline_.update(deadline, [this](int64_t value) { host_->wake_at_ns(ctx_, value); },
-                         [this] { host_->wake_at_ns(ctx_, -1); });
+        deadline_.update(
+            deadline, [this](int64_t value) { host_->wake_at_ns(ctx_, value); },
+            [this] { host_->wake_at_ns(ctx_, -1); });
     }
 
     // Everything that arrived on the request ports, in arrival order (the node's callbacks run in
