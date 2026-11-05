@@ -9,7 +9,7 @@ namespace px4_multirotor_controller {
 
 ReadyState::ReadyState(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult ReadyState::onEnter(::state_machine::StateContext& ctx) {
+void ReadyState::onEnter() {
     controller_.logInfo("[ReadyState] Entering Ready State");
 
     // 请求 disarm，确保系统处于未解锁状态
@@ -20,17 +20,13 @@ ReadyState::ReadyState(DroneController& controller) : controller_(controller) {}
     } else {
         controller_.emitFlightEffect(FlightArmRequest{controller_.getCurrentTime(), false});
     }
-    return {};
+    return;
 }
 
-::state_machine::ActionResult ReadyState::onTick(::state_machine::StateContext&) {
-    // 就绪状态无需周期性控制输出，等待外部命令或 guard 转移。
-    return {};
-}
 
-::state_machine::ActionResult ReadyState::onExit(::state_machine::StateContext&) {
+void ReadyState::onExit() {
     controller_.logInfo("[ReadyState] Exiting Ready State");
-    return {};
+    return;
 }
 
 }  // namespace px4_multirotor_controller

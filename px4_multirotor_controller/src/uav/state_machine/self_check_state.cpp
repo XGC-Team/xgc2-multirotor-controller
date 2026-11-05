@@ -7,15 +7,15 @@ namespace px4_multirotor_controller {
 
 SelfCheckState::SelfCheckState(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult SelfCheckState::onEnter(::state_machine::StateContext&) {
+void SelfCheckState::onEnter() {
     controller_.logInfo("[SelfCheckState] Entering SelfCheck State");
 
     // 启动日志计时器
     status_log_timer_.start();
-    return {};
+    return;
 }
 
-::state_machine::ActionResult SelfCheckState::onTick(::state_machine::StateContext&) {
+void SelfCheckState::onTick() {
     // 每2秒打印一次传感器状态
     if (status_log_timer_.elapsed().count() >= LOG_INTERVAL) {
         const auto& sensor_data = controller_.getSensorData();
@@ -50,13 +50,13 @@ SelfCheckState::SelfCheckState(DroneController& controller) : controller_(contro
 
         status_log_timer_.reset();
     }
-    return {};
+    return;
 }
 
-::state_machine::ActionResult SelfCheckState::onExit(::state_machine::StateContext&) {
+void SelfCheckState::onExit() {
     controller_.logInfo("[SelfCheckState] Exiting SelfCheck State");
     status_log_timer_.stop();
-    return {};
+    return;
 }
 
 }  // namespace px4_multirotor_controller

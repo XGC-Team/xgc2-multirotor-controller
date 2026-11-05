@@ -8,11 +8,10 @@
 
 namespace px4_multirotor_controller {
 
-TakeoffOffboardRequestState::TakeoffOffboardRequestState(DroneController& controller)
-    : controller_(controller) {}
+TakeoffOffboardRequestState::TakeoffOffboardRequestState(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult TakeoffOffboardRequestState::onEnter(
-    ::state_machine::StateContext& ctx) {
+void TakeoffOffboardRequestState::onEnter(
+    ) {
     controller_.logInfo("[TakeoffOffboardRequestState] Entering OFFBOARD Request State");
 
     confirmed_offboard_frames_ = 0;
@@ -23,25 +22,25 @@ TakeoffOffboardRequestState::TakeoffOffboardRequestState(DroneController& contro
     mode_request_timer_.start();
 
     controller_.logInfo("[TakeoffOffboardRequestState] Ready to request OFFBOARD mode");
-    return {};
+    return;
 }
 
-::state_machine::ActionResult TakeoffOffboardRequestState::onTick(
-    ::state_machine::StateContext& ctx) {
-    publishSetpointIfDue(ctx);
-    requestOffboardModeIfDue(ctx);
+void TakeoffOffboardRequestState::onTick(
+    ) {
+    publishSetpointIfDue();
+    requestOffboardModeIfDue();
     updateOffboardConfirmation();
-    postOffboardReadyOnce(ctx);
-    return {};
+    postOffboardReadyOnce();
+    return;
 }
 
-void TakeoffOffboardRequestState::publishSetpointIfDue(::state_machine::StateContext& ctx) {
+void TakeoffOffboardRequestState::publishSetpointIfDue() {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
         controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     }
 }
 
-void TakeoffOffboardRequestState::requestOffboardModeIfDue(::state_machine::StateContext& ctx) {
+void TakeoffOffboardRequestState::requestOffboardModeIfDue() {
     if (mode_request_timer_.elapsed().count() < OFFBOARD_REQUEST_INTERVAL) {
         return;
     }
@@ -75,7 +74,7 @@ void TakeoffOffboardRequestState::updateOffboardConfirmation() {
     }
 }
 
-void TakeoffOffboardRequestState::postOffboardReadyOnce(::state_machine::StateContext& ctx) {
+void TakeoffOffboardRequestState::postOffboardReadyOnce() {
     if (offboard_ready_event_posted_ || confirmed_offboard_frames_ < REQUIRED_OFFBOARD_FRAMES) {
         return;
     }
@@ -83,22 +82,21 @@ void TakeoffOffboardRequestState::postOffboardReadyOnce(::state_machine::StateCo
     controller_.logInfo("[TakeoffOffboardRequestState] OFFBOARD mode ready (%d frames received)",
                         confirmed_offboard_frames_);
     offboard_ready_event_posted_ = true;
-    ctx.postInternalEvent(::state_machine::Event(
-        event_type::OFFBOARD_READY, ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightSignal(FlightSignal::OffboardReady);
 }
 
-::state_machine::ActionResult TakeoffOffboardRequestState::onExit(
-    ::state_machine::StateContext& ctx) {
+void TakeoffOffboardRequestState::onExit(
+    ) {
     const auto& sensor_data = controller_.getSensorData();
     const double elapsed_time =
-        std::chrono::duration<double>(ctx.elapsed(state_type::TakeoffOffboardRequest)).count();
+        std::chrono::duration<double>(controller_.flightElapsed()).count();
     controller_.logInfo(
         "[TakeoffOffboardRequestState] Exiting (mode: %s, OFFBOARD frames: "
         "%d, elapsed: %.2f s)",
         sensor_data.fcu_mode.c_str(), confirmed_offboard_frames_, elapsed_time);
     mode_request_timer_.stop();
     setpoint_publish_timer_.stop();
-    return {};
+    return;
 }
 
 }  // namespace px4_multirotor_controller

@@ -513,10 +513,10 @@ class ControllerModule {
                 const auto& m = *static_cast<const xgc2_px4_command_v1*>(data);
                 const std::string text = boundedString(m.text, sizeof m.text);
                 if (const auto command = pmc::parseFlightCommand(text); command) {
-                    const auto status = rt.driver.controller().postCommand(*command, receipt_sec);
-                    if (!status.ok() && (post_failures_++ % 1000) == 0) {
-                        log(kLogError, "cannot post input event from command: " + status.message +
-                                           " (failures: " + std::to_string(post_failures_) + ")");
+                    const bool accepted = rt.driver.controller().postCommand(*command, receipt_sec);
+                    if (!accepted && (post_failures_++ % 1000) == 0) {
+                        log(kLogError, "cannot post input event from command: pending event capacity reached"
+                                       " (failures: " + std::to_string(post_failures_) + ")");
                     }
                 } else {
                     log(kLogWarn, "unknown command: " + text);

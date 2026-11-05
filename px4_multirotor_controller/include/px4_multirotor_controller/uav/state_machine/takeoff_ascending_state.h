@@ -1,6 +1,7 @@
 #pragma once
 
-#include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/uav/flight_signal.h"
+#include "px4_multirotor_controller/driver/command_input.h"
 
 #include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
@@ -18,28 +19,22 @@ class DroneController;
 // - 检测高度到达条件（|z - 目标| <= 高度阈值，双侧 + 速度稳定，连续5帧）
 // - 到达后发送 ALTITUDE_REACHED 事件转移到 Hover
 // - 超时后发送 TAKEOFF_TIMEOUT 事件转移到 Landing
-class TakeoffAscendingState : public ::state_machine::State {
+class TakeoffAscendingState {
    public:
     explicit TakeoffAscendingState(DroneController& controller);
-    ~TakeoffAscendingState() override = default;
 
-    std::string name() const override {
-        return "TakeoffAscending";
-    }
 
-   protected:
-    ::state_machine::ActionResult onEnter(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onEvent(::state_machine::StateContext& ctx,
-                                          const ::state_machine::Event& event) override;
-    ::state_machine::ActionResult onExit(::state_machine::StateContext& ctx) override;
+    void onEnter();
+    void onTick();
+    void onEvent(FlightCommand command);
+    void onExit();
 
    private:
-    void publishSetpointIfDue(::state_machine::StateContext& ctx);
+    void publishSetpointIfDue();
     void logStatusIfDue();
-    bool postTimeoutIfNeeded(::state_machine::StateContext& ctx);
+    bool postTimeoutIfNeeded();
     void updateAltitudeConfirmation();
-    void postAltitudeReachedOnce(::state_machine::StateContext& ctx);
+    void postAltitudeReachedOnce();
 
     DroneController& controller_;
     ControllerTimer status_log_timer_;        // 状态日志节流计时器

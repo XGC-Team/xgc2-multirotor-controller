@@ -1,6 +1,6 @@
 #pragma once
 
-#include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/uav/flight_signal.h"
 
 #include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
@@ -19,26 +19,21 @@ class DroneController;
 // - 可配置地跳过初始化阶段的 DISARM 请求与 ALTCTL 安全门
 // - 未跳过时，请求切换到定高模式（ALTCTL）
 // - 未跳过时，接收到两帧新的 ALTCTL 状态后自动转移到 OFFBOARD_REQUEST
-class TakeoffInitState : public ::state_machine::State {
+class TakeoffInitState {
    public:
     explicit TakeoffInitState(DroneController& controller);
-    ~TakeoffInitState() override = default;
 
-    std::string name() const override {
-        return "TakeoffInit";
-    }
 
-   protected:
-    ::state_machine::ActionResult onEnter(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onExit(::state_machine::StateContext& ctx) override;
+    void onEnter();
+    void onTick();
+    void onExit();
 
    private:
     void configureTakeoffSetpoint();
-    void requestDisarmIfRequired(::state_machine::StateContext& ctx);
-    void requestAltctlModeIfDue(::state_machine::StateContext& ctx);
+    void requestDisarmIfRequired();
+    void requestAltctlModeIfDue();
     void updateAltctlConfirmation();
-    void postAltctlReadyOnce(::state_machine::StateContext& ctx);
+    void postAltctlReadyOnce();
 
     DroneController& controller_;
     double initial_altitude_{0.0};           // 初始高度（用于日志）

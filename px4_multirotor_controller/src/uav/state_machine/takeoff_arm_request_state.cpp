@@ -7,10 +7,9 @@
 
 namespace px4_multirotor_controller {
 
-TakeoffArmRequestState::TakeoffArmRequestState(DroneController& controller)
-    : controller_(controller) {}
+TakeoffArmRequestState::TakeoffArmRequestState(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult TakeoffArmRequestState::onEnter(::state_machine::StateContext& ctx) {
+void TakeoffArmRequestState::onEnter() {
     controller_.logInfo("[TakeoffArmRequestState] Entering ARM Request State");
 
     confirmed_arm_frames_ = 0;
@@ -21,24 +20,24 @@ TakeoffArmRequestState::TakeoffArmRequestState(DroneController& controller)
     arm_request_timer_.start();
 
     controller_.logInfo("[TakeoffArmRequestState] Ready to request ARM");
-    return {};
+    return;
 }
 
-::state_machine::ActionResult TakeoffArmRequestState::onTick(::state_machine::StateContext& ctx) {
-    publishSetpointIfDue(ctx);
-    requestArmIfDue(ctx);
+void TakeoffArmRequestState::onTick() {
+    publishSetpointIfDue();
+    requestArmIfDue();
     updateArmConfirmation();
-    postArmReadyOnce(ctx);
-    return {};
+    postArmReadyOnce();
+    return;
 }
 
-void TakeoffArmRequestState::publishSetpointIfDue(::state_machine::StateContext& ctx) {
+void TakeoffArmRequestState::publishSetpointIfDue() {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
         controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     }
 }
 
-void TakeoffArmRequestState::requestArmIfDue(::state_machine::StateContext& ctx) {
+void TakeoffArmRequestState::requestArmIfDue() {
     if (arm_request_timer_.elapsed().count() < ARM_REQUEST_INTERVAL) {
         return;
     }
@@ -72,7 +71,7 @@ void TakeoffArmRequestState::updateArmConfirmation() {
     }
 }
 
-void TakeoffArmRequestState::postArmReadyOnce(::state_machine::StateContext& ctx) {
+void TakeoffArmRequestState::postArmReadyOnce() {
     if (arm_ready_event_posted_ || confirmed_arm_frames_ < REQUIRED_ARM_FRAMES) {
         return;
     }
@@ -80,21 +79,20 @@ void TakeoffArmRequestState::postArmReadyOnce(::state_machine::StateContext& ctx
     controller_.logInfo("[TakeoffArmRequestState] ARM ready (%d frames received)",
                         confirmed_arm_frames_);
     arm_ready_event_posted_ = true;
-    ctx.postInternalEvent(::state_machine::Event(
-        event_type::ARM_READY, ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightSignal(FlightSignal::ArmReady);
 }
 
-::state_machine::ActionResult TakeoffArmRequestState::onExit(::state_machine::StateContext& ctx) {
+void TakeoffArmRequestState::onExit() {
     const auto& sensor_data = controller_.getSensorData();
     const double elapsed_time =
-        std::chrono::duration<double>(ctx.elapsed(state_type::TakeoffArmRequest)).count();
+        std::chrono::duration<double>(controller_.flightElapsed()).count();
     controller_.logInfo(
         "[TakeoffArmRequestState] Exiting (armed: %s, ARM frames: %d, "
         "elapsed: %.2f s)",
         sensor_data.fcu_armed ? "true" : "false", confirmed_arm_frames_, elapsed_time);
     arm_request_timer_.stop();
     setpoint_publish_timer_.stop();
-    return {};
+    return;
 }
 
 }  // namespace px4_multirotor_controller

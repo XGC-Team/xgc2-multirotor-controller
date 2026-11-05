@@ -33,6 +33,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <state_machine/state_machine.hpp>  // historical trace representation only
 
 #include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/common/types.h"

@@ -2,6 +2,7 @@
 #include <rigid_state_estimator_msgs/RigidStateEstimate.h>
 #include <ros/time.h>
 
+#include <algorithm>
 #include <memory>
 
 #include "px4_multirotor_controller/drone_controller.h"
@@ -33,6 +34,7 @@ class PositionDistanceRuntimeTest : public ::testing::Test {
         controller_ = std::make_unique<DroneController>(sensor_);
         ControllerConfig config;
         config.tracking_backend = backend;
+        config.takeoff_altitude = 1.0;
         controller_->setConfig(config);
         tick();
     }
@@ -52,9 +54,32 @@ class PositionDistanceRuntimeTest : public ::testing::Test {
     }
 
     void request(uint32_t event_id) {
-        const auto status = controller_->getStateMachine().postEvent(
-            ::state_machine::Event(event_id, ::state_machine::EventTimestamp{now_}));
-        ASSERT_TRUE(status.ok()) << status.message;
+        if (event_id == event_type::ALTCTL_READY) {
+            sensor_.fcu_mode = "ALTCTL";
+            for (int i = 0; i < 2; ++i) { sensor_.state_stats.is_new = true; tick(); }
+            return;
+        }
+        if (event_id == event_type::OFFBOARD_READY) {
+            sensor_.fcu_mode = "OFFBOARD";
+            sensor_.state_stats.is_new = true; tick(); return;
+        }
+        if (event_id == event_type::ARM_READY) {
+            sensor_.fcu_armed = true;
+            sensor_.state_stats.is_new = true; tick(); return;
+        }
+        if (event_id == event_type::ALTITUDE_REACHED) {
+            sensor_.local_z = sensor_.vrpn_z = sensor_.z = controller_->getSetpoint().z;
+            for (int i = 0; i < 5; ++i) {
+                sensor_.local_pos_stats.is_new = sensor_.vrpn_pose_stats.is_new = true;
+                sensor_.uav_state_estimate_stats.is_new = true;
+                tick();
+            }
+            return;
+        }
+        const auto command = event_id == event_type::TAKEOFF_REQUESTED ? FlightCommand::Takeoff
+            : event_id == event_type::HOVER_REQUESTED ? FlightCommand::Hover
+            : event_id == event_type::LANDING_REQUESTED ? FlightCommand::Land : FlightCommand::Track;
+        ASSERT_TRUE(controller_->postCommand(command, now_));
         tick();
     }
 
@@ -151,11 +176,40 @@ TEST_F(PositionDistanceRuntimeTest, UnobservedPairCannotApproveTakeoff) {
     EXPECT_EQ(state(), state_type::TakeoffInit);
 }
 
+TEST_F(PositionDistanceRuntimeTest, ReadySelectsTakeoffBeforeLocalSensorLoss) {
+    start();
+    ASSERT_EQ(state(), state_type::Ready);
+    // For PX4_LOCAL the existing health path does not emit a local-position
+    // timeout edge. Both Ready rules are true on this turn.
+    sensor_.local_pos_stats.is_active = false;
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Takeoff, now_));
+    tick();
+    EXPECT_EQ(state(), state_type::TakeoffInit);
+}
+
+TEST_F(PositionDistanceRuntimeTest, ReadySelectsAirborneBeforeTakeoff) {
+    start();
+    ASSERT_EQ(state(), state_type::Ready);
+    sensor_.fcu_armed = true;
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Takeoff, now_));
+    tick();
+    EXPECT_EQ(state(), state_type::Landing);
+}
+
+TEST_F(PositionDistanceRuntimeTest, ReadySelectsFcuTimeoutBeforeTakeoff) {
+    start();
+    ASSERT_EQ(state(), state_type::Ready);
+    sensor_.state_stats.is_active = false;
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Takeoff, now_));
+    tick();
+    EXPECT_EQ(state(), state_type::Landing);
+}
+
 TEST_F(PositionDistanceRuntimeTest, TransitionKeepsBothDueAndLandingSetpointsInOrder) {
     start();
     enterFlightState(state_type::Hover);
     now_ += 0.04;  // Hover's existing 30 Hz publication is due on the next turn.
-    ASSERT_TRUE(controller_->postCommand(FlightCommand::Land, now_).ok());
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Land, now_));
     tick();
     ASSERT_EQ(state(), state_type::Landing);
     const auto& outputs = controller_->flightEffects();
@@ -167,7 +221,7 @@ TEST_F(PositionDistanceRuntimeTest, TransitionKeepsBothDueAndLandingSetpointsInO
 
 TEST_F(PositionDistanceRuntimeTest, TakeoffPublishesSetpointBeforeInitialDisarmRequest) {
     start();
-    ASSERT_TRUE(controller_->postCommand(FlightCommand::Takeoff, now_).ok());
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Takeoff, now_));
     tick();
     ASSERT_EQ(state(), state_type::TakeoffInit);
     const auto& outputs = controller_->flightEffects();
@@ -178,17 +232,35 @@ TEST_F(PositionDistanceRuntimeTest, TakeoffPublishesSetpointBeforeInitialDisarmR
     EXPECT_FALSE(disarm->arm);
 }
 
+TEST_F(PositionDistanceRuntimeTest, CommandAfterFullTurnBatchRemainsForNextTurn) {
+    start();
+    for (int i = 0; i < 64; ++i)
+        ASSERT_TRUE(controller_->postCommand(FlightCommand::Hover, now_));
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Takeoff, now_));
+    tick();
+    EXPECT_EQ(state(), state_type::Ready);
+    tick();
+    EXPECT_EQ(state(), state_type::TakeoffInit);
+}
+
+TEST_F(PositionDistanceRuntimeTest, FullOriginalCommandQueueReportsFailure) {
+    start();
+    for (int i = 0; i < 4096; ++i)
+        ASSERT_TRUE(controller_->postCommand(FlightCommand::Hover, now_));
+    const auto result = controller_->postCommand(FlightCommand::Land, now_);
+    EXPECT_FALSE(result);
+}
+
 class SameTurnCommandTest : public PositionDistanceRuntimeTest,
                             public ::testing::WithParamInterface<bool> {};
 
 TEST_P(SameTurnCommandTest, LandWinsOverTrackingRegardlessOfArrivalOrder) {
     start(TrackingBackend::DFBC);
     enterFlightState(state_type::Hover);
-    auto& machine = controller_->getStateMachine();
     const FlightCommand first = GetParam() ? FlightCommand::Land : FlightCommand::Track;
     const FlightCommand second = GetParam() ? FlightCommand::Track : FlightCommand::Land;
-    ASSERT_TRUE(controller_->postCommand(first, now_).ok());
-    ASSERT_TRUE(controller_->postCommand(second, now_).ok());
+    ASSERT_TRUE(controller_->postCommand(first, now_));
+    ASSERT_TRUE(controller_->postCommand(second, now_));
     tick();
     ASSERT_EQ(state(), state_type::Landing);
     for (const auto& output : controller_->flightEffects()) {
@@ -201,8 +273,8 @@ TEST_P(SameTurnCommandTest, HoverWinsOverTrackingDuringAscentInEitherArrivalOrde
     enterFlightState(state_type::TakeoffAscending);
     const FlightCommand first = GetParam() ? FlightCommand::Hover : FlightCommand::Track;
     const FlightCommand second = GetParam() ? FlightCommand::Track : FlightCommand::Hover;
-    ASSERT_TRUE(controller_->postCommand(first, now_).ok());
-    ASSERT_TRUE(controller_->postCommand(second, now_).ok());
+    ASSERT_TRUE(controller_->postCommand(first, now_));
+    ASSERT_TRUE(controller_->postCommand(second, now_));
     tick();
     EXPECT_EQ(state(), state_type::Hover);
     EXPECT_FALSE(controller_->custom1Requested());
@@ -217,8 +289,7 @@ TEST_F(PositionDistanceRuntimeTest, SameTurnPositionSafetyWinsOverTracking) {
     enterFlightState(state_type::Hover);
     sensor_.vrpn_x = 1.01;
     sensor_.vrpn_pose_stats.is_new = true;
-    auto& machine = controller_->getStateMachine();
-    ASSERT_TRUE(controller_->postCommand(FlightCommand::Track, now_).ok());
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Track, now_));
     tick();
     ASSERT_TRUE(controller_->getPositionDistance().exceeded);
     ASSERT_EQ(state(), state_type::Landing);
@@ -231,9 +302,65 @@ TEST_F(PositionDistanceRuntimeTest, LandWinsOverArmedReturnDuringTakeoffInit) {
     start();
     enterFlightState(state_type::TakeoffInit);
     sensor_.fcu_armed = true;
-    ASSERT_TRUE(controller_->postCommand(FlightCommand::Land, now_).ok());
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Land, now_));
     tick();
     EXPECT_EQ(state(), state_type::Landing);
+}
+
+TEST_F(PositionDistanceRuntimeTest, DeferredCompletionIsDiagnosedOnlyWhenItActuallyOccurs) {
+    start();
+    enterFlightState(state_type::TakeoffAscending);
+    sensor_.local_z = sensor_.vrpn_z = sensor_.z = controller_->getSetpoint().z;
+    for (int i = 0; i < 4; ++i) {
+        sensor_.local_pos_stats.is_new = sensor_.vrpn_pose_stats.is_new = true;
+        tick();
+        ASSERT_EQ(state(), state_type::TakeoffAscending);
+    }
+    sensor_.local_pos_stats.is_new = sensor_.vrpn_pose_stats.is_new = true;
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Land, now_));
+    tick();
+    ASSERT_EQ(state(), state_type::Landing);
+    EXPECT_EQ(controller_->flightDiagnosticEvents(),
+              (std::vector<uint32_t>{event_type::LANDING_REQUESTED, event_type::ALTITUDE_REACHED}));
+
+    // The old engine makes the unselected completion visible to the next
+    // control turn; that is the same completion, not a second occurrence.
+    tick();
+    EXPECT_TRUE(controller_->flightDiagnosticEvents().empty());
+}
+
+TEST_F(PositionDistanceRuntimeTest, GroundReconfigureRetainsExistingCustom1PublishCadence) {
+    start(TrackingBackend::PVA_SMC);
+    enterFlightState(state_type::Custom1);
+    request(event_type::LANDING_REQUESTED);
+    ASSERT_EQ(state(), state_type::Landing);
+
+    sensor_.local_z = sensor_.vrpn_z = sensor_.z = 0.0;
+    sensor_.fcu_armed = false;
+    for (int i = 0; i < 5; ++i) {
+        sensor_.local_pos_stats.is_new = sensor_.vrpn_pose_stats.is_new = true;
+        sensor_.state_stats.is_new = true;
+        tick();
+    }
+    ASSERT_EQ(state(), state_type::SelfCheck);
+    tick();
+    ASSERT_EQ(state(), state_type::Ready);
+
+    auto config = controller_->getConfig();
+    config.tracking_backend = TrackingBackend::SMC;
+    controller_->setConfig(config);
+    enterFlightState(state_type::Custom1);
+    tick();  // First waiting-reference setpoint.
+    ASSERT_TRUE(std::any_of(controller_->flightEffects().begin(), controller_->flightEffects().end(),
+                            [](const FlightEffect& effect) {
+                                return std::holds_alternative<FlightSetpoint>(effect);
+                            }));
+    now_ += 0.01;
+    tick();  // The previously configured 10 ms PVA cadence still applies.
+    EXPECT_TRUE(std::any_of(controller_->flightEffects().begin(), controller_->flightEffects().end(),
+                            [](const FlightEffect& effect) {
+                                return std::holds_alternative<FlightSetpoint>(effect);
+                            }));
 }
 
 class PositionDistanceFlightTest : public PositionDistanceRuntimeTest,
@@ -262,8 +389,8 @@ TEST_P(PositionDistanceFlightTest, OnlyFlightStatesEnterExistingLandingOnce) {
         tick();
         ASSERT_EQ(state(), state_type::Landing);
         ASSERT_TRUE(controller_->custom1Requested());
-        for (const auto& record : controller_->getStateMachine().currentEvents()) {
-            EXPECT_NE(record.event.id, event_type::LANDING_REQUESTED);
+        for (const auto event : controller_->flightDiagnosticEvents()) {
+            EXPECT_NE(event, event_type::LANDING_REQUESTED);
         }
     }
 }

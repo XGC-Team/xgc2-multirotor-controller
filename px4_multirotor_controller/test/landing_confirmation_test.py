@@ -57,6 +57,7 @@ template<class Clock = void> struct Timer {
 }
 }
 namespace px4_multirotor_controller {
+enum class FlightSignal : uint32_t { Touchdown = 10 };
 enum class TrackingBackend { PX4_LOCAL, NMPC, DFBC };
 constexpr double kLocalSetpointPublishHz = 30.0;
 constexpr double kLocalSetpointPublishInterval = 1.0 / kLocalSetpointPublishHz;
@@ -88,6 +89,10 @@ struct DroneController {
     double now{1};
     std::vector<std::string> warnings;
     std::vector<FlightEffect> outputs;
+    std::vector<FlightSignal> signals;
+    double elapsed_seconds{0};
+    std::chrono::duration<double> flightElapsed() const { return std::chrono::duration<double>(elapsed_seconds); }
+    void emitFlightSignal(FlightSignal signal) { signals.push_back(signal); }
     void emitFlightEffect(FlightEffect effect) { outputs.push_back(std::move(effect)); }
     void clearCustom1Request() {}
     const SensorData& getSensorData() const { return sensor; }
@@ -136,108 +141,110 @@ size_t count(const std::vector<FlightEffect>& events, uint32_t id) {
                (id == output_event_type::REQUEST_ARMING && std::holds_alternative<FlightArmRequest>(effect));
     });
 }
-void tick(TestLanding& landing, DroneController& controller, state_machine::StateContext& ctx) {
-    controller.now += .01;
-    landing.onTick(ctx);
+size_t count(const std::vector<FlightSignal>& signals, uint32_t id) {
+    return std::count_if(signals.begin(), signals.end(), [id](auto signal) {
+        return static_cast<uint32_t>(signal) == id;
+    });
 }
-void settle(TestLanding& landing, DroneController& controller, state_machine::StateContext& ctx) {
+void tick(TestLanding& landing, DroneController& controller) {
+    controller.now += .01;
+    landing.onTick();
+}
+void settle(TestLanding& landing, DroneController& controller) {
     controller.sensor.local_z = controller.sensor.z = .05;
     controller.sensor.local_vz = controller.sensor.vz = 0;
-    for (int i = 0; i < 5; ++i) tick(landing, controller, ctx);
+    for (int i = 0; i < 5; ++i) tick(landing, controller);
 }
 void testTimeoutAndLateDisarmConfirmation() {
     DroneController controller;
     TestLanding landing(controller);
-    state_machine::StateContext ctx;
-    landing.onEnter(ctx);
-    ctx.elapsed_seconds = 100;
-    tick(landing, controller, ctx);
-    assert(ctx.internals.empty());
+    landing.onEnter();
+    controller.elapsed_seconds = 100;
+    tick(landing, controller);
+    assert(controller.signals.empty());
     assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 0);
     assert(!controller.warnings.empty());
     const auto publications = count(controller.outputs, output_event_type::PUBLISH_SETPOINT);
-    tick(landing, controller, ctx);
+    tick(landing, controller);
     assert(count(controller.outputs, output_event_type::PUBLISH_SETPOINT) > publications);
     assert(controller.setpoint.vz < 0);
     // Timeout must not stop subsequent touchdown observation.
-    settle(landing, controller, ctx);
+    settle(landing, controller);
     assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 1);
     for (const auto& effect : controller.outputs) {
         if (const auto* arm = std::get_if<FlightArmRequest>(&effect)) assert(!arm->arm);
     }
     // A refused or uncompleted request leaves FCU armed; it is not success.
-    for (int i = 0; i < 100; ++i) tick(landing, controller, ctx);
+    for (int i = 0; i < 100; ++i) tick(landing, controller);
     assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 1);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
     controller.sensor.fcu_armed = false;
     controller.sensor.state_stats.is_new = false;
-    tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    tick(landing, controller);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
     controller.sensor.state_stats.is_new = true;
     controller.sensor.state_stats.is_active = false;
-    tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    tick(landing, controller);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
     controller.sensor.state_stats.is_active = true;
     controller.sensor.fcu_connected = false;
-    tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    tick(landing, controller);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
     controller.sensor.fcu_connected = true;
-    tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 1);
-    tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 1);
-    landing.onExit(ctx);
+    tick(landing, controller);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 1);
+    tick(landing, controller);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 1);
+    landing.onExit();
     assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 1);
 }
 void testNoCompletionFromInvalidFeedback() {
     DroneController controller;
     TestLanding landing(controller);
-    state_machine::StateContext ctx;
-    landing.onEnter(ctx);
+    landing.onEnter();
     controller.sensor.local_velocity_stats.is_active = false;
-    settle(landing, controller, ctx);
+    settle(landing, controller);
     assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 0);
     controller.sensor.local_velocity_stats.is_active = true;
     controller.sensor.local_pos_stats.is_new = false;
-    settle(landing, controller, ctx);
+    settle(landing, controller);
     assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 0);
     controller.sensor.local_pos_stats.is_new = true;
     controller.sensor.local_vz = std::numeric_limits<double>::quiet_NaN();
-    for (int i = 0; i < 5; ++i) tick(landing, controller, ctx);
+    for (int i = 0; i < 5; ++i) tick(landing, controller);
     assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 0);
-    settle(landing, controller, ctx);
+    settle(landing, controller);
     assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 1);
     controller.sensor.local_pos_stats.is_active = false;
     controller.sensor.fcu_armed = false;
-    tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    tick(landing, controller);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
     controller.sensor.local_pos_stats.is_active = true;
-    settle(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 1);
+    settle(landing, controller);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 1);
 }
 void testFusedFeedbackAndReentry() {
     DroneController controller;
     controller.config.tracking_backend = TrackingBackend::NMPC;
     controller.sensor.local_pos_stats.is_active = false;
     TestLanding landing(controller);
-    state_machine::StateContext ctx;
-    landing.onEnter(ctx);
-    settle(landing, controller, ctx);
+    landing.onEnter();
+    settle(landing, controller);
     assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 1);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
     controller.sensor.fcu_armed = false;
-    tick(landing, controller, ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 1);
-    landing.onExit(ctx);
-    controller.outputs.clear(); ctx.internals.clear();
+    tick(landing, controller);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 1);
+    landing.onExit();
+    controller.outputs.clear(); controller.signals.clear();
     controller.sensor.fcu_armed = true;
-    landing.onEnter(ctx);
-    settle(landing, controller, ctx);
+    landing.onEnter();
+    settle(landing, controller);
     assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 1);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
     // External exit does not confirm touchdown.
-    landing.onExit(ctx);
-    assert(count(ctx.internals, event_type::TOUCHDOWN) == 0);
+    landing.onExit();
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
 }
 int main() {
     testTimeoutAndLateDisarmConfirmation();
@@ -256,6 +263,7 @@ class LandingConfirmationTest(unittest.TestCase):
             root = Path(directory)
             (root / "support.hpp").write_text(SUPPORT)
             for name in (
+                "px4_multirotor_controller/uav/flight_signal.h",
                 "state_machine/state_machine.hpp",
                 "state_machine/runtime/steady_timer.hpp",
                 "px4_multirotor_controller/common/types.h",

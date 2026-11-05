@@ -12,7 +12,7 @@ namespace px4_multirotor_controller {
 
 LandingState::LandingState(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult LandingState::onEnter(::state_machine::StateContext& ctx) {
+void LandingState::onEnter() {
     controller_.clearCustom1Request();
     controller_.logInfo("[LandingState] Entering Landing State");
 
@@ -32,7 +32,7 @@ LandingState::LandingState(DroneController& controller) : controller_(controller
     controller_.logInfo("[LandingState] Initial altitude: %.2f m, max duration: %.1f s",
                         initial_altitude_, max_landing_duration_);
 
-    emitLandingSetpoint(ctx);
+    emitLandingSetpoint();
     setpoint_publish_timer_.start();
     log_timer_.start();
 
@@ -41,7 +41,7 @@ LandingState::LandingState(DroneController& controller) : controller_(controller
     disarm_requested_ = false;
     confirmed_landed_frames_ = 0;
     exit_reason_ = ExitReason::UNKNOWN;
-    return {};
+    return;
 }
 
 double LandingState::getDescentVelocity(double altitude) {
@@ -69,19 +69,19 @@ void LandingState::configureLandingSetpoint() {
     landing_setpoint_.yaw_rate = 0.0;
 }
 
-void LandingState::emitLandingSetpoint(::state_machine::StateContext&) {
+void LandingState::emitLandingSetpoint() {
     controller_.getSetpoint() = landing_setpoint_;
     controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
 }
 
-::state_machine::ActionResult LandingState::onTick(::state_machine::StateContext& ctx) {
+void LandingState::onTick() {
     updateDescentVelocityIfNeeded();
-    publishSetpointIfDue(ctx);
+    publishSetpointIfDue();
     logStatusIfDue();
-    reportTimeoutIfNeeded(ctx);
+    reportTimeoutIfNeeded();
     updateTouchdownConfirmation();
-    postTouchdownOnce(ctx);
-    return {};
+    postTouchdownOnce();
+    return;
 }
 
 void LandingState::updateDescentVelocityIfNeeded() {
@@ -92,9 +92,9 @@ void LandingState::updateDescentVelocityIfNeeded() {
     }
 }
 
-void LandingState::publishSetpointIfDue(::state_machine::StateContext& ctx) {
+void LandingState::publishSetpointIfDue() {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
-        emitLandingSetpoint(ctx);
+        emitLandingSetpoint();
     }
 }
 
@@ -113,12 +113,12 @@ void LandingState::logStatusIfDue() {
     log_timer_.reset();
 }
 
-void LandingState::reportTimeoutIfNeeded(::state_machine::StateContext& ctx) {
+void LandingState::reportTimeoutIfNeeded() {
     if (timeout_reported_) {
         return;
     }
     const double elapsed_time =
-        std::chrono::duration<double>(ctx.elapsed(state_type::Landing)).count();
+        std::chrono::duration<double>(controller_.flightElapsed()).count();
     if (elapsed_time < max_landing_duration_) {
         return;
     }
@@ -169,7 +169,7 @@ void LandingState::updateTouchdownConfirmation() {
     }
 }
 
-void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
+void LandingState::postTouchdownOnce() {
     if (touchdown_event_posted_ || confirmed_landed_frames_ < CONSECUTIVE_SETTLED_FRAMES) {
         return;
     }
@@ -186,8 +186,7 @@ void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
         }
         touchdown_event_posted_ = true;
         exit_reason_ = ExitReason::TOUCHDOWN;
-        ctx.postInternalEvent(::state_machine::Event(
-            event_type::TOUCHDOWN, ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+        controller_.emitFlightSignal(FlightSignal::Touchdown);
         return;
     }
     if (!disarm_requested_) {
@@ -198,12 +197,11 @@ void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
     }
 }
 
-::state_machine::ActionResult LandingState::onExit(::state_machine::StateContext& ctx) {
+void LandingState::onExit() {
     controller_.logInfo("[LandingState] Exiting Landing State");
     log_timer_.stop();
     setpoint_publish_timer_.stop();
 
-    (void)ctx;
     if (exit_reason_ == ExitReason::TOUCHDOWN) {
         controller_.logInfo("[LandingState] Landing complete: fresh FCU disarm confirmed");
     } else {
@@ -211,7 +209,7 @@ void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
             "[LandingState] Exited without confirmed touchdown/disarm; "
             "no automatic force-disarm issued");
     }
-    return {};
+    return;
 }
 
 }  // namespace px4_multirotor_controller

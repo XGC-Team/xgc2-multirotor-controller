@@ -12,7 +12,7 @@ namespace px4_multirotor_controller {
 
 TakeoffInitState::TakeoffInitState(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult TakeoffInitState::onEnter(::state_machine::StateContext& ctx) {
+void TakeoffInitState::onEnter() {
     controller_.logInfo("[TakeoffInitState] Entering Takeoff Initialization");
 
     skip_altctl_gate_ = controller_.getConfig().skip_takeoff_init_disarm;
@@ -22,12 +22,12 @@ TakeoffInitState::TakeoffInitState(DroneController& controller) : controller_(co
     configureTakeoffSetpoint();
     controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     setpoint_publish_timer_.start();
-    requestDisarmIfRequired(ctx);
+    requestDisarmIfRequired();
 
     if (!skip_altctl_gate_) {
         altctl_request_timer_.start();
     }
-    return {};
+    return;
 }
 
 void TakeoffInitState::configureTakeoffSetpoint() {
@@ -65,7 +65,7 @@ void TakeoffInitState::configureTakeoffSetpoint() {
                         initial_altitude_, target_altitude_);
 }
 
-void TakeoffInitState::requestDisarmIfRequired(::state_machine::StateContext& ctx) {
+void TakeoffInitState::requestDisarmIfRequired() {
     if (skip_altctl_gate_) {
         controller_.logInfo(
             "[TakeoffInitState] Skipping DISARM request and ALTCTL gate by "
@@ -77,21 +77,21 @@ void TakeoffInitState::requestDisarmIfRequired(::state_machine::StateContext& ct
     controller_.emitFlightEffect(FlightArmRequest{controller_.getCurrentTime(), false});
 }
 
-::state_machine::ActionResult TakeoffInitState::onTick(::state_machine::StateContext& ctx) {
+void TakeoffInitState::onTick() {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
         controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     }
 
     if (!skip_altctl_gate_) {
-        requestAltctlModeIfDue(ctx);
+        requestAltctlModeIfDue();
         updateAltctlConfirmation();
     }
 
-    postAltctlReadyOnce(ctx);
-    return {};
+    postAltctlReadyOnce();
+    return;
 }
 
-void TakeoffInitState::requestAltctlModeIfDue(::state_machine::StateContext& ctx) {
+void TakeoffInitState::requestAltctlModeIfDue() {
     if (altctl_request_timer_.elapsed().count() < ALTCTL_REQUEST_INTERVAL) {
         return;
     }
@@ -123,7 +123,7 @@ void TakeoffInitState::updateAltctlConfirmation() {
     }
 }
 
-void TakeoffInitState::postAltctlReadyOnce(::state_machine::StateContext& ctx) {
+void TakeoffInitState::postAltctlReadyOnce() {
     if (altctl_ready_event_posted_ || altctl_frame_count_ < REQUIRED_ALTCTL_FRAMES) {
         return;
     }
@@ -136,20 +136,19 @@ void TakeoffInitState::postAltctlReadyOnce(::state_machine::StateContext& ctx) {
     }
 
     altctl_ready_event_posted_ = true;
-    ctx.postInternalEvent(::state_machine::Event(
-        event_type::ALTCTL_READY, ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightSignal(FlightSignal::AltctlReady);
 }
 
-::state_machine::ActionResult TakeoffInitState::onExit(::state_machine::StateContext& ctx) {
+void TakeoffInitState::onExit() {
     const double elapsed_time =
-        std::chrono::duration<double>(ctx.elapsed(state_type::TakeoffInit)).count();
+        std::chrono::duration<double>(controller_.flightElapsed()).count();
     controller_.logInfo(
         "[TakeoffInitState] Exiting (ALTCTL frames received: %d, elapsed: "
         "%.2f s)",
         altctl_frame_count_, elapsed_time);
     altctl_request_timer_.stop();
     setpoint_publish_timer_.stop();
-    return {};
+    return;
 }
 
 }  // namespace px4_multirotor_controller

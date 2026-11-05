@@ -8,11 +8,10 @@
 
 namespace px4_multirotor_controller {
 
-using namespace event_type;
 
 HealthMonitorState::HealthMonitorState(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult HealthMonitorState::onTick(::state_machine::StateContext& ctx) {
+void HealthMonitorState::onTick() {
     const auto& sd = controller_.getSensorData();
     const auto& controller_config = controller_.getConfig();
     const auto& cfg = controller_config.safety;
@@ -37,17 +36,17 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
 
     const bool fused = trackingUsesFusedEstimate(controller_config.tracking_backend);
     if (fused && sd.feedback_source == FeedbackSource::RIGID_ESTIMATE) {
-        checkSensorActiveEdge(ctx, sd.uav_state_estimate_stats, ss.was_uav_state_estimate_active,
-                              SAFE_TIMEOUT_UAV_STATE_ESTIMATE);
+        checkSensorActiveEdge(sd.uav_state_estimate_stats, ss.was_uav_state_estimate_active,
+                              FlightSignal::TimeoutEstimate);
     }
     if (fused && sd.feedback_source == FeedbackSource::MAVROS_LOCAL) {
-        checkSensorActiveEdge(ctx, sd.local_pos_stats, ss.was_local_pos_active,
-                              SAFE_TIMEOUT_LOCAL_POS);
-        checkSensorActiveEdge(ctx, sd.local_velocity_stats, ss.was_local_velocity_active,
-                              SAFE_TIMEOUT_LOCAL_VELOCITY);
-        checkSensorActiveEdge(ctx, sd.imu_stats, ss.was_imu_active, SAFE_TIMEOUT_IMU);
+        checkSensorActiveEdge(sd.local_pos_stats, ss.was_local_pos_active,
+                              FlightSignal::TimeoutLocalPosition);
+        checkSensorActiveEdge(sd.local_velocity_stats, ss.was_local_velocity_active,
+                              FlightSignal::TimeoutLocalVelocity);
+        checkSensorActiveEdge(sd.imu_stats, ss.was_imu_active, FlightSignal::TimeoutImu);
     }
-    checkSensorActiveEdge(ctx, sd.state_stats, ss.was_state_active, SAFE_TIMEOUT_STATE);
+    checkSensorActiveEdge(sd.state_stats, ss.was_state_active, FlightSignal::TimeoutFcuState);
 
     const double now = controller_.getCurrentTime();
     const bool control_state_unusable = fused && sensor_checks::isControlStateActive(sd) &&
@@ -63,8 +62,7 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
     const bool estimate_unusable_trip =
         control_state_unusable && unusable_duration >= cfg.state_estimate_unusable_trip_delay;
     if (!ss.state_estimate_unusable && estimate_unusable_trip) {
-        postSafetyEvent(ctx, SAFE_UAV_STATE_ESTIMATE_UNUSABLE,
-                        "post state estimate unusable safety event");
+        controller_.emitFlightSignal(FlightSignal::EstimateUnusable);
     }
     ss.state_estimate_unusable = estimate_unusable_trip;
 
@@ -75,7 +73,7 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
         const bool currently_violated = cfg.world_boundary && cfg.world_boundary->control_bounds &&
                                         cfg.world_boundary->control_bounds->outside(x, y, z);
         if (!ss.geofence_violated && currently_violated) {
-            postSafetyEvent(ctx, SAFE_GEOFENCE_VIOLATION, "post geofence safety event");
+            controller_.emitFlightSignal(FlightSignal::Geofence);
         }
         ss.geofence_violated = currently_violated;
     }
@@ -86,14 +84,14 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
         const double velocity_xy = std::sqrt(vx * vx + vy * vy);
         const bool xy_exceeded = velocity_xy > cfg.max_velocity_xy;
         if (!ss.velocity_xy_exceeded && xy_exceeded) {
-            postSafetyEvent(ctx, SAFE_VELOCITY_XY_EXCEEDED, "post velocity xy safety event");
+            controller_.emitFlightSignal(FlightSignal::VelocityXY);
         }
         ss.velocity_xy_exceeded = xy_exceeded;
 
         const bool z_exceeded = std::abs(sensor_checks::worldVz(
                                     sd, controller_config.tracking_backend)) > cfg.max_velocity_z;
         if (!ss.velocity_z_exceeded && z_exceeded) {
-            postSafetyEvent(ctx, SAFE_VELOCITY_Z_EXCEEDED, "post velocity z safety event");
+            controller_.emitFlightSignal(FlightSignal::VelocityZ);
         }
         ss.velocity_z_exceeded = z_exceeded;
     }
@@ -103,13 +101,13 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
         const double acc_xy = std::sqrt(setpoint.ax * setpoint.ax + setpoint.ay * setpoint.ay);
         const bool xy_saturated = acc_xy > cfg.acc_saturation_xy;
         if (!ss.control_saturated_xy && xy_saturated) {
-            postSafetyEvent(ctx, SAFE_CONTROL_SATURATION_XY, "post control xy saturation event");
+            controller_.emitFlightSignal(FlightSignal::SaturationXY);
         }
         ss.control_saturated_xy = xy_saturated;
 
         const bool z_saturated = std::abs(setpoint.az) > cfg.acc_saturation_z;
         if (!ss.control_saturated_z && z_saturated) {
-            postSafetyEvent(ctx, SAFE_CONTROL_SATURATION_Z, "post control z saturation event");
+            controller_.emitFlightSignal(FlightSignal::SaturationZ);
         }
         ss.control_saturated_z = z_saturated;
     } else {
@@ -117,29 +115,14 @@ HealthMonitorState::HealthMonitorState(DroneController& controller) : controller
         ss.control_saturated_z = false;
     }
 
-    return {};
+    return;
 }
 
-void HealthMonitorState::postSafetyEvent(::state_machine::StateContext& ctx,
-                                         ::state_machine::EventId event_id,
-                                         const char* operation) const {
-    ::state_machine::Event event(event_id,
-                                 ::state_machine::EventTimestamp{controller_.getCurrentTime()});
-    event.source = "health";
-    auto status = ctx.postInternalEvent(std::move(event));
-    if (!status.ok()) {
-        controller_.logError("[HealthMonitorState] %s failed: %s", operation,
-                             status.message.c_str());
-    }
-}
-
-void HealthMonitorState::checkSensorActiveEdge(::state_machine::StateContext& ctx,
-                                               const SensorData::TopicStats& stats,
-                                               bool& was_active,
-                                               ::state_machine::EventId event_id) const {
+void HealthMonitorState::checkSensorActiveEdge(const SensorData::TopicStats& stats,
+                                               bool& was_active, FlightSignal signal) const {
     const bool currently_active = stats.is_active;
     if (was_active && !currently_active) {
-        postSafetyEvent(ctx, event_id, "post sensor safety event");
+        controller_.emitFlightSignal(signal);
     }
     was_active = currently_active;
 }

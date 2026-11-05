@@ -47,12 +47,11 @@ TEST(ControllerClock, PausedAndSlowTakeoffUsesUpdateTimeForRequestsAndTimeout) {
     config.tracking_backend = TrackingBackend::PX4_LOCAL;
     controller.setConfig(config);
     controller.update(100.0);
-    auto& machine = controller.getStateMachine();
-    ASSERT_EQ(machine.currentState(region_type::CONTROL), state_type::Ready);
-    ASSERT_TRUE(machine.postEvent(::state_machine::Event(event_type::TAKEOFF_REQUESTED)).ok());
+    ASSERT_EQ(controller.flightState(), FlightState::Ready);
+    ASSERT_TRUE(controller.postCommand(FlightCommand::Takeoff, 100.0));
     constexpr double entered_at = 100.01;
     controller.update(entered_at);
-    ASSERT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
+    ASSERT_EQ(static_cast<uint32_t>(controller.flightState()), state_type::TakeoffInit);
     bool disarm_requested = false;
     for (const auto& effect : controller.flightEffects()) {
         if (const auto* request = std::get_if<FlightArmRequest>(&effect)) {
@@ -69,17 +68,17 @@ TEST(ControllerClock, PausedAndSlowTakeoffUsesUpdateTimeForRequestsAndTimeout) {
         return count;
     };
     auto elapsed = [&] {
-        return std::chrono::duration<double>(machine.elapsed(state_type::TakeoffInit)).count();
+        return std::chrono::duration<double>(controller.flightElapsed()).count();
     };
 
     // The slow Gazebo window advanced only 1.988 seconds of controller time.
     controller.update(entered_at + 1.988);
-    EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
+    EXPECT_EQ(static_cast<uint32_t>(controller.flightState()), state_type::TakeoffInit);
     EXPECT_EQ(altctl_requests(), 0U);
     EXPECT_NEAR(elapsed(), 1.988, 1e-6);
     for (int i = 0; i < 100; ++i) {
         controller.update(entered_at + 1.988);  // paused clock, no wall-clock sleep
-        EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
+        EXPECT_EQ(static_cast<uint32_t>(controller.flightState()), state_type::TakeoffInit);
         EXPECT_EQ(altctl_requests(), 0U);
     }
     // Another controller's update must not advance this instance's elapsed time.
@@ -89,14 +88,14 @@ TEST(ControllerClock, PausedAndSlowTakeoffUsesUpdateTimeForRequestsAndTimeout) {
     EXPECT_NEAR(elapsed(), 1.988, 1e-6);
 
     controller.update(entered_at + 3.0);
-    EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
+    EXPECT_EQ(static_cast<uint32_t>(controller.flightState()), state_type::TakeoffInit);
     EXPECT_EQ(altctl_requests(), 1U);
     controller.update(entered_at + 3.0);
     EXPECT_EQ(altctl_requests(), 0U);
     controller.update(entered_at + 10.0);
-    EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
+    EXPECT_EQ(static_cast<uint32_t>(controller.flightState()), state_type::TakeoffInit);
     controller.update(entered_at + 10.01);
-    EXPECT_EQ(machine.currentState(region_type::CONTROL), state_type::Landing);
+    EXPECT_EQ(static_cast<uint32_t>(controller.flightState()), state_type::Landing);
 }
 // Hover latches the altitude it is entered at, so the takeoff confirmation must be two-sided:
 // the apex of a PX4 overshoot (vz ~ 0 above the target) must not hand over to Hover.
@@ -134,12 +133,20 @@ TEST(TakeoffAscending, AltitudeConfirmationIsTwoSidedAroundTarget) {
             data.imu_stats.is_new = false;
         }
     };
-    auto& machine = controller.getStateMachine();
-    auto state = [&] { return machine.currentState(region_type::CONTROL); };
+    auto state = [&] { return static_cast<uint32_t>(controller.flightState()); };
     auto request = [&](uint32_t event_id) {
-        ASSERT_TRUE(machine.postEvent(::state_machine::Event(
-            event_id, ::state_machine::EventTimestamp{now})).ok());
-        tick();
+        if (event_id == event_type::ALTCTL_READY) {
+            data.fcu_mode = "ALTCTL";
+            for (int i = 0; i < 2; ++i) { data.state_stats.is_new = true; tick(); }
+        } else if (event_id == event_type::OFFBOARD_READY) {
+            data.fcu_mode = "OFFBOARD";
+            data.state_stats.is_new = true; tick();
+        } else if (event_id == event_type::ARM_READY) {
+            data.fcu_armed = true; data.state_stats.is_new = true; tick();
+        } else {
+            ASSERT_EQ(event_id, event_type::TAKEOFF_REQUESTED);
+            ASSERT_TRUE(controller.postCommand(FlightCommand::Takeoff, now)); tick();
+        }
     };
     tick();
     ASSERT_EQ(state(), state_type::Ready);

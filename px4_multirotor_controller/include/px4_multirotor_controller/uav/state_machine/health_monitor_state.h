@@ -1,7 +1,7 @@
 #pragma once
 
 #include <limits>
-#include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/uav/flight_signal.h"
 
 #include "px4_multirotor_controller/common/types.h"
 
@@ -9,7 +9,7 @@ namespace px4_multirotor_controller {
 
 class DroneController;
 
-class HealthMonitorState final : public ::state_machine::State {
+class HealthMonitorState final {
    public:
     // One cached comparison of canonical pose and MAVROS local pose, in metres.
     struct PositionDistance {
@@ -25,12 +25,8 @@ class HealthMonitorState final : public ::state_machine::State {
         return position_distance_;
     }
 
-    std::string name() const override {
-        return "HealthMonitor";
-    }
 
-   protected:
-    ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
+    void onTick();
 
    private:
     struct SafetyState {
@@ -49,11 +45,8 @@ class HealthMonitorState final : public ::state_machine::State {
         double state_estimate_unusable_since{-1.0};
     };
 
-    void postSafetyEvent(::state_machine::StateContext& ctx, ::state_machine::EventId event_id,
-                         const char* operation) const;
-    void checkSensorActiveEdge(::state_machine::StateContext& ctx,
-                               const SensorData::TopicStats& stats, bool& was_active,
-                               ::state_machine::EventId event_id) const;
+    void checkSensorActiveEdge(const SensorData::TopicStats& stats, bool& was_active,
+                               FlightSignal signal) const;
 
     DroneController& controller_;
     SafetyState safety_state_;

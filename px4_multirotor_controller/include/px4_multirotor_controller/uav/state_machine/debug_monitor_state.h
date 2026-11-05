@@ -1,21 +1,17 @@
 #pragma once
 
-#include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/uav/flight_signal.h"
 
 namespace px4_multirotor_controller {
 
 class DroneController;
 
-class DebugMonitorState final : public ::state_machine::State {
+class DebugMonitorState final {
    public:
     explicit DebugMonitorState(DroneController& controller);
 
-    std::string name() const override {
-        return "DebugMonitor";
-    }
 
-   protected:
-    ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
+    void onTick();
 
    private:
     static constexpr double STATUS_PUBLISH_INTERVAL = 0.2;

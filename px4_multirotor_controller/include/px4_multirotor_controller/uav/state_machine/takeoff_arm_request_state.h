@@ -1,6 +1,6 @@
 #pragma once
 
-#include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/uav/flight_signal.h"
 
 #include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
@@ -18,25 +18,20 @@ class DroneController;
 // - 检测新的 ARM 状态确认帧
 // - 确认后发送 ARM_READY 事件，自动转移到 ASCENDING
 // - 超时保护由状态机 transition guard 统一处理
-class TakeoffArmRequestState : public ::state_machine::State {
+class TakeoffArmRequestState {
    public:
     explicit TakeoffArmRequestState(DroneController& controller);
-    ~TakeoffArmRequestState() override = default;
 
-    std::string name() const override {
-        return "TakeoffArmRequest";
-    }
 
-   protected:
-    ::state_machine::ActionResult onEnter(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onExit(::state_machine::StateContext& ctx) override;
+    void onEnter();
+    void onTick();
+    void onExit();
 
    private:
-    void publishSetpointIfDue(::state_machine::StateContext& ctx);
-    void requestArmIfDue(::state_machine::StateContext& ctx);
+    void publishSetpointIfDue();
+    void requestArmIfDue();
     void updateArmConfirmation();
-    void postArmReadyOnce(::state_machine::StateContext& ctx);
+    void postArmReadyOnce();
 
     DroneController& controller_;
     ControllerTimer arm_request_timer_;       // ARM 请求计时器

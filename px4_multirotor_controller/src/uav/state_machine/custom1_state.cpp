@@ -15,7 +15,7 @@ namespace px4_multirotor_controller {
 
 Custom1State::Custom1State(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult Custom1State::onEnter(::state_machine::StateContext& ctx) {
+void Custom1State::onEnter() {
     const auto& config = controller_.getConfig();
     controller_.clearCustom1Request();
     command_time_ = controller_.getCurrentTime();
@@ -37,13 +37,13 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
     sync_strategy_entered_ = false;
     tracking_position_held_ = false;
     tracking_frozen_hover_ = Setpoint{};
-    nmpc_stale_output_log_timer_.reset();
+    controller_.nmpcStaleOutputLogTimer().reset();
 
     if (config.tracking_backend == TrackingBackend::NMPC) {
         controller_.logInfo("[Custom1State] Custom1 latched (nmpc); holding hover until reference");
         controller_.activeTrajectoryCache().clear();
         controller_.emitFlightEffect(FlightReferenceActivation{command_time_});
-        return {};
+        return;
     }
     if (config.tracking_backend == TrackingBackend::DFBC) {
         controller_.logInfo("[Custom1State] Custom1 latched (dfbc); holding hover until reference");
@@ -51,55 +51,55 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
         dfbc_strategy_.configure(config);
         if (config.dfbc.reference_source == DfbcReferenceSource::PLANNER_SETPOINT) {
             controller_.mpcTrajectoryBuffer() = MpcTrajectoryBuffer{};
-            return {};
+            return;
         }
         controller_.emitFlightEffect(FlightReferenceActivation{command_time_});
-        return {};
+        return;
     }
     if (config.tracking_backend == TrackingBackend::SMC) {
         controller_.logInfo(
             "[Custom1State] Custom1 latched (smc); holding hover until effective PVA");
         smc_strategy_.configure(config);
-        return {};
+        return;
     }
     if (config.tracking_backend == TrackingBackend::PVA_SMC) {
-        publish_period_ = 0.01;
+        controller_.custom1PublishPeriod() = 0.01;
         controller_.logInfo("[Custom1State] Custom1 latched (pva_smc)");
-        return {};
+        return;
     }
 
-    publish_period_ = kPx4LocalSetpointPublishInterval;
+    controller_.custom1PublishPeriod() = kPx4LocalSetpointPublishInterval;
     controller_.logInfo(
         "[Custom1State] Custom1 latched (px4_local); holding hover until world PV/PVA");
     px4_local_raw_strategy_.configure(config);
     px4_local_raw_strategy_.enter(controller_.getSensorData(), Time(command_time_));
-    return {};
+    return;
 }
 
-::state_machine::ActionResult Custom1State::onTick(::state_machine::StateContext& ctx) {
+void Custom1State::onTick() {
     const double current_time = controller_.getCurrentTime();
     const auto backend = controller_.getConfig().tracking_backend;
     if (backend == TrackingBackend::NMPC) {
-        handleNmpcEventMode(ctx, current_time);
-        return {};
+        handleNmpcEventMode(current_time);
+        return;
     }
     if (backend == TrackingBackend::DFBC) {
-        handleSynchronousAttitudeRateMode(ctx, current_time);
-        return {};
+        handleSynchronousAttitudeRateMode(current_time);
+        return;
     }
     if (backend == TrackingBackend::SMC) {
-        handleSmcMode(ctx, current_time);
-        return {};
+        handleSmcMode(current_time);
+        return;
     }
     if (backend == TrackingBackend::PVA_SMC) {
-        handlePvaSmcMode(ctx, current_time);
-        return {};
+        handlePvaSmcMode(current_time);
+        return;
     }
-    handlePx4LocalPassThrough(ctx, current_time);
-    return {};
+    handlePx4LocalPassThrough(current_time);
+    return;
 }
 
-void Custom1State::handlePvaSmcMode(::state_machine::StateContext& ctx, double current_time) {
+void Custom1State::handlePvaSmcMode(double current_time) {
     const auto config = controller_.getConfig();
     const Time now(current_time);
     auto& buffer = controller_.mpcTrajectoryBuffer();
@@ -116,7 +116,7 @@ void Custom1State::handlePvaSmcMode(::state_machine::StateContext& ctx, double c
     last_publish_time_ = current_time;
 }
 
-void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
+void Custom1State::handlePx4LocalPassThrough(
                                              double current_time) {
     const auto& config = controller_.getConfig();
     auto& buffer = controller_.mpcTrajectoryBuffer();
@@ -135,12 +135,12 @@ void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
                 "[Custom1State] Waiting for finite world-frame PV/PVA before taking setpoint");
         }
         if (shouldPublish(current_time)) {
-            publishCurrentHoverSetpoint(ctx, current_time);
+            publishCurrentHoverSetpoint(current_time);
         }
         return;
     }
     if (!lifted.success) {
-        publishCurrentHoverSetpoint(ctx, current_time);
+        publishCurrentHoverSetpoint(current_time);
         return;
     }
 
@@ -156,7 +156,7 @@ void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
     last_publish_time_ = current_time;
 }
 
-void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double current_time) {
+void Custom1State::handleSmcMode(double current_time) {
     const ControllerConfig config = controller_.getConfig();
     const Time now(current_time);
     if (!sync_strategy_entered_) {
@@ -177,7 +177,7 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
                     "[Custom1State] SMC reference is outside its effective window; holding "
                     "position");
             }
-            holdTrackingPosition(ctx, current_time);
+            holdTrackingPosition(current_time);
             return;
         }
         if (tracking_position_held_) {
@@ -193,7 +193,7 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
                 "[Custom1State] Waiting for an effective world-frame PVA before SMC tracking");
         }
         if (shouldPublish(current_time)) {
-            publishCurrentHoverSetpoint(ctx, current_time);
+            publishCurrentHoverSetpoint(current_time);
         }
         return;
     }
@@ -205,7 +205,7 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
     if (!sync_strategy_entered_ ||
         !shouldRunSynchronousStrategy(current_time, config.nmpc.control_period)) {
         if (!sync_strategy_entered_ && shouldPublish(current_time)) {
-            publishCurrentHoverSetpoint(ctx, current_time);
+            publishCurrentHoverSetpoint(current_time);
         }
         return;
     }
@@ -230,7 +230,7 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
             controller_.logWarn("[Custom1State] SMC tracking update failed: %s",
                                 result.message.c_str());
         }
-        holdTrackingPosition(ctx, current_time);
+        holdTrackingPosition(current_time);
         return;
     }
 
@@ -242,7 +242,7 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
     last_publish_time_ = current_time;
 }
 
-void Custom1State::handleNmpcEventMode(::state_machine::StateContext& ctx, double current_time) {
+void Custom1State::handleNmpcEventMode(double current_time) {
     if (!controller_.nmpcResultBuffer().isGenerationActive(control_generation_)) {
         control_generation_ = controller_.nmpcResultBuffer().beginGeneration();
         request_sequence_ = controller_.nmpcResultBuffer().lastRequestSequence();
@@ -252,12 +252,12 @@ void Custom1State::handleNmpcEventMode(::state_machine::StateContext& ctx, doubl
         last_request_time_ = 0.0;
     }
 
-    consumeNmpcResult(ctx, current_time);
+    consumeNmpcResult(current_time);
 
     if (request_in_flight_ && current_time > request_deadline_) {
         ++consecutive_failures_;
         request_in_flight_ = false;
-        publishBackupSetpoint(ctx, current_time);
+        publishBackupSetpoint(current_time);
     }
 
     if (!controller_.activeTrajectoryCache().valid()) {
@@ -267,14 +267,14 @@ void Custom1State::handleNmpcEventMode(::state_machine::StateContext& ctx, doubl
                 "[Custom1State] Waiting for finite UAV reference trajectory before NMPC solve");
         }
         if (shouldPublish(current_time)) {
-            publishCurrentHoverSetpoint(ctx, current_time);
+            publishCurrentHoverSetpoint(current_time);
         }
         return;
     }
     tracking_armed_ = true;
 
     if (referenceWillFinishBeforeNextHorizon(current_time)) {
-        postReferenceFinished(ctx, current_time,
+        postReferenceFinished(current_time,
                               "reference horizon reached planned trajectory end");
         return;
     }
@@ -282,23 +282,23 @@ void Custom1State::handleNmpcEventMode(::state_machine::StateContext& ctx, doubl
     const double result_timeout = controller_.getConfig().nmpc.result_timeout;
     if (last_success_time_ > 0.0 && result_timeout > 0.0 &&
         current_time - last_success_time_ > result_timeout) {
-        if (shouldRunEvery(nmpc_stale_output_log_timer_, 1.0, true)) {
+        if (shouldRunEvery(controller_.nmpcStaleOutputLogTimer(), 1.0, true)) {
             controller_.logWarn(
                 "[Custom1State] NMPC attitude-rate output stale for %.3f s; "
                 "publishing backup local setpoint",
                 current_time - last_success_time_);
         }
         if (shouldPublish(current_time)) {
-            publishBackupSetpoint(ctx, current_time);
+            publishBackupSetpoint(current_time);
         }
     }
 
     if (shouldDispatchNmpc(current_time)) {
-        dispatchNmpcRequest(ctx, current_time);
+        dispatchNmpcRequest(current_time);
     }
 }
 
-void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateContext& ctx,
+void Custom1State::handleSynchronousAttitudeRateMode(
                                                      double current_time) {
     const ControllerConfig config = controller_.getConfig();
     const Time now(current_time);
@@ -323,9 +323,9 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
                                         tracking_armed_)) {
             if (tracking_armed_ || tracking_position_held_) {
                 if (shouldPublish(current_time))
-                    holdTrackingPosition(ctx, current_time);
+                    holdTrackingPosition(current_time);
             } else if (shouldPublish(current_time)) {
-                publishCurrentHoverSetpoint(ctx, current_time);
+                publishCurrentHoverSetpoint(current_time);
             }
             return;
         }
@@ -346,12 +346,12 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
                     "tracking");
             }
             if (shouldPublish(current_time))
-                publishCurrentHoverSetpoint(ctx, current_time);
+                publishCurrentHoverSetpoint(current_time);
             return;
         }
         tracking_armed_ = true;
         if (referenceWillFinishBeforeNextSynchronousUpdate(current_time)) {
-            postReferenceFinished(ctx, current_time,
+            postReferenceFinished(current_time,
                                   "reference horizon reached planned trajectory end");
             return;
         }
@@ -362,12 +362,12 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
     }
 
     if (!streaming && !controller_.activeTrajectoryCache().sample(now, reference)) {
-        publishCurrentHoverSetpoint(ctx, current_time);
+        publishCurrentHoverSetpoint(current_time);
         return;
     }
 
     if (!sync_strategy_entered_) {
-        publishCurrentHoverSetpoint(ctx, current_time);
+        publishCurrentHoverSetpoint(current_time);
         return;
     }
 
@@ -383,9 +383,9 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
                                 result.message.c_str());
         }
         if (streaming)
-            holdTrackingPosition(ctx, current_time);
+            holdTrackingPosition(current_time);
         else
-            publishBackupSetpoint(ctx, current_time);
+            publishBackupSetpoint(current_time);
         return;
     }
 
@@ -398,7 +398,7 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
     last_publish_time_ = current_time;
 }
 
-void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double current_time) {
+void Custom1State::consumeNmpcResult(double current_time) {
     NmpcSolveResult result;
     if (!controller_.nmpcResultBuffer().consumeNewerThan(consumed_result_sequence_, result)) {
         return;
@@ -426,11 +426,11 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
     if (!result.success) {
         if (result.solver_status == nmpc_solver_status::kReferenceSamplingFailed) {
             if (referenceWillFinishBeforeNextHorizon(current_time)) {
-                postReferenceFinished(ctx, current_time,
+                postReferenceFinished(current_time,
                                       "reference horizon reached planned trajectory end");
             } else {
                 ++consecutive_failures_;
-                publishBackupSetpoint(ctx, current_time);
+                publishBackupSetpoint(current_time);
             }
             return;
         }
@@ -441,7 +441,7 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
             last_publish_time_ = current_time;
             return;
         }
-        publishBackupSetpoint(ctx, current_time);
+        publishBackupSetpoint(current_time);
         return;
     }
 
@@ -452,7 +452,7 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
     last_publish_time_ = current_time;
 }
 
-void Custom1State::dispatchNmpcRequest(::state_machine::StateContext& ctx, double current_time) {
+void Custom1State::dispatchNmpcRequest(double current_time) {
     request_sequence_ = controller_.nmpcResultBuffer().reserveRequestSequence();
     in_flight_sequence_ = request_sequence_;
     request_in_flight_ = true;
@@ -471,7 +471,7 @@ void Custom1State::dispatchNmpcRequest(::state_machine::StateContext& ctx, doubl
         FlightNmpcRequest{current_time, request_sequence_, control_generation_});
 }
 
-void Custom1State::publishBackupSetpoint(::state_machine::StateContext& ctx, double current_time) {
+void Custom1State::publishBackupSetpoint(double current_time) {
     UavReferencePoint reference;
     Setpoint backup;
     if (controller_.activeTrajectoryCache().sample(Time(current_time), reference)) {
@@ -483,7 +483,7 @@ void Custom1State::publishBackupSetpoint(::state_machine::StateContext& ctx, dou
         backup.vz = reference.velocity.z();
         backup.type_mask = kHoverPositionVelocityTypeMask;
     } else {
-        publishCurrentHoverSetpoint(ctx, current_time);
+        publishCurrentHoverSetpoint(current_time);
         return;
     }
     backup.coordinate_frame = 1;
@@ -515,7 +515,7 @@ Setpoint Custom1State::measurementHoverSetpoint() const {
     return backup;
 }
 
-void Custom1State::holdTrackingPosition(::state_machine::StateContext& ctx, double current_time) {
+void Custom1State::holdTrackingPosition(double current_time) {
     if (!tracking_position_held_) {
         tracking_frozen_hover_ = measurementHoverSetpoint();
         tracking_position_held_ = true;
@@ -525,18 +525,18 @@ void Custom1State::holdTrackingPosition(::state_machine::StateContext& ctx, doub
     last_publish_time_ = current_time;
 }
 
-void Custom1State::publishCurrentHoverSetpoint(::state_machine::StateContext& ctx,
+void Custom1State::publishCurrentHoverSetpoint(
                                                double current_time) {
     controller_.getSetpoint() = measurementHoverSetpoint();
     controller_.emitFlightEffect(FlightSetpoint{current_time});
     last_publish_time_ = current_time;
 }
 
-void Custom1State::postReferenceFinished(::state_machine::StateContext& ctx, double current_time,
+void Custom1State::postReferenceFinished(double current_time,
                                          const char* reason) {
     if (reference_finish_event_posted_) {
         if (shouldPublish(current_time)) {
-            publishCurrentHoverSetpoint(ctx, current_time);
+            publishCurrentHoverSetpoint(current_time);
         }
         return;
     }
@@ -544,12 +544,9 @@ void Custom1State::postReferenceFinished(::state_machine::StateContext& ctx, dou
     reference_finish_event_posted_ = true;
     request_in_flight_ = false;
     tracking_armed_ = false;
-    publishCurrentHoverSetpoint(ctx, current_time);
+    publishCurrentHoverSetpoint(current_time);
 
-    ::state_machine::Event event(event_type::REFERENCE_TRAJECTORY_FINISHED,
-                                 ::state_machine::EventTimestamp{current_time});
-    event.source = "custom1_state";
-    ctx.postInternalEvent(std::move(event));
+    controller_.emitFlightSignal(FlightSignal::ReferenceFinished);
     controller_.logInfo("[Custom1State] %s; switching to Hover", reason);
 }
 
@@ -590,10 +587,10 @@ bool Custom1State::shouldRunSynchronousStrategy(double current_time, double conf
 }
 
 bool Custom1State::shouldPublish(double current_time) const {
-    return current_time - last_publish_time_ >= publish_period_;
+    return current_time - last_publish_time_ >= controller_.custom1PublishPeriod();
 }
 
-::state_machine::ActionResult Custom1State::onExit(::state_machine::StateContext&) {
+void Custom1State::onExit() {
     controller_.nmpcResultBuffer().invalidateGeneration(control_generation_);
     nmpc_wait_log_timer_.stop();
     trajectory_wait_log_timer_.stop();
@@ -617,7 +614,7 @@ bool Custom1State::shouldPublish(double current_time) const {
         sync_strategy_entered_ = false;
     }
     request_in_flight_ = false;
-    return {};
+    return;
 }
 
 }  // namespace px4_multirotor_controller

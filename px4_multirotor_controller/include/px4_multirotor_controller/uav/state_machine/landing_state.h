@@ -1,6 +1,6 @@
 #pragma once
 
-#include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/uav/flight_signal.h"
 
 #include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
@@ -13,19 +13,14 @@ class DroneController;
 
 // 降落状态
 // 无人机从当前位置降落到地面
-class LandingState : public ::state_machine::State {
+class LandingState {
    public:
     explicit LandingState(DroneController& controller);
-    ~LandingState() override = default;
 
-    std::string name() const override {
-        return "Landing";
-    }
 
-   protected:
-    ::state_machine::ActionResult onEnter(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onExit(::state_machine::StateContext& ctx) override;
+    void onEnter();
+    void onTick();
+    void onExit();
 
    private:
     // 退出原因枚举
@@ -36,14 +31,14 @@ class LandingState : public ::state_machine::State {
 
     static double getDescentVelocity(double altitude);
     void configureLandingSetpoint();
-    void emitLandingSetpoint(::state_machine::StateContext& ctx);
+    void emitLandingSetpoint();
     void updateDescentVelocityIfNeeded();
-    void publishSetpointIfDue(::state_machine::StateContext& ctx);
+    void publishSetpointIfDue();
     void logStatusIfDue();
-    void reportTimeoutIfNeeded(::state_machine::StateContext& ctx);
+    void reportTimeoutIfNeeded();
     bool landingFeedbackActive() const;
     void updateTouchdownConfirmation();
-    void postTouchdownOnce(::state_machine::StateContext& ctx);
+    void postTouchdownOnce();
 
     DroneController& controller_;
     Setpoint landing_setpoint_;                                 // 降落设定点

@@ -7,13 +7,13 @@ namespace px4_multirotor_controller {
 
 HoverState::HoverState(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult HoverState::onEnter(::state_machine::StateContext& ctx) {
+void HoverState::onEnter() {
     controller_.logInfo("[HoverState] Entering Hover State");
 
     configureHoverSetpoint();
     controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     setpoint_publish_timer_.start();
-    return {};
+    return;
 }
 
 void HoverState::configureHoverSetpoint() {
@@ -53,33 +53,32 @@ void HoverState::configureHoverSetpoint() {
                         setpoint.z);
 }
 
-::state_machine::ActionResult HoverState::onTick(::state_machine::StateContext& ctx) {
-    publishSetpointIfDue(ctx);
-    return {};
+void HoverState::onTick() {
+    publishSetpointIfDue();
+    return;
 }
 
-::state_machine::ActionResult HoverState::onEvent(::state_machine::StateContext&,
-                                                  const ::state_machine::Event& event) {
-    if (event.id == event_type::TRAJECTORY_TRACKING_REQUESTED) {
+void HoverState::onEvent(FlightCommand command) {
+    if (command == FlightCommand::Track) {
         controller_.requestCustom1Tracking();
         if (!controller_.custom1ReferenceReady()) {
             controller_.logWarn(
                 "[HoverState] custom1 latched; waiting for ready initial reference");
         }
     }
-    return {};
+    return;
 }
 
-void HoverState::publishSetpointIfDue(::state_machine::StateContext& ctx) {
+void HoverState::publishSetpointIfDue() {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
         controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     }
 }
 
-::state_machine::ActionResult HoverState::onExit(::state_machine::StateContext&) {
+void HoverState::onExit() {
     controller_.logInfo("[HoverState] Exiting Hover State");
     setpoint_publish_timer_.stop();
-    return {};
+    return;
 }
 
 }  // namespace px4_multirotor_controller

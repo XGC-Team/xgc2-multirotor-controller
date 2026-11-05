@@ -50,6 +50,7 @@ protected:
 };
 }
 namespace px4_multirotor_controller {
+enum class FlightSignal : uint32_t;
 enum class TrackingBackend { PX4_LOCAL, NMPC, DFBC };
 enum class FeedbackSource { RIGID_ESTIMATE, MAVROS_LOCAL };
 inline bool trackingUsesFusedEstimate(TrackingBackend backend) {
@@ -76,6 +77,8 @@ struct DroneController {
     SensorData sensor;
     ControllerConfig config;
     Setpoint setpoint;
+    std::vector<FlightSignal> signals;
+    void emitFlightSignal(FlightSignal signal) { signals.push_back(signal); }
     const SensorData& getSensorData() const { return sensor; }
     const ControllerConfig& getConfig() const { return config; }
     const Setpoint& getSetpoint() const { return setpoint; }
@@ -83,6 +86,8 @@ struct DroneController {
     template<class... Args> void logError(const char*, Args...) const {}
 };
 namespace event_type {
+constexpr uint32_t ALTCTL_READY=16, OFFBOARD_READY=17, ARM_READY=18, ALTITUDE_REACHED=10;
+constexpr uint32_t TAKEOFF_TIMEOUT=15, REFERENCE_TRAJECTORY_FINISHED=19, TOUCHDOWN=13;
 constexpr uint32_t SAFE_TIMEOUT_UAV_STATE_ESTIMATE = 27, SAFE_TIMEOUT_STATE = 23;
 constexpr uint32_t SAFE_TIMEOUT_LOCAL_POS=20, SAFE_TIMEOUT_LOCAL_VELOCITY=21, SAFE_TIMEOUT_IMU=22;
 constexpr uint32_t SAFE_UAV_STATE_ESTIMATE_UNUSABLE = 28, SAFE_GEOFENCE_VIOLATION = 40;
@@ -309,13 +314,12 @@ using namespace px4_multirotor_controller;
 struct Fixture {
     DroneController controller;
     HealthMonitorState health{controller};
-    state_machine::StateContext context;
     void poseAt(double x, double y, double z) {
         controller.sensor.local_x = x;
         controller.sensor.local_y = y;
         controller.sensor.local_z = z;
         controller.sensor.local_pos_stats.is_new = true;
-        health.tick(context);
+        health.onTick();
         controller.sensor.local_pos_stats.is_new = false;
         controller.sensor.vrpn_pose_stats.is_new = false;
         controller.sensor.uav_state_estimate_stats.is_new = false;
@@ -333,8 +337,8 @@ struct Fixture {
     }
     int geofenceEvents() const {
         int count = 0;
-        for (const auto& event : context.internals) {
-            if (event.id == event_type::SAFE_GEOFENCE_VIOLATION) {
+        for (const auto signal : controller.signals) {
+            if (signal == FlightSignal::Geofence) {
                 ++count;
             }
         }
@@ -346,7 +350,7 @@ void testUnsetBoundaryDisablesGeofence() {
     f.poseAt(1e6, -1e6, 1e6);
     f.poseAt(0, 0, 0);
     assert(f.geofenceEvents() == 0);
-    assert(f.context.internals.empty());
+    assert(f.controller.signals.empty());
 }
 void testNullControlBoundsDisablesGeofence() {
     Fixture f;

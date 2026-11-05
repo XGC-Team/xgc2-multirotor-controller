@@ -2,11 +2,11 @@
 """Compile the production debug output consumer against deterministic boundary doubles.
 
 Run: python3 px4_multirotor_controller/test/debug_output_events_test.py
-DebugMonitor emits PUBLISH_STATE_MACHINE_EVENTS on every 1 kHz control tick.
-This checks that the per-tick alg/state_machine_events work (processed-event
-snapshot, task allocation, worker wake-up) happens only while the topic has a
-subscriber, and that a subscriber still gets one message per tick with that
-tick's event ids. The 5 Hz controller status stays unconditional; optional diagnostics do no work without subscribers.
+The owner requests a diagnostic publication for a turn with actual facts.
+This checks that alg/state_machine_events work (snapshot, task allocation,
+worker wake-up) happens only while the topic has a subscriber, and that a
+subscriber receives the current fact IDs in order. The 5 Hz controller status
+stays unconditional; optional diagnostics do no work without subscribers.
 """
 from pathlib import Path
 import os
@@ -152,7 +152,13 @@ struct TrajectoryCacheDouble {
 struct DroneController {
     StateMachineDouble machine;
     TrajectoryCacheDouble cache;
-    StateMachineDouble& getStateMachine() { return machine; }
+    std::vector<uint32_t> diagnostic_ids;
+    const std::vector<uint32_t>& flightDiagnosticEvents() {
+        ++machine.snapshots;
+        diagnostic_ids.clear();
+        for (const auto& record : machine.processed) diagnostic_ids.push_back(record.event.id);
+        return diagnostic_ids;
+    }
     std::string flightStateName() const { return machine.state_name; }
     TrajectoryCacheDouble& activeTrajectoryCache() { return cache; }
 };
@@ -184,7 +190,7 @@ int main() {
     assert(controller.machine.snapshots == 0);
     assert(ros::publications().empty());
 
-    // Subscribed: one message per tick with that tick's ids, in order.
+    // Subscribed: one message per requested publication, in order.
     ros::subscribers(topic) = 1;
     for (uint32_t i = 0; i < 3; ++i) {
         controller.machine.processed = {{{50 + i}}, {{55}}};
@@ -196,17 +202,12 @@ int main() {
         const auto& msg = std::get<std_msgs::UInt32MultiArray>(publication.message);
         assert((msg.data == std::vector<uint32_t>{50 + i, 55}));
     }
-    // A tick without processed events still publishes its empty array.
-    controller.machine.processed.clear();
-    assert(consumer.handle(tick));
-    worker.drain(nh);
-    assert(std::get<std_msgs::UInt32MultiArray>(ros::publications().back().message).data.empty());
-    assert(ros::publications().size() == 4 && controller.machine.snapshots == 4);
+    assert(ros::publications().size() == 3 && controller.machine.snapshots == 3);
 
     // Subscriber gone: back to no per-tick work.
     ros::subscribers(topic) = 0;
     assert(consumer.handle(tick));
-    assert(worker.pending.empty() && controller.machine.snapshots == 4);
+    assert(worker.pending.empty() && controller.machine.snapshots == 3);
 
     // Required status stays independent of optional diagnostic subscriptions.
     assert(consumer.handle(FlightStatus{0.0}));
@@ -215,15 +216,15 @@ int main() {
     assert(consumer.handle(FlightSensorDebug{0.0}));
     assert(worker.pending.empty());
     assert(controller.cache.samples == 0);
-    assert(ros::publications().size() == 5);
-    assert(std::get<std_msgs::String>(ros::publications()[4].message).data == "Hover");
+    assert(ros::publications().size() == 4);
+    assert(std::get<std_msgs::String>(ros::publications()[3].message).data == "Hover");
 
     // Any one stats subscriber preserves the existing single snapshot/task and all eight outputs.
     ros::subscribers("alg/stats/imu") = 1;
     assert(consumer.handle(FlightSensorStats{0.0}));
     assert(worker.pending.size() == 1);
     worker.drain(nh);
-    assert(ros::publications().size() == 13);
+    assert(ros::publications().size() == 12);
     ros::subscribers("alg/stats/imu") = 0;
     assert(consumer.handle(FlightSensorStats{0.0}));
     assert(worker.pending.empty());
@@ -233,7 +234,7 @@ int main() {
     assert(consumer.handle(FlightTrackingError{0.0}));
     assert(controller.cache.samples == 1 && worker.pending.size() == 1);
     worker.drain(nh);
-    assert(ros::publications().size() == 14);
+    assert(ros::publications().size() == 13);
     ros::subscribers("alg/tracking/position_error") = 0;
     assert(consumer.handle(FlightTrackingError{0.0}));
     assert(controller.cache.samples == 1 && worker.pending.empty());
@@ -268,7 +269,7 @@ int main() {
     assert(std::get<std_msgs::String>(ros::publications().back().message).data == "Unknown");
     assert(!consumer.handle(FlightNmpcRequest{0.0, 0, 0}));
     std::cout << "1000 unsubscribed ticks: 0 snapshots, 0 tasks; "
-                 "4 subscribed ticks: 4 messages in order\n";
+                 "3 subscribed fact turns: 3 messages in order\n";
 }
 '''
 

@@ -43,10 +43,9 @@ void CommandInputProducer::commandCallback(const std_msgs::String::ConstPtr& msg
         return;
     }
 
-    auto status = command_sink_(*command, ros::Time::now().toSec());
-    if (!status.ok()) {
-        ROS_ERROR("[CommandInputProducer] Failed to post command event %s: %s", msg->data.c_str(),
-                  status.message.c_str());
+    if (!command_sink_(*command, ros::Time::now().toSec())) {
+        ROS_ERROR("[CommandInputProducer] Failed to post command event %s: pending event capacity reached",
+                  msg->data.c_str());
         return;
     }
 

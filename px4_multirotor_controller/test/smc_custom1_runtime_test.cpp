@@ -100,6 +100,7 @@ class SmcCustom1RuntimeTest : public ::testing::Test {
         controller_ = std::make_unique<DroneController>(sensor_);
         ControllerConfig config;
         config.tracking_backend = backend;
+        config.takeoff_altitude = 1.0;
         config.px4_local_lift = lift;
         config.nmpc.hover_thrust_enabled = true;
         config.planning_period = 0.1;
@@ -126,13 +127,36 @@ class SmcCustom1RuntimeTest : public ::testing::Test {
     }
 
     uint32_t state() {
-        return controller_->getStateMachine().currentState(region_type::CONTROL);
+        return static_cast<uint32_t>(controller_->flightState());
     }
 
     void request(uint32_t event_id) {
-        const auto status = controller_->getStateMachine().postEvent(
-            ::state_machine::Event(event_id, ::state_machine::EventTimestamp{now_}));
-        ASSERT_TRUE(status.ok()) << status.message;
+        if (event_id == event_type::ALTCTL_READY) {
+            sensor_.fcu_mode = "ALTCTL";
+            for (int i = 0; i < 2; ++i) { sensor_.state_stats.is_new = true; tick(); }
+            return;
+        }
+        if (event_id == event_type::OFFBOARD_READY) {
+            sensor_.fcu_mode = "OFFBOARD";
+            sensor_.state_stats.is_new = true; tick(); return;
+        }
+        if (event_id == event_type::ARM_READY) {
+            sensor_.fcu_armed = true;
+            sensor_.state_stats.is_new = true; tick(); return;
+        }
+        if (event_id == event_type::ALTITUDE_REACHED) {
+            sensor_.local_z = sensor_.vrpn_z = sensor_.z = controller_->getSetpoint().z;
+            for (int i = 0; i < 5; ++i) {
+                sensor_.local_pos_stats.is_new = sensor_.vrpn_pose_stats.is_new = true;
+                sensor_.uav_state_estimate_stats.is_new = true;
+                tick();
+            }
+            return;
+        }
+        const auto command = event_id == event_type::TAKEOFF_REQUESTED ? FlightCommand::Takeoff
+            : event_id == event_type::HOVER_REQUESTED ? FlightCommand::Hover
+            : event_id == event_type::LANDING_REQUESTED ? FlightCommand::Land : FlightCommand::Track;
+        ASSERT_TRUE(controller_->postCommand(command, now_));
         tick();
     }
 

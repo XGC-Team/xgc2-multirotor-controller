@@ -47,7 +47,7 @@ int main() {
  using px4_multirotor_controller::FlightCommand;
  ros::NodeHandle node; std::vector<std::pair<FlightCommand, double>> commands;
  px4_multirotor_controller::CommandInputProducer input(node, [&](FlightCommand command, double time) {
- commands.emplace_back(command, time); return state_machine::Status{}; }, 10);
+ commands.emplace_back(command, time); return true; }, 10);
  auto send=[&](const std::string& command) { auto m=std::make_shared<std_msgs::String>(); m->data=command; node.callback(m); };
  for(auto command:{"custom1","Custom1","CUSTOM1","start","Start","START","track","Track","TRACK"}) { send(command); assert(commands.back().first==FlightCommand::Track); }
  for(auto command:{"land","Land","LAND"}) { send(command); assert(commands.back().first==FlightCommand::Land); }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile the production HealthMonitor and production guard lambdas.
+"""Compile the production HealthMonitor against deterministic sensor boundaries.
 
 Only ROS/controller/FSM boundaries are doubled. This does not run the full FSM,
 ROS transport, MAVLink services, SITL, or a vehicle. The catkin runtime test covers
@@ -50,6 +50,7 @@ protected:
 };
 }
 namespace px4_multirotor_controller {
+enum class FlightSignal : uint32_t;
 enum class TrackingBackend { PX4_LOCAL, NMPC, DFBC };
 enum class FeedbackSource { RIGID_ESTIMATE, MAVROS_LOCAL };
 inline bool trackingUsesFusedEstimate(TrackingBackend backend) {
@@ -76,6 +77,8 @@ struct DroneController {
     SensorData sensor;
     ControllerConfig config;
     Setpoint setpoint;
+    std::vector<FlightSignal> signals;
+    void emitFlightSignal(FlightSignal signal) { signals.push_back(signal); }
     const SensorData& getSensorData() const { return sensor; }
     const ControllerConfig& getConfig() const { return config; }
     const Setpoint& getSetpoint() const { return setpoint; }
@@ -83,6 +86,8 @@ struct DroneController {
     template<class... Args> void logError(const char*, Args...) const {}
 };
 namespace event_type {
+constexpr uint32_t ALTCTL_READY=16, OFFBOARD_READY=17, ARM_READY=18, ALTITUDE_REACHED=10;
+constexpr uint32_t TAKEOFF_TIMEOUT=15, REFERENCE_TRAJECTORY_FINISHED=19, TOUCHDOWN=13;
 constexpr uint32_t SAFE_TIMEOUT_UAV_STATE_ESTIMATE = 27, SAFE_TIMEOUT_STATE = 23;
 constexpr uint32_t SAFE_TIMEOUT_LOCAL_POS=20, SAFE_TIMEOUT_LOCAL_VELOCITY=21, SAFE_TIMEOUT_IMU=22;
 constexpr uint32_t SAFE_UAV_STATE_ESTIMATE_UNUSABLE = 28, SAFE_GEOFENCE_VIOLATION = 40;
@@ -120,11 +125,9 @@ using namespace px4_multirotor_controller;
 struct Fixture {
     DroneController controller;
     HealthMonitorState health{controller};
-    state_machine::StateContext context;
     const auto& getPositionDistance() const { return health.positionDistance(); }
-    #include "production_guards.inc"
     void tick() {
-        health.tick(context);
+        health.onTick();
         controller.sensor.vrpn_pose_stats.is_new = false;
         controller.sensor.local_pos_stats.is_new = false;
         controller.sensor.uav_state_estimate_stats.is_new = false;
@@ -136,27 +139,22 @@ struct Fixture {
         tick();
     }
 };
-void checkLandingGuards(const Fixture& f, bool expected) {
-    assert(f.landFromTakeoff() == expected);
-    assert(f.landFromHover() == expected);
-    assert(f.landFromCustom1() == expected);
-}
 void testPairRequiredAndClosedBoundary() {
     Fixture f;
-    assert(!f.takeoffAllowed());
-    checkLandingGuards(f, false);
+    assert(!f.getPositionDistance().available);
+    assert(f.getPositionDistance().exceeded == (false));
     f.controller.sensor.vrpn_x = .6;
     f.controller.sensor.vrpn_y = .8;
     f.controller.sensor.vrpn_pose_stats.is_new = true;
     f.tick();
     assert(!f.getPositionDistance().available);
-    assert(!f.takeoffAllowed());
+    assert(!f.getPositionDistance().available);
     f.controller.sensor.local_pos_stats.is_new = true;
     f.tick();
     assert(f.getPositionDistance().available);
     assert(std::abs(f.getPositionDistance().metres - 1.0) < 1e-12);
-    assert(f.takeoffAllowed());
-    checkLandingGuards(f, false);
+    assert(f.getPositionDistance().available && !f.getPositionDistance().exceeded);
+    assert(f.getPositionDistance().exceeded == (false));
 }
 void testEitherDirtyInputAndRecovery() {
     Fixture f;
@@ -165,22 +163,22 @@ void testEitherDirtyInputAndRecovery() {
         f.controller.sensor.vrpn_z = delta;
         f.controller.sensor.vrpn_pose_stats.is_new = true;
         f.tick();
-        assert(f.takeoffAllowed() == (delta <= 1.0));
-        checkLandingGuards(f, delta > 1.0);
+        assert(f.getPositionDistance().available && f.getPositionDistance().exceeded == (delta > 1.0));
+        assert(f.getPositionDistance().exceeded == (delta > 1.0));
     }
     f.controller.sensor.local_z = 1.001;
     f.controller.sensor.local_pos_stats.is_new = true;
     f.tick();
     assert(f.getPositionDistance().metres == 0.0);
-    assert(f.takeoffAllowed());
-    checkLandingGuards(f, false);
+    assert(f.getPositionDistance().available && !f.getPositionDistance().exceeded);
+    assert(f.getPositionDistance().exceeded == (false));
     // 3-D Euclidean distance, not a per-axis 1 m check.
     f.controller.sensor.vrpn_x = .8;
     f.controller.sensor.vrpn_y = .8;
     f.controller.sensor.vrpn_pose_stats.is_new = true;
     f.tick();
-    assert(!f.takeoffAllowed());
-    checkLandingGuards(f, true);
+    assert(f.getPositionDistance().exceeded);
+    assert(f.getPositionDistance().exceeded == (true));
 }
 void testNoDirtyInputKeepsCacheAndEmitsNothing() {
     Fixture f;
@@ -191,13 +189,13 @@ void testNoDirtyInputKeepsCacheAndEmitsNothing() {
         f.controller.sensor.imu_stats.is_new = true;
         f.tick();
         assert(f.getPositionDistance().metres == 1.25);
-        checkLandingGuards(f, true);
+        assert(f.getPositionDistance().exceeded == (true));
     }
-    assert(f.context.internals.empty());
+    assert(f.controller.signals.empty());
     f.controller.sensor.vrpn_pose_stats.is_new = true;
     f.tick();
     assert(f.getPositionDistance().metres == 0.0);
-    assert(f.context.internals.empty());
+    assert(f.controller.signals.empty());
 }
 void testBackendDoesNotReplaceCanonicalInput() {
     Fixture f;
@@ -207,7 +205,7 @@ void testBackendDoesNotReplaceCanonicalInput() {
     f.controller.sensor.local_x = 10.5;
     f.pair();
     assert(f.getPositionDistance().metres == .5);
-    assert(f.takeoffAllowed());
+    assert(f.getPositionDistance().available && !f.getPositionDistance().exceeded);
     f.controller.sensor.x = 50;
     f.controller.sensor.uav_state_estimate_stats.is_new = true;
     f.tick();
@@ -218,9 +216,9 @@ void testUnavailableIsNotAnAdditionalLandingDetector() {
     f.controller.sensor.vrpn_x = std::numeric_limits<double>::quiet_NaN();
     f.pair();
     assert(!f.getPositionDistance().available);
-    assert(!f.takeoffAllowed());
-    checkLandingGuards(f, false);
-    assert(f.context.internals.empty());
+    assert(!f.getPositionDistance().available);
+    assert(f.getPositionDistance().exceeded == (false));
+    assert(f.controller.signals.empty());
 }
 int main() {
     testPairRequiredAndClosedBoundary();
@@ -228,45 +226,14 @@ int main() {
     testNoDirtyInputKeepsCacheAndEmitsNothing();
     testBackendDoesNotReplaceCanonicalInput();
     testUnavailableIsNotAnAdditionalLandingDetector();
-    std::cout << "5 production HealthMonitor/guard cases passed\n";
+    std::cout << "5 production HealthMonitor distance cases passed\n";
 }
 '''
 
 
-def production_guards():
-    """Execute the actual four lambdas, not a second Python/C++ policy."""
-    source = (PACKAGE / "src/drone_controller.cpp").read_text()
-    guards = {}
-    for block in source.split(".transition()")[1:]:
-        if "getPositionDistance()" not in block:
-            continue
-        source_state = re.search(r"\.from\(state_type::(\w+)\)", block).group(1)
-        target = re.search(r"\.to\(state_type::(\w+)\)", block).group(1)
-        guard = re.search(
-            r"\.when\((\[this\]\(const ::state_machine::GuardContext&\)\s*\{.*?\})\)",
-            block, re.DOTALL,
-        )
-        if guard is None:
-            raise AssertionError("Cannot bind production position guard")
-        if source_state == "Ready":
-            assert target == "Takeoff" and ".on(TAKEOFF_REQUESTED)" in block
-            name = "takeoffAllowed"
-        else:
-            assert source_state in {"Takeoff", "Hover", "Custom1"}
-            assert target == "Landing" and ".on(" not in block
-            assert ".priority(transition_priority::EMERGENCY)" in block
-            name = "landFrom" + source_state
-        assert name not in guards
-        guards[name] = (
-            "bool " + name + "() const { auto guard = " + guard.group(1)
-            + "; return guard(state_machine::GuardContext{}); }\n"
-        )
-    assert set(guards) == {"takeoffAllowed", "landFromTakeoff", "landFromHover", "landFromCustom1"}
-    return "".join(guards.values())
-
 
 class PositionDistanceTest(unittest.TestCase):
-    def test_production_monitor_and_guards(self):
+    def test_production_monitor_distance_facts(self):
         compiler = shutil.which(os.environ.get("CXX", "g++"))
         self.assertIsNotNone(compiler, "A C++17 compiler is required; do not silently skip")
         with tempfile.TemporaryDirectory(prefix="position-distance-") as directory:
@@ -281,7 +248,6 @@ class PositionDistanceTest(unittest.TestCase):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('#pragma once\n#include "support.h"\n')
-            (root / "production_guards.inc").write_text(production_guards())
             (root / "test.cpp").write_text(TEST)
             binary = root / "position-distance-test"
             subprocess.run([

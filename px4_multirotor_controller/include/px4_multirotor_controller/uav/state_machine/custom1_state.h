@@ -1,6 +1,6 @@
 #pragma once
 
-#include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/uav/flight_signal.h"
 
 #include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
@@ -14,19 +14,14 @@ namespace px4_multirotor_controller {
 
 class DroneController;
 
-class Custom1State : public ::state_machine::State {
+class Custom1State {
    public:
     explicit Custom1State(DroneController& controller);
-    ~Custom1State() override = default;
 
-    std::string name() const override {
-        return "Custom1";
-    }
 
-   protected:
-    ::state_machine::ActionResult onEnter(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onExit(::state_machine::StateContext& ctx) override;
+    void onEnter();
+    void onTick();
+    void onExit();
 
    private:
     DroneController& controller_;
@@ -36,7 +31,6 @@ class Custom1State : public ::state_machine::State {
     // the planner. Hover / takeoff / land share kLocalSetpointPublishInterval.
     // Not Adapter remote 10 Hz. Not nmpc/dfbc AttitudeTarget 100 Hz.
     static constexpr double kPx4LocalSetpointPublishInterval = kLocalSetpointPublishInterval;
-    double publish_period_{kPx4LocalSetpointPublishInterval};
     double command_time_{0.0};
     double hover_x_{0.0};
     double hover_y_{0.0};
@@ -54,7 +48,6 @@ class Custom1State : public ::state_machine::State {
     uint32_t consecutive_failures_{0};
     bool reference_finish_event_posted_{false};
     ControllerTimer nmpc_wait_log_timer_;
-    ControllerTimer nmpc_stale_output_log_timer_;
     ControllerTimer trajectory_wait_log_timer_;
     DfbcAttitudeRateStrategy dfbc_strategy_;
     SmcAccelerationStrategy smc_strategy_;
@@ -64,18 +57,18 @@ class Custom1State : public ::state_machine::State {
     bool tracking_position_held_{false};
     Setpoint tracking_frozen_hover_{};
 
-    void handleNmpcEventMode(::state_machine::StateContext& ctx, double current_time);
-    void handleSynchronousAttitudeRateMode(::state_machine::StateContext& ctx, double current_time);
-    void handleSmcMode(::state_machine::StateContext& ctx, double current_time);
-    void handlePvaSmcMode(::state_machine::StateContext& ctx, double current_time);
-    void handlePx4LocalPassThrough(::state_machine::StateContext& ctx, double current_time);
-    void consumeNmpcResult(::state_machine::StateContext& ctx, double current_time);
-    void dispatchNmpcRequest(::state_machine::StateContext& ctx, double current_time);
-    void publishBackupSetpoint(::state_machine::StateContext& ctx, double current_time);
+    void handleNmpcEventMode(double current_time);
+    void handleSynchronousAttitudeRateMode(double current_time);
+    void handleSmcMode(double current_time);
+    void handlePvaSmcMode(double current_time);
+    void handlePx4LocalPassThrough(double current_time);
+    void consumeNmpcResult(double current_time);
+    void dispatchNmpcRequest(double current_time);
+    void publishBackupSetpoint(double current_time);
     Setpoint measurementHoverSetpoint() const;
-    void publishCurrentHoverSetpoint(::state_machine::StateContext& ctx, double current_time);
-    void holdTrackingPosition(::state_machine::StateContext& ctx, double current_time);
-    void postReferenceFinished(::state_machine::StateContext& ctx, double current_time,
+    void publishCurrentHoverSetpoint(double current_time);
+    void holdTrackingPosition(double current_time);
+    void postReferenceFinished(double current_time,
                                const char* reason);
     bool referenceWillFinishBeforeNextHorizon(double current_time) const;
     bool referenceWillFinishBeforeNextSynchronousUpdate(double current_time) const;

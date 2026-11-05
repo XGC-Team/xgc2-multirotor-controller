@@ -9,9 +9,10 @@ namespace px4_multirotor_controller {
 
 DebugMonitorState::DebugMonitorState(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult DebugMonitorState::onTick(::state_machine::StateContext& ctx) {
+void DebugMonitorState::onTick() {
     const double now = controller_.getCurrentTime();
-    controller_.emitFlightEffect(FlightEvents{now});
+    if (!controller_.flightDiagnosticEvents().empty())
+        controller_.emitFlightEffect(FlightEvents{now});
 
     if (!status_publish_initialized_ ||
         now - last_status_publish_time_ >= STATUS_PUBLISH_INTERVAL) {
@@ -28,7 +29,7 @@ DebugMonitorState::DebugMonitorState(DroneController& controller) : controller_(
         debug_print_initialized_ = true;
     }
 
-    return {};
+    return;
 }
 
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/uav/flight_signal.h"
 
 #include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
@@ -16,19 +16,14 @@ class DroneController;
  * - 循环检查传感器状态（通过 Guard 直接判断）
  * - 传感器正常 → 通过 Guard 转移到 Normal，并展开到默认 Ready
  */
-class SelfCheckState : public ::state_machine::State {
+class SelfCheckState {
    public:
     explicit SelfCheckState(DroneController& controller);
-    ~SelfCheckState() override = default;
 
-    std::string name() const override {
-        return "SelfCheck";
-    }
 
-   protected:
-    ::state_machine::ActionResult onEnter(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onExit(::state_machine::StateContext& ctx) override;
+    void onEnter();
+    void onTick();
+    void onExit();
 
    private:
     DroneController& controller_;

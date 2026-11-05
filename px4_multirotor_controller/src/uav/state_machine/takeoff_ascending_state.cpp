@@ -8,10 +8,9 @@
 
 namespace px4_multirotor_controller {
 
-TakeoffAscendingState::TakeoffAscendingState(DroneController& controller)
-    : controller_(controller) {}
+TakeoffAscendingState::TakeoffAscendingState(DroneController& controller) : controller_(controller) {}
 
-::state_machine::ActionResult TakeoffAscendingState::onEnter(::state_machine::StateContext& ctx) {
+void TakeoffAscendingState::onEnter() {
     controller_.logInfo("[TakeoffAscendingState] Starting ascent");
 
     altitude_reached_event_posted_ = false;
@@ -21,33 +20,32 @@ TakeoffAscendingState::TakeoffAscendingState(DroneController& controller)
     controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     setpoint_publish_timer_.start();
     status_log_timer_.start();
-    return {};
+    return;
 }
 
-::state_machine::ActionResult TakeoffAscendingState::onTick(::state_machine::StateContext& ctx) {
-    publishSetpointIfDue(ctx);
+void TakeoffAscendingState::onTick() {
+    publishSetpointIfDue();
     logStatusIfDue();
-    if (postTimeoutIfNeeded(ctx)) {
-        return {};
+    if (postTimeoutIfNeeded()) {
+        return;
     }
     updateAltitudeConfirmation();
-    postAltitudeReachedOnce(ctx);
-    return {};
+    postAltitudeReachedOnce();
+    return;
 }
 
-::state_machine::ActionResult TakeoffAscendingState::onEvent(::state_machine::StateContext&,
-                                                             const ::state_machine::Event& event) {
-    if (event.id == event_type::TRAJECTORY_TRACKING_REQUESTED) {
+void TakeoffAscendingState::onEvent(FlightCommand command) {
+    if (command == FlightCommand::Track) {
         controller_.requestCustom1Tracking();
         if (!controller_.custom1ReferenceReady()) {
             controller_.logWarn(
                 "[TakeoffAscendingState] custom1 latched; waiting for ready initial reference");
         }
     }
-    return {};
+    return;
 }
 
-void TakeoffAscendingState::publishSetpointIfDue(::state_machine::StateContext& ctx) {
+void TakeoffAscendingState::publishSetpointIfDue() {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
         controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     }
@@ -69,13 +67,13 @@ void TakeoffAscendingState::logStatusIfDue() {
     status_log_timer_.reset();
 }
 
-bool TakeoffAscendingState::postTimeoutIfNeeded(::state_machine::StateContext& ctx) {
+bool TakeoffAscendingState::postTimeoutIfNeeded() {
     if (timeout_event_posted_) {
         return true;
     }
 
     const double elapsed_time =
-        std::chrono::duration<double>(ctx.elapsed(state_type::TakeoffAscending)).count();
+        std::chrono::duration<double>(controller_.flightElapsed()).count();
     if (elapsed_time <= ASCENDING_TIMEOUT) {
         return false;
     }
@@ -83,9 +81,7 @@ bool TakeoffAscendingState::postTimeoutIfNeeded(::state_machine::StateContext& c
     controller_.logWarn("[TakeoffAscendingState] Ascending timeout after %.1f seconds",
                         elapsed_time);
     timeout_event_posted_ = true;
-    ctx.postInternalEvent(
-        ::state_machine::Event(event_type::TAKEOFF_TIMEOUT,
-                               ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightSignal(FlightSignal::TakeoffTimeout);
     return true;
 }
 
@@ -118,7 +114,7 @@ void TakeoffAscendingState::updateAltitudeConfirmation() {
     }
 }
 
-void TakeoffAscendingState::postAltitudeReachedOnce(::state_machine::StateContext& ctx) {
+void TakeoffAscendingState::postAltitudeReachedOnce() {
     if (altitude_reached_event_posted_ || confirmed_settled_frames_ < CONSECUTIVE_SETTLED_FRAMES) {
         return;
     }
@@ -128,17 +124,15 @@ void TakeoffAscendingState::postAltitudeReachedOnce(::state_machine::StateContex
         "[TakeoffAscendingState] Target altitude reached: %.2f m (%.1f s "
         "elapsed)",
         sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend),
-        std::chrono::duration<double>(ctx.elapsed(state_type::TakeoffAscending)).count());
+        std::chrono::duration<double>(controller_.flightElapsed()).count());
     altitude_reached_event_posted_ = true;
-    ctx.postInternalEvent(
-        ::state_machine::Event(event_type::ALTITUDE_REACHED,
-                               ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightSignal(FlightSignal::AltitudeReached);
 }
 
-::state_machine::ActionResult TakeoffAscendingState::onExit(::state_machine::StateContext& ctx) {
+void TakeoffAscendingState::onExit() {
     const auto& sensor_data = controller_.getSensorData();
     const double elapsed_time =
-        std::chrono::duration<double>(ctx.elapsed(state_type::TakeoffAscending)).count();
+        std::chrono::duration<double>(controller_.flightElapsed()).count();
     controller_.logInfo(
         "[TakeoffAscendingState] Exiting (altitude: %.2f m, settled frames: "
         "%d/%d, elapsed: %.2f s)",
@@ -146,7 +140,7 @@ void TakeoffAscendingState::postAltitudeReachedOnce(::state_machine::StateContex
         confirmed_settled_frames_, CONSECUTIVE_SETTLED_FRAMES, elapsed_time);
     status_log_timer_.stop();
     setpoint_publish_timer_.stop();
-    return {};
+    return;
 }
 
 }  // namespace px4_multirotor_controller

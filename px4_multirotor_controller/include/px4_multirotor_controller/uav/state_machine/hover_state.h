@@ -1,6 +1,7 @@
 #pragma once
 
-#include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/uav/flight_signal.h"
+#include "px4_multirotor_controller/driver/command_input.h"
 
 #include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
@@ -13,25 +14,19 @@ class DroneController;
 
 // 悬停状态
 // 无人机在当前位置保持悬停
-class HoverState : public ::state_machine::State {
+class HoverState {
    public:
     explicit HoverState(DroneController& controller);
-    ~HoverState() override = default;
 
-    std::string name() const override {
-        return "Hover";
-    }
 
-   protected:
-    ::state_machine::ActionResult onEnter(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onEvent(::state_machine::StateContext& ctx,
-                                          const ::state_machine::Event& event) override;
-    ::state_machine::ActionResult onExit(::state_machine::StateContext& ctx) override;
+    void onEnter();
+    void onTick();
+    void onEvent(FlightCommand command);
+    void onExit();
 
    private:
     void configureHoverSetpoint();
-    void publishSetpointIfDue(::state_machine::StateContext& ctx);
+    void publishSetpointIfDue();
 
     DroneController& controller_;
     ControllerTimer setpoint_publish_timer_;  // Setpoint 输出事件节流计时器

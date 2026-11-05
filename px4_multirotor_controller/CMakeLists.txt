@@ -329,6 +329,7 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
   ${JSONCPP_INCLUDE_DIRS}
+  ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS}
   ${MULTIROTOR_UAV_NMPC_GENERATED_DIR}
   ${MULTIROTOR_ACADOS_INCLUDE_DIRS}
   ${acados_INCLUDE_DIRS}
@@ -418,6 +419,7 @@ add_library(px4_multirotor_controller_core
   src/uav/nmpc_result_buffer.cpp
   src/uav/active_trajectory_cache.cpp
   src/uav/state_machine/debug_monitor_state.cpp
+  src/uav/flight_state.cpp
   src/uav/state_machine/health_monitor_state.cpp
   src/uav/state_machine/self_check_state.cpp
   src/uav/state_machine/ready_state.cpp
@@ -449,7 +451,6 @@ add_dependencies(px4_multirotor_controller_core px4_multirotor_controller_uav_nm
 target_link_libraries(px4_multirotor_controller_core
   px4_multirotor_controller_uav_nmpc_runtime
   HoverThrustEstimator::Runtime
-  xgc2_state_machine::state_machine
   xgc2_math::control
   xgc2_math::geometry
   xgc2_math::trajectory
@@ -493,7 +494,6 @@ add_dependencies(${PROJECT_NAME}_node
 target_link_libraries(${PROJECT_NAME}_node
   px4_multirotor_controller_core
   px4_multirotor_controller_uav_nmpc_runtime
-  xgc2_state_machine::state_machine
   xgc2_math::control
   xgc2_math::geometry
   xgc2_math::trajectory
@@ -754,6 +754,7 @@ if(CATKIN_ENABLE_TESTING)
     test/controller_transport_parity.test
     test/controller_transport_parity.cpp
     src/input/sensor_input_producer.cpp
+    src/output/debug_output_consumer.cpp
   )
   if(TARGET controller_transport_parity)
     add_dependencies(controller_transport_parity ${PROJECT_NAME}_module ${catkin_EXPORTED_TARGETS})

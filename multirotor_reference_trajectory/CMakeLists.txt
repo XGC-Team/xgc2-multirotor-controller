@@ -29,6 +29,7 @@ include_directories(
   include
   ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
+  ${XGC2_STATE_MACHINE_INCLUDE_DIRS}
 )
 
 ## The ROS-free runtime: the reference trajectory state machine and its
@@ -42,10 +43,10 @@ set_target_properties(multirotor_reference_trajectory_core PROPERTIES INCLUDE_DI
 target_include_directories(multirotor_reference_trajectory_core BEFORE PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${EIGEN3_INCLUDE_DIRS}
+  ${XGC2_STATE_MACHINE_INCLUDE_DIRS}
 )
 target_link_libraries(multirotor_reference_trajectory_core
   xgc2_math::trajectory
-  xgc2_state_machine::state_machine
   pthread
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -63,7 +64,6 @@ add_dependencies(multirotor_reference_trajectory_node ${${PROJECT_NAME}_EXPORTED
 target_link_libraries(multirotor_reference_trajectory_node
   multirotor_reference_trajectory_core
   xgc2_math::trajectory
-  xgc2_state_machine::state_machine
   ${catkin_LIBRARIES}
   pthread
 )
@@ -168,7 +168,6 @@ if(CATKIN_ENABLE_TESTING)
   target_link_libraries(multirotor_reference_trajectory_runtime_test
     multirotor_reference_trajectory_core
     xgc2_math::trajectory
-    xgc2_state_machine::state_machine
     ${catkin_LIBRARIES}
     pthread
   )
@@ -185,7 +184,6 @@ if(REFERENCE_TRAJECTORY_REPLAY_HARNESS)
   target_link_libraries(${PROJECT_NAME}_replay_harness
     multirotor_reference_trajectory_core
     xgc2_math::trajectory
-    xgc2_state_machine::state_machine
     ${catkin_LIBRARIES}
     pthread
   )

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <state_machine/state_machine.hpp>
+#include "px4_multirotor_controller/uav/flight_signal.h"
 
 #include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/common/types.h"
@@ -18,25 +18,20 @@ class DroneController;
 // - 检测新的 OFFBOARD 状态确认帧
 // - 确认后发送 OFFBOARD_READY 事件，自动转移到 ARM_REQUEST
 // - 超时保护由状态机 transition guard 统一处理
-class TakeoffOffboardRequestState : public ::state_machine::State {
+class TakeoffOffboardRequestState {
    public:
     explicit TakeoffOffboardRequestState(DroneController& controller);
-    ~TakeoffOffboardRequestState() override = default;
 
-    std::string name() const override {
-        return "TakeoffOffboardRequest";
-    }
 
-   protected:
-    ::state_machine::ActionResult onEnter(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
-    ::state_machine::ActionResult onExit(::state_machine::StateContext& ctx) override;
+    void onEnter();
+    void onTick();
+    void onExit();
 
    private:
-    void publishSetpointIfDue(::state_machine::StateContext& ctx);
-    void requestOffboardModeIfDue(::state_machine::StateContext& ctx);
+    void publishSetpointIfDue();
+    void requestOffboardModeIfDue();
     void updateOffboardConfirmation();
-    void postOffboardReadyOnce(::state_machine::StateContext& ctx);
+    void postOffboardReadyOnce();
 
     DroneController& controller_;
     ControllerTimer mode_request_timer_;      // OFFBOARD 模式请求计时器

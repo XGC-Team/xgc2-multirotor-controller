@@ -26,18 +26,36 @@ int main(int argc, char** argv) {
     sensor.local_z = sensor.vrpn_z = sensor.z = 1.0;
     sensor.qw = sensor.local_qw = sensor.vrpn_qw = 1.0;
     DroneController controller(sensor);
-    ControllerConfig config; config.tracking_backend = TrackingBackend::NMPC;
+    ControllerConfig config; config.tracking_backend = TrackingBackend::NMPC; config.takeoff_altitude = 1.0;
     controller.setConfig(config);
     double now = 100.0;
     auto tick = [&] { controller.update(now += 0.001); };
-    auto request = [&](uint32_t id) { VERIFY(controller.getStateMachine().postEvent(
-        ::state_machine::Event(id, ::state_machine::EventTimestamp{now})).ok()); tick(); };
+    auto request = [&](uint32_t id) {
+        if (id == event_type::ALTCTL_READY) {
+            sensor.fcu_mode = "ALTCTL";
+            for (int i = 0; i < 2; ++i) { sensor.state_stats.is_new = true; tick(); }
+        } else if (id == event_type::OFFBOARD_READY) {
+            sensor.fcu_mode = "OFFBOARD"; sensor.state_stats.is_new = true; tick();
+        } else if (id == event_type::ARM_READY) {
+            sensor.fcu_armed = true; sensor.state_stats.is_new = true; tick();
+        } else if (id == event_type::ALTITUDE_REACHED) {
+            sensor.local_z = sensor.vrpn_z = sensor.z = controller.getSetpoint().z;
+            for (int i = 0; i < 5; ++i) {
+                sensor.local_pos_stats.is_new = sensor.vrpn_pose_stats.is_new = true;
+                sensor.uav_state_estimate_stats.is_new = true; tick();
+            }
+        } else {
+            const auto command = id == event_type::TAKEOFF_REQUESTED ? FlightCommand::Takeoff
+                : id == event_type::HOVER_REQUESTED ? FlightCommand::Hover : FlightCommand::Track;
+            VERIFY(controller.postCommand(command, now)); tick();
+        }
+    };
     tick();
-    VERIFY(controller.getStateMachine().currentState(region_type::CONTROL) == state_type::Ready);
+    VERIFY(static_cast<uint32_t>(controller.flightState()) == state_type::Ready);
     request(event_type::TAKEOFF_REQUESTED); request(event_type::ALTCTL_READY);
     request(event_type::OFFBOARD_READY); sensor.fcu_armed = true;
     request(event_type::ARM_READY); request(event_type::ALTITUDE_REACHED);
-    VERIFY(controller.getStateMachine().currentState(region_type::CONTROL) == state_type::Hover);
+    VERIFY(static_cast<uint32_t>(controller.flightState()) == state_type::Hover);
     auto seed_reference = [&] {
         reference::AnalyticReference ref; ref.start_time = ref.header.stamp = Time(now);
         ref.duration = 60.0; ref.analytic_type = reference::AnalyticReference::ANALYTIC_HOLD;
@@ -99,7 +117,7 @@ int main(int argc, char** argv) {
         config.nmpc.result_timeout = test.timeout; controller.setConfig(config);
         request(event_type::HOVER_REQUESTED);
         request(event_type::TRAJECTORY_TRACKING_REQUESTED); seed_reference(); tick();
-        VERIFY(controller.getStateMachine().currentState(region_type::CONTROL) == state_type::Custom1);
+        VERIFY(static_cast<uint32_t>(controller.flightState()) == state_type::Custom1);
         found = false;
         for (const auto& event : controller.flightEffects()) {
             if (const auto* request = std::get_if<FlightNmpcRequest>(&event)) { solve = *request; found = true; }

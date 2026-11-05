@@ -8,386 +8,61 @@
 #include <stdexcept>
 
 #include "px4_multirotor_controller/common/sensor_checks.h"
-#include "px4_multirotor_controller/common/state_machine_queries.h"
 #include "px4_multirotor_controller/control/trajectory_lifter.h"
-#include "px4_multirotor_controller/uav/state_machine/custom1_state.h"
-#include "px4_multirotor_controller/uav/state_machine/debug_monitor_state.h"
-#include "px4_multirotor_controller/uav/state_machine/health_monitor_state.h"
-#include "px4_multirotor_controller/uav/state_machine/hover_state.h"
-#include "px4_multirotor_controller/uav/state_machine/landing_state.h"
-#include "px4_multirotor_controller/uav/state_machine/ready_state.h"
-#include "px4_multirotor_controller/uav/state_machine/self_check_state.h"
-#include "px4_multirotor_controller/uav/state_machine/takeoff_arm_request_state.h"
-#include "px4_multirotor_controller/uav/state_machine/takeoff_ascending_state.h"
-#include "px4_multirotor_controller/uav/state_machine/takeoff_init_state.h"
-#include "px4_multirotor_controller/uav/state_machine/takeoff_offboard_request_state.h"
+#include "px4_multirotor_controller/uav/flight_state.h"
 
 namespace px4_multirotor_controller {
 
-namespace {
-
-// State elapsed guards and ControllerTimer must share this instance's update time.
-class ControllerStateMachineClock final : public ::state_machine::Clock {
-   public:
-    explicit ControllerStateMachineClock(const double& current_time) : current_time_(current_time) {}
-
-    ::state_machine::TimePoint now() const override {
-        return ::state_machine::TimePoint(std::chrono::duration_cast<::state_machine::Duration>(
-            std::chrono::duration<double>(current_time_)));
-    }
-
-   private:
-    const double& current_time_;
-};
-
-}  // namespace
-
-using namespace event_type;  // 简化事件常量引用
-
 DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(sensor_data) {
     logInfo("[DroneController] Initializing...");
-
-    auto health_monitor = std::make_unique<HealthMonitorState>(*this);
-    health_monitor_ = health_monitor.get();
-
-    auto builder = ::state_machine::StateMachine::builder(
-        "FlightStateMachine", ::state_machine::RuntimeOptions{},
-        std::make_shared<ControllerStateMachineClock>(current_time_));
-    builder.region(region_type::HEALTH)
-        .name("health")
-        .order(0)
-        .initial(state_type::HealthMonitor)
-        .state(state_type::HealthMonitor)
-        .name("HealthMonitor")
-        .impl(std::move(health_monitor))
-        .endRegion()
-        .region(region_type::CONTROL)
-        .name("flight")
-        .order(10)
-        .initial(state_type::SelfCheck)
-        .state(state_type::SelfCheck)
-        .name("SelfCheck")
-        .impl(std::make_unique<SelfCheckState>(*this))
-        .state(state_type::Normal)
-        .name("Normal")
-        .initial(state_type::Ready)
-        .state(state_type::Ready)
-        .name("Ready")
-        .impl(std::make_unique<ReadyState>(*this))
-        .state(state_type::Takeoff)
-        .name("Takeoff")
-        .initial(state_type::TakeoffInit)
-        .state(state_type::TakeoffInit)
-        .name("TakeoffInit")
-        .impl(std::make_unique<TakeoffInitState>(*this))
-        .state(state_type::TakeoffOffboardRequest)
-        .name("TakeoffOffboardRequest")
-        .impl(std::make_unique<TakeoffOffboardRequestState>(*this))
-        .state(state_type::TakeoffArmRequest)
-        .name("TakeoffArmRequest")
-        .impl(std::make_unique<TakeoffArmRequestState>(*this))
-        .state(state_type::TakeoffAscending)
-        .name("TakeoffAscending")
-        .impl(std::make_unique<TakeoffAscendingState>(*this))
-        .endState()
-        .state(state_type::Hover)
-        .name("Hover")
-        .impl(std::make_unique<HoverState>(*this))
-        .state(state_type::Custom1)
-        .name("Custom1")
-        .impl(std::make_unique<Custom1State>(*this))
-        .endState()
-        .state(state_type::Landing)
-        .name("Landing")
-        .impl(std::make_unique<LandingState>(*this))
-        .endRegion()
-        .region(region_type::DEBUG)
-        .name("debug")
-        .order(20)
-        .initial(state_type::DebugMonitor)
-        .state(state_type::DebugMonitor)
-        .name("DebugMonitor")
-        .impl(std::make_unique<DebugMonitorState>(*this))
-        .endRegion()
-        .transition()
-        .from(state_type::SelfCheck)
-        .to(state_type::Normal)
-        .priority(transition_priority::AUTOMATIC)
-        .when([this](const ::state_machine::GuardContext&) {
-            return sensor_checks::areSensorsReady(sensor_data_, getConfig().tracking_backend);
-        })
-        .transition()
-        .from(state_type::Ready)
-        .to(state_type::SelfCheck)
-        .priority(transition_priority::AUTOMATIC)
-        .when([this](const ::state_machine::GuardContext&) {
-            return !sensor_checks::areSensorsReady(sensor_data_, getConfig().tracking_backend);
-        })
-        .transition()
-        .from(state_type::Ready)
-        .to(state_type::Landing)
-        .priority(transition_priority::CRITICAL)
-        .when([this](const ::state_machine::GuardContext&) {
-            return sensor_checks::isAirborne(sensor_data_, getConfig().tracking_backend);
-        })
-        .transition()
-        .from(state_type::Ready)
-        .to(state_type::Takeoff)
-        .on(TAKEOFF_REQUESTED)
-        .priority(transition_priority::COMMAND)
-        .when([this](const ::state_machine::GuardContext&) {
-            const auto& distance = getPositionDistance();
-            return distance.available && !distance.exceeded;
-        })
-        // Health (order 0) updates this shared result before flight (order 10).
-        // Scope the protection to existing flight states, NOT Normal/Ready.
-        // Leaving these states for Landing consumes the condition once; there
-        // is no repeated Land event or Landing self-transition.
-        .transition()
-        .from(state_type::Takeoff)
-        .to(state_type::Landing)
-        .priority(transition_priority::EMERGENCY)
-        .when([this](const ::state_machine::GuardContext&) {
-            return getPositionDistance().exceeded;
-        })
-        .transition()
-        .from(state_type::Hover)
-        .to(state_type::Landing)
-        .priority(transition_priority::EMERGENCY)
-        .when([this](const ::state_machine::GuardContext&) {
-            return getPositionDistance().exceeded;
-        })
-        .transition()
-        .from(state_type::Custom1)
-        .to(state_type::Landing)
-        .priority(transition_priority::EMERGENCY)
-        .when([this](const ::state_machine::GuardContext&) {
-            return getPositionDistance().exceeded;
-        })
-        .transition()
-        .from(state_type::TakeoffInit)
-        .to(state_type::Ready)
-        .priority(transition_priority::CRITICAL)
-        .when([this](const ::state_machine::GuardContext&) {
-            return sensor_checks::isFcuArmed(sensor_data_);
-        })
-        .transition()
-        .from(state_type::TakeoffOffboardRequest)
-        .to(state_type::Ready)
-        .priority(transition_priority::CRITICAL)
-        .when([this](const ::state_machine::GuardContext&) {
-            return sensor_checks::isFcuArmed(sensor_data_);
-        })
-        .transition()
-        .from(state_type::TakeoffInit)
-        .to(state_type::TakeoffOffboardRequest)
-        .on(ALTCTL_READY)
-        .priority(transition_priority::AUTOMATIC)
-        .when([this](const ::state_machine::GuardContext&) {
-            return !sensor_checks::isFcuArmed(sensor_data_);
-        })
-        .transition()
-        .from(state_type::TakeoffOffboardRequest)
-        .to(state_type::TakeoffArmRequest)
-        .on(OFFBOARD_READY)
-        .priority(transition_priority::AUTOMATIC)
-        .transition()
-        .from(state_type::TakeoffArmRequest)
-        .to(state_type::TakeoffAscending)
-        .on(ARM_READY)
-        .priority(transition_priority::AUTOMATIC)
-        .transition()
-        .from(state_type::TakeoffAscending)
-        .to(state_type::Hover)
-        .on(ALTITUDE_REACHED)
-        .priority(transition_priority::AUTOMATIC)
-        .transition()
-        .from(state_type::TakeoffAscending)
-        .to(state_type::Hover)
-        .on(HOVER_REQUESTED)
-        .priority(transition_priority::COMMAND)
-        .transition()
-        .from(state_type::TakeoffInit)
-        .to(state_type::Landing)
-        .priority(transition_priority::AUTOMATIC)
-        .when([this](const ::state_machine::GuardContext&) {
-            return state_machine_ && state_machine_queries::isActiveStateTimeout(
-                                         *state_machine_, region_type::CONTROL, 10.0);
-        })
-        .transition()
-        .from(state_type::TakeoffOffboardRequest)
-        .to(state_type::Landing)
-        .priority(transition_priority::AUTOMATIC)
-        .when([this](const ::state_machine::GuardContext&) {
-            return state_machine_ && state_machine_queries::isActiveStateTimeout(
-                                         *state_machine_, region_type::CONTROL, 10.0);
-        })
-        .transition()
-        .from(state_type::TakeoffArmRequest)
-        .to(state_type::Landing)
-        .priority(transition_priority::AUTOMATIC)
-        .when([this](const ::state_machine::GuardContext&) {
-            return state_machine_ && state_machine_queries::isActiveStateTimeout(
-                                         *state_machine_, region_type::CONTROL, 10.0);
-        })
-        .transition()
-        .from(state_type::TakeoffAscending)
-        .to(state_type::Landing)
-        .on(TAKEOFF_TIMEOUT)
-        .priority(transition_priority::AUTOMATIC)
-        .transition()
-        .from(state_type::TakeoffAscending)
-        .to(state_type::Custom1)
-        .on(TRAJECTORY_TRACKING_REQUESTED)
-        .priority(transition_priority::COMMAND)
-        .when([this](const ::state_machine::GuardContext&) { return custom1ReferenceReady(); })
-        .transition()
-        .from(state_type::TakeoffAscending)
-        .to(state_type::Custom1)
-        .priority(transition_priority::AUTOMATIC)
-        .when([this](const ::state_machine::GuardContext&) {
-            return custom1_requested_ && custom1ReferenceReady();
-        })
-        .transition()
-        .from(state_type::Hover)
-        .to(state_type::Custom1)
-        .on(TRAJECTORY_TRACKING_REQUESTED)
-        .priority(transition_priority::COMMAND)
-        .when([this](const ::state_machine::GuardContext&) { return custom1ReferenceReady(); })
-        .transition()
-        .from(state_type::Hover)
-        .to(state_type::Custom1)
-        .priority(transition_priority::AUTOMATIC)
-        .when([this](const ::state_machine::GuardContext&) {
-            return custom1_requested_ && custom1ReferenceReady();
-        })
-        .transition()
-        .from(state_type::Custom1)
-        .to(state_type::Hover)
-        .on(HOVER_REQUESTED)
-        .priority(transition_priority::COMMAND)
-        .transition()
-        .from(state_type::Custom1)
-        .to(state_type::Hover)
-        .on(REFERENCE_TRAJECTORY_FINISHED)
-        .priority(transition_priority::AUTOMATIC)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(LANDING_REQUESTED)
-        .priority(transition_priority::USER_COMMAND)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_GEOFENCE_VIOLATION)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_VELOCITY_XY_EXCEEDED)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_VELOCITY_Z_EXCEEDED)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_CONTROL_SATURATION_XY)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_CONTROL_SATURATION_Z)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_POSITION_JUMP)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_UAV_STATE_ESTIMATE_UNUSABLE)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_TIMEOUT_UAV_STATE_ESTIMATE)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_TIMEOUT_LOCAL_POS)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_TIMEOUT_LOCAL_VELOCITY)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_TIMEOUT_IMU)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Normal)
-        .to(state_type::Landing)
-        .on(SAFE_TIMEOUT_STATE)
-        .priority(transition_priority::EMERGENCY)
-        .transition()
-        .from(state_type::Landing)
-        .to(state_type::SelfCheck)
-        .on(TOUCHDOWN)
-        .priority(transition_priority::AUTOMATIC);
-
-    auto machine_result = builder.build();
-    if (!machine_result.status.ok()) {
-        throw std::runtime_error(machine_result.status.message);
-    }
-    state_machine_ = std::move(machine_result.value);
-
-    // 启动状态机
-    if (auto status = state_machine_->start(); !status.ok()) {
-        throw std::runtime_error(status.message);
-    }
-
+    flight_ = std::make_unique<FlightRuntime>(*this);
     logInfo("[DroneController] Initialized");
 }
 
+DroneController::~DroneController() = default;
+
 void DroneController::update(double current_time) {
     flight_effects_.clear();
-    // 1. 更新当前时间
     current_time_ = current_time;
-    // State timers measure the controller's time (see controller_clock.h).
     ControllerClock::set(current_time);
-
-    // 2. 更新状态机
-    if (state_machine_) {
-        (void)state_machine_->update();
-    }
+    flight_->update();
 }
 
-::state_machine::Status DroneController::postCommand(FlightCommand command, double receipt_sec) {
-    ::state_machine::EventId id = 0;
-    switch (command) {
-        case FlightCommand::Takeoff: id = event_type::TAKEOFF_REQUESTED; break;
-        case FlightCommand::Land: id = event_type::LANDING_REQUESTED; break;
-        case FlightCommand::Hover: id = event_type::HOVER_REQUESTED; break;
-        case FlightCommand::Track: id = event_type::TRAJECTORY_TRACKING_REQUESTED; break;
-    }
-    ::state_machine::Event event(id, ::state_machine::EventTimestamp{receipt_sec});
-    event.source = "command";
-    return state_machine_->postEvent(std::move(event));
+bool DroneController::postCommand(FlightCommand command, double receipt_sec) {
+    // State decisions have always used the turn clock; preserve command order.
+    (void)receipt_sec;
+    return flight_->postCommand(command);
 }
 
-FlightState DroneController::flightState() const {
-    return static_cast<FlightState>(state_machine_->currentState(region_type::CONTROL));
+void DroneController::emitFlightSignal(FlightSignal signal) { flight_->emitSignal(signal); }
+
+std::chrono::steady_clock::duration DroneController::flightElapsed() const {
+    return flight_->elapsed();
 }
+
+const HealthMonitorState::PositionDistance& DroneController::getPositionDistance() const {
+    return flight_->positionDistance();
+}
+
+const std::vector<uint32_t>& DroneController::flightDiagnosticEvents() const {
+    return flight_->diagnosticEvents();
+}
+
+FlightState DroneController::flightState() const { return flight_->flightState(); }
 
 std::string DroneController::flightStateName() const {
-    return state_machine_->currentStateName(region_type::CONTROL);
+    switch (flightState()) {
+        case FlightState::SelfCheck: return "SelfCheck";
+        case FlightState::Ready: return "Ready";
+        case FlightState::TakeoffInit: return "TakeoffInit";
+        case FlightState::TakeoffOffboardRequest: return "TakeoffOffboardRequest";
+        case FlightState::TakeoffArmRequest: return "TakeoffArmRequest";
+        case FlightState::TakeoffAscending: return "TakeoffAscending";
+        case FlightState::Hover: return "Hover";
+        case FlightState::Landing: return "Landing";
+        case FlightState::Custom1: return "Custom1";
+    }
+    return {};
 }
 
 ControllerConfig DroneController::getConfig() const {

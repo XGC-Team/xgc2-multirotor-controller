@@ -63,10 +63,8 @@ bool DebugOutputConsumer::handle(const FlightEffect& effect) {
         return true;
     }
     if (std::holds_alternative<FlightEvents>(effect)) {
-        // DebugMonitor requests this every control tick (1 kHz). With no
-        // subscriber roscpp drops the message anyway, so skip the snapshot,
-        // the task allocation and the worker wake-up. A subscriber still
-        // receives every tick's message from the moment it is connected.
+        // The owner emits this only for actual facts in the current turn.
+        // With no subscriber skip the snapshot and worker task as before.
         if (events_pub_.getNumSubscribers() == 0) {
             return true;
         }
@@ -195,11 +193,7 @@ DebugOutputConsumer::SensorStatsSnapshot DebugOutputConsumer::snapshotSensorStat
 
 std_msgs::UInt32MultiArray DebugOutputConsumer::snapshotStateMachineEvents() const {
     std_msgs::UInt32MultiArray msg;
-    const auto events = controller_.getStateMachine().currentEvents();
-    msg.data.reserve(events.size());
-    for (const auto& record : events) {
-        msg.data.push_back(record.event.id);
-    }
+    msg.data = controller_.flightDiagnosticEvents();
     return msg;
 }
 

@@ -15,6 +15,7 @@
 #include <ros/ros.h>
 #include <ros/callback_queue.h>
 #include <sensor_msgs/Imu.h>
+#include <std_msgs/UInt32MultiArray.h>
 
 #include <xgc2/sdk/test_host.hpp>
 #include <string>
@@ -22,6 +23,7 @@
 #include "px4_multirotor_controller/driver/controller_config.h"
 #include "px4_multirotor_controller/driver/controller_driver.h"
 #include "px4_multirotor_controller/input/sensor_input_producer.h"
+#include "px4_multirotor_controller/output/debug_output_consumer.h"
 #include "replay/ros_payload_mapping.h"
 
 using namespace px4_multirotor_controller;
@@ -223,6 +225,89 @@ TEST(ControllerTransports, RosLocalPvUsesActualExactTimePairs) {
     EXPECT_NEAR(data.local_pos_stats.frequency_hz, 25.0, 1e-6);
     EXPECT_NEAR(data.local_velocity_stats.frequency_hz, 50.0, 1e-6);
     driver.stop();
+}
+
+TEST(ControllerTransports, RosDiagnosticsKeepDistinctFactsWithoutEmptyTurns) {
+    ros::CallbackQueue queue;
+    ros::NodeHandle nh("controller_diagnostic_facts");
+    nh.setCallbackQueue(&queue);
+    std::vector<std::vector<uint32_t>> received;
+    auto subscriber = nh.subscribe<std_msgs::UInt32MultiArray>(
+        "alg/state_machine_events", 20,
+        [&](const std_msgs::UInt32MultiArray::ConstPtr& msg) { received.push_back(msg->data); });
+
+    SensorData data;
+    data.local_pos_stats.is_active = data.local_velocity_stats.is_active = true;
+    data.imu_stats.is_active = data.state_stats.is_active = true;
+    data.local_pos_stats.is_new = data.vrpn_pose_stats.is_new = true;
+    data.local_z = data.vrpn_z = 1.0;
+    data.fcu_connected = true;
+    DroneController controller(data);
+    ControllerConfig config;
+    config.takeoff_altitude = 1.0;
+    controller.setConfig(config);
+    ros1_utils::PositionQualityStats quality;
+    const bool debug_print = false;
+    state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> worker(nh);
+    DebugOutputConsumer consumer(nh, worker, controller, data, quality, debug_print, 20);
+    worker.start();
+
+    const auto connect_deadline = ros::WallTime::now() + ros::WallDuration(3.0);
+    while (!subscriber.getNumPublishers() && ros::WallTime::now() < connect_deadline) {
+        queue.callAvailable(ros::WallDuration(0.01));
+    }
+    ASSERT_EQ(subscriber.getNumPublishers(), 1U);
+    // Wait for the actual TCPROS link, rather than sending a duplicate command
+    // while the publisher is still establishing its subscriber connection.
+    ros::WallDuration(0.05).sleep();
+
+    auto publishEffects = [&] {
+        for (const auto& effect : controller.flightEffects()) {
+            if (std::holds_alternative<FlightEvents>(effect))
+                EXPECT_TRUE(consumer.handle(effect));
+        }
+    };
+    auto waitForCount = [&](size_t count) {
+        const auto deadline = ros::WallTime::now() + ros::WallDuration(2.0);
+        while (received.size() < count && ros::WallTime::now() < deadline)
+            queue.callAvailable(ros::WallDuration(0.01));
+        ASSERT_EQ(received.size(), count);
+    };
+
+    controller.update(100.0);  // The real SelfCheck -> Ready guard.
+    publishEffects();
+    waitForCount(1);
+    EXPECT_EQ(received[0], (std::vector<uint32_t>{0}));
+
+    ASSERT_TRUE(controller.postCommand(FlightCommand::Takeoff, 100.01));
+    ASSERT_TRUE(controller.postCommand(FlightCommand::Takeoff, 100.01));
+    controller.update(100.01);
+    publishEffects();
+    waitForCount(2);
+    EXPECT_EQ(received[1], (std::vector<uint32_t>{event_type::TAKEOFF_REQUESTED,
+                                                  event_type::TAKEOFF_REQUESTED}));
+
+    data.fcu_mode = "ALTCTL";
+    data.state_stats.is_new = true;
+    controller.update(100.02);  // First of the original two ALTCTL frames.
+    publishEffects();
+    queue.callAvailable(ros::WallDuration(0.05));
+    EXPECT_EQ(received.size(), 2U);
+
+    data.state_stats.is_new = true;
+    controller.update(100.03);  // The actual ALTCTL_READY completion.
+    publishEffects();
+    waitForCount(3);
+    EXPECT_EQ(received[2], (std::vector<uint32_t>{event_type::ALTCTL_READY}));
+
+    ASSERT_TRUE(controller.postCommand(FlightCommand::Land, 100.04));
+    ASSERT_TRUE(controller.postCommand(FlightCommand::Track, 100.04));
+    controller.update(100.04);
+    publishEffects();
+    waitForCount(4);
+    EXPECT_EQ(received[3], (std::vector<uint32_t>{event_type::LANDING_REQUESTED,
+                                                  event_type::TRAJECTORY_TRACKING_REQUESTED}));
+    worker.stop();
 }
 
 int main(int argc, char** argv) {

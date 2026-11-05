@@ -8,13 +8,13 @@ find_dependency(HoverThrustEstimator 1.2.0 CONFIG)
 
 list(APPEND px4_multirotor_controller_INCLUDE_DIRS
   ${XGC2_ACADOS_INCLUDE_DIRS}
+  ${XGC2_STATE_MACHINE_INCLUDE_DIRS}
 )
 list(APPEND px4_multirotor_controller_LIBRARIES
   Eigen3::Eigen
   ${XGC2_ACADOS_LIBRARIES}
   xgc2_math::control
   xgc2_math::trajectory
-  xgc2_state_machine::state_machine
   HoverThrustEstimator::Runtime
 )
 list(REMOVE_DUPLICATES px4_multirotor_controller_INCLUDE_DIRS)
