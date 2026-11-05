@@ -55,10 +55,13 @@ ownership:
   - /opt/ros/noetic/lib/libpx4_multirotor_reference_module.so
   - /usr/share/xgc2/process-definitions/xgc2-px4-multirotor-controller-ros1.json
 release:
+  requires:
+  - xgc2-module
   dependency_policy:
     libxgc2-math-dev: rebuild
     libxgc2-state-machine-dev: rebuild
     xgc2-acados: rebuild
+    xgc2-module: rebuild
     xgc2-estimator-hover-thrust: rebuild
     xgc2-ros-msgs: rebuild
     xgc2-ros1-utils: rebuild
