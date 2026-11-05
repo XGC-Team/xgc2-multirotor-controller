@@ -53,16 +53,15 @@ class ControllerDriver {
         if (sensor_.feedback_source == FeedbackSource::MAVROS_LOCAL)
             ingestBodyInertial(sensor_, input, imu_gravity_);
         if (hover_thrust_)
-            checkHoverInput(
-                hover_thrust_->ingestImu(input.specific_force.z(), input.stamp_sec, receipt_sec));
+            hover_thrust_->ingestImu(input.specific_force.z(), input.stamp_sec, receipt_sec);
     }
     void ingestThrust(double thrust, bool ignored, double stamp_sec, double receipt_sec) {
         if (hover_thrust_)
-            checkHoverInput(hover_thrust_->ingestThrust(thrust, ignored, stamp_sec, receipt_sec));
+            hover_thrust_->ingestThrust(thrust, ignored, stamp_sec, receipt_sec);
     }
     void ingestAltitude(double altitude, double stamp_sec, double receipt_sec) {
         if (hover_thrust_)
-            checkHoverInput(hover_thrust_->ingestAltitude(altitude, stamp_sec, receipt_sec));
+            hover_thrust_->ingestAltitude(altitude, stamp_sec, receipt_sec);
     }
     void ingestPairedLocalPv(const Eigen::Vector3d& position, const Eigen::Vector3d& velocity) {
         sensor_.paired_local_pv = SensorData::LocalPv{position, velocity};
@@ -115,10 +114,6 @@ class ControllerDriver {
     }
 
    private:
-    static void checkHoverInput(const ::state_machine::Status& status) {
-        if (!status.ok())
-            PMC_LOG_ERROR("[ControllerDriver] hover thrust input: %s", status.message.c_str());
-    }
     SensorData& sensor_;
     DroneController controller_;
     std::unique_ptr<hover_thrust_estimator::HoverThrustEstimatorRuntime> hover_thrust_;

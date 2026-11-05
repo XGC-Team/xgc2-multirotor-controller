@@ -42,9 +42,9 @@ TEST(InternalHoverThrust, SameRuntimeSameSamplesSameEstimatesAndPublicationGates
         driver.ingestBodyImu(imu, now);
         driver.ingestThrust(thrust, ignored, now, now);
         driver.ingestAltitude(1.0, now, now);
-        ASSERT_TRUE(reference.ingestImu(imu.specific_force.z(), now, now).ok());
-        ASSERT_TRUE(reference.ingestThrust(thrust, ignored, now, now).ok());
-        ASSERT_TRUE(reference.ingestAltitude(1.0, now, now).ok());
+        reference.ingestImu(imu.specific_force.z(), now, now);
+        reference.ingestThrust(thrust, ignored, now, now);
+        reference.ingestAltitude(1.0, now, now);
         driver.update(Time(now));
         reference.update(now);
         const auto* actual = driver.hoverThrustRuntime();
@@ -108,9 +108,9 @@ TEST(InternalHoverThrust, SparseInputsAndTimeoutKeepRuntimePublicationSemantics)
             driver.ingestBodyImu(imu, seconds);
             driver.ingestThrust(.4, false, seconds, seconds);
             driver.ingestAltitude(1., seconds, seconds);
-            ASSERT_TRUE(reference.ingestImu(imu.specific_force.z(), seconds, seconds).ok());
-            ASSERT_TRUE(reference.ingestThrust(.4, false, seconds, seconds).ok());
-            ASSERT_TRUE(reference.ingestAltitude(1., seconds, seconds).ok());
+            reference.ingestImu(imu.specific_force.z(), seconds, seconds);
+            reference.ingestThrust(.4, false, seconds, seconds);
+            reference.ingestAltitude(1., seconds, seconds);
         }
         reference.update(seconds);
         for (const auto& estimate : reference.publishedEstimates()) {
