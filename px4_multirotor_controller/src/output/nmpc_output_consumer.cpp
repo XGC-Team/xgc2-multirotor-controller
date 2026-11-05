@@ -69,7 +69,10 @@ NmpcOutputConsumer::~NmpcOutputConsumer() {
  execution_.stop();
  execution_.setDiagnosticSink({});
 }
-bool NmpcOutputConsumer::handle(const ::state_machine::Event& event) { return execution_.handle(event); }
+bool NmpcOutputConsumer::handle(const FlightEffect& effect) {
+ const auto* request = std::get_if<FlightNmpcRequest>(&effect);
+ return request && execution_.handle(*request);
+}
 
 void NmpcOutputConsumer::publishDebug(uint64_t sequence, const Time& stamp, const UavNmpcTrackingBackend& backend) {
     const NmpcDebugData& debug = backend.lastDebugData();

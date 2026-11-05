@@ -29,47 +29,24 @@ void Px4ServiceOutputConsumer::initializeClientsIfNeeded() {
     ROS_INFO("[Px4ServiceOutputConsumer] Registered critical service clients");
 }
 
-bool Px4ServiceOutputConsumer::handle(const ::state_machine::Event& event) {
-    switch (event.id) {
-        case output_event_type::REQUEST_ARMING: {
-            const auto it = event.payload.find("arm");
-            if (it == event.payload.end() || !std::holds_alternative<bool>(it->second)) {
-                ROS_WARN(
-                    "[Px4ServiceOutputConsumer] REQUEST_ARMING missing bool "
-                    "payload 'arm'");
-                return true;
-            }
-            if (!clients_initialized_) {
-                ROS_WARN(
-                    "[Px4ServiceOutputConsumer] Arming client not initialized, "
-                    "dropping arm request");
-                return true;
-            }
-            executor_.pushTask(
-                std::make_unique<ArmOutputTask>(std::get<bool>(it->second), &arming_client_));
+bool Px4ServiceOutputConsumer::handle(const FlightEffect& effect) {
+    if (const auto* arm = std::get_if<FlightArmRequest>(&effect)) {
+        if (!clients_initialized_) {
+            ROS_WARN("[Px4ServiceOutputConsumer] Arming client not initialized, dropping arm request");
             return true;
         }
-        case output_event_type::REQUEST_MODE: {
-            const auto it = event.payload.find("mode");
-            if (it == event.payload.end() || !std::holds_alternative<std::string>(it->second)) {
-                ROS_WARN(
-                    "[Px4ServiceOutputConsumer] REQUEST_MODE missing string "
-                    "payload 'mode'");
-                return true;
-            }
-            if (!clients_initialized_) {
-                ROS_WARN(
-                    "[Px4ServiceOutputConsumer] SetMode client not initialized, "
-                    "dropping mode request");
-                return true;
-            }
-            executor_.pushTask(std::make_unique<SetModeOutputTask>(
-                std::get<std::string>(it->second), &set_mode_client_));
-            return true;
-        }
-        default:
-            return false;
+        executor_.pushTask(std::make_unique<ArmOutputTask>(arm->arm, &arming_client_));
+        return true;
     }
+    if (const auto* mode = std::get_if<FlightModeRequest>(&effect)) {
+        if (!clients_initialized_) {
+            ROS_WARN("[Px4ServiceOutputConsumer] SetMode client not initialized, dropping mode request");
+            return true;
+        }
+        executor_.pushTask(std::make_unique<SetModeOutputTask>(mode->mode, &set_mode_client_));
+        return true;
+    }
+    return false;
 }
 
 }  // namespace px4_multirotor_controller

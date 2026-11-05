@@ -75,9 +75,15 @@ class DfbcStreamReferenceTest : public ::testing::Test {
     }
 
     bool emitted(uint32_t event) {
-        for (const auto& output : controller_->getStateMachine().currentOutputEvents())
-            if (output.id == event)
+        for (const auto& output : controller_->flightEffects()) {
+            if ((event == output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION &&
+                 std::holds_alternative<FlightReferenceActivation>(output)) ||
+                (event == output_event_type::PUBLISH_ATTITUDE_RATE_TARGET &&
+                 std::holds_alternative<FlightAttitude>(output)) ||
+                (event == output_event_type::PUBLISH_SETPOINT &&
+                 std::holds_alternative<FlightSetpoint>(output)))
                 return true;
+        }
         return false;
     }
 

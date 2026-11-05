@@ -29,6 +29,7 @@ SUPPORT = r'''
 #include <utility>
 #include <variant>
 #include <vector>
+#include "px4_multirotor_controller/uav/flight_effect.h"
 namespace ros {
 struct Time {
     double value{0.0};
@@ -211,7 +212,7 @@ int main() {
         controller.setpoint.vx = .3;
         controller.setpoint.ay = .4;
         controller.setpoint.type_mask = 3523;
-        assert(consumer.handle({output_event_type::PUBLISH_SETPOINT}));
+        assert(consumer.handle(FlightSetpoint{0.0}));
         assert(ros::publications().size() == static_cast<size_t>(i + 1));
         const auto& publication = ros::publications().back();
         assert(publication.topic == "mavros/setpoint_raw/local");
@@ -222,16 +223,16 @@ int main() {
         assert(msg.header.frame_id == "map" && msg.header.stamp.value == ros::Time::clock());
     }
     controller.attitude = {.1, -.2, .3, 1.5};
-    assert(consumer.handle({output_event_type::PUBLISH_ATTITUDE_RATE_TARGET}));
+    assert(consumer.handle(FlightAttitude{0.0}));
     auto msg = std::get<mavros_msgs::AttitudeTarget>(ros::publications().back().message);
     assert(ros::publications().back().topic == "mavros/setpoint_raw/attitude");
     assert(msg.type_mask == mavros_msgs::AttitudeTarget::IGNORE_ATTITUDE);
     assert(msg.body_rate.x == .1 && msg.body_rate.y == -.2 && msg.body_rate.z == .3);
     assert(msg.orientation.w == 1 && msg.thrust == 1);
     controller.attitude.thrust = -.1;
-    consumer.handle({output_event_type::PUBLISH_ATTITUDE_RATE_TARGET});
+    consumer.handle(FlightAttitude{0.0});
     assert(std::get<mavros_msgs::AttitudeTarget>(ros::publications().back().message).thrust == 0);
-    assert(!consumer.handle({999}));
+    assert(!consumer.handle(FlightNmpcRequest{0.0, 0, 0}));
     assert(rpc.pending.empty());
     const auto count = ros::publications().size();
     rpc.drain(nh); // RPC recovery must not replay any old local/attitude targets.
@@ -253,10 +254,8 @@ int main() {
     ros::NodeHandle nh;
     state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> rpc;
     Px4ServiceOutputConsumer consumer(nh, rpc);
-    state_machine::Event arm{output_event_type::REQUEST_ARMING};
-    arm.payload["arm"] = true;
-    state_machine::Event mode{output_event_type::REQUEST_MODE};
-    mode.payload["mode"] = std::string("OFFBOARD");
+    const FlightArmRequest arm{0.0, true};
+    const FlightModeRequest mode{0.0, "OFFBOARD"};
     auto& boundary = ros::services();
     assert(consumer.handle(arm));
     assert(consumer.handle(mode));
@@ -319,7 +318,7 @@ int main() {
     assert(boundary.logs[boundary.logs.size() - 2].find("Failed to call arm/disarm") != std::string::npos);
     assert(boundary.logs.back().find("Failed to call set_mode") != std::string::npos);
     assert(boundary.exists_calls == 0 && boundary.registrations.size() == 2);
-    assert(!consumer.handle({999}));
+    assert(!consumer.handle(FlightNmpcRequest{0.0, 0, 0}));
     std::cout << "0 initialization probes; 2 nonpersistent clients once; 6 async real task calls/results\n";
 }
 '''

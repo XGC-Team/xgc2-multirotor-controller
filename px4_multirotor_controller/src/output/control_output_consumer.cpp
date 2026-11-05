@@ -17,20 +17,17 @@ ControlOutputConsumer::ControlOutputConsumer(
         nh.advertise<mavros_msgs::AttitudeTarget>("mavros/setpoint_raw/attitude", queue_size);
 }
 
-bool ControlOutputConsumer::handle(const ::state_machine::Event& event) {
-    switch (event.id) {
-        case output_event_type::PUBLISH_SETPOINT:
-            // ROS/FSM dispatch is serialized on the control thread. ROS owns the
-            // bounded transport queue; no historical control samples enter the RPC FIFO.
-            setpoint_raw_pub_.publish(makeSetpointMessage(controller_.getSetpoint()));
-            return true;
-        case output_event_type::PUBLISH_ATTITUDE_RATE_TARGET:
-            attitude_target_pub_.publish(
-                makeAttitudeRateMessage(controller_.getAttitudeRateTarget()));
-            return true;
-        default:
-            return false;
+bool ControlOutputConsumer::handle(const FlightEffect& effect) {
+    if (std::holds_alternative<FlightSetpoint>(effect)) {
+        // The ROS bounded transport queue owns delivery; blocking RPCs do not.
+        setpoint_raw_pub_.publish(makeSetpointMessage(controller_.getSetpoint()));
+        return true;
     }
+    if (std::holds_alternative<FlightAttitude>(effect)) {
+        attitude_target_pub_.publish(makeAttitudeRateMessage(controller_.getAttitudeRateTarget()));
+        return true;
+    }
+    return false;
 }
 
 mavros_msgs::PositionTarget ControlOutputConsumer::makeSetpointMessage(

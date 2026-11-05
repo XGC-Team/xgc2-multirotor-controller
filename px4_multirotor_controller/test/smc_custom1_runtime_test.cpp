@@ -33,12 +33,12 @@ struct PublishedCommand {
 // setpoint that replaces it.
 PublishedCommand publishedCommand(DroneController& controller) {
     PublishedCommand out;
-    for (const auto& event : controller.getStateMachine().currentOutputEvents()) {
-        if (event.id == output_event_type::PUBLISH_ATTITUDE_RATE_TARGET) {
+    for (const auto& event : controller.flightEffects()) {
+        if (std::holds_alternative<FlightAttitude>(event)) {
             out.attitude = true;
             out.attitude_cmd = controller.getAttitudeRateTarget();
         }
-        if (event.id == output_event_type::PUBLISH_SETPOINT) {
+        if (std::holds_alternative<FlightSetpoint>(event)) {
             out.position = true;
             out.position_cmd = controller.getSetpoint();
         }
@@ -612,9 +612,9 @@ TEST_F(SmcCustom1RuntimeTest, ConsumerDropsBodyRateAndHoldsFrozenHover) {
                                                   Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
     expectAccelerationSetpoint(tracking, expected);
     const auto publish_current_events = [&]() {
-        for (const auto& event : controller_->getStateMachine().currentOutputEvents()) {
-            if (event.id == output_event_type::PUBLISH_SETPOINT ||
-                event.id == output_event_type::PUBLISH_ATTITUDE_RATE_TARGET) {
+        for (const auto& event : controller_->flightEffects()) {
+            if (std::holds_alternative<FlightSetpoint>(event) ||
+                std::holds_alternative<FlightAttitude>(event)) {
                 EXPECT_TRUE(consumer.handle(event));
             }
         }

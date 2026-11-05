@@ -20,9 +20,7 @@ TakeoffInitState::TakeoffInitState(DroneController& controller) : controller_(co
     altctl_ready_event_posted_ = false;
 
     configureTakeoffSetpoint();
-    ctx.emitOutput(
-        ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                               ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     setpoint_publish_timer_.start();
     requestDisarmIfRequired(ctx);
 
@@ -76,17 +74,12 @@ void TakeoffInitState::requestDisarmIfRequired(::state_machine::StateContext& ct
     }
 
     controller_.logInfo("[TakeoffInitState] Requesting Disarm");
-    ::state_machine::Event event(output_event_type::REQUEST_ARMING,
-                                 ::state_machine::EventTimestamp{controller_.getCurrentTime()});
-    event.payload["arm"] = false;
-    ctx.emitOutput(std::move(event));
+    controller_.emitFlightEffect(FlightArmRequest{controller_.getCurrentTime(), false});
 }
 
 ::state_machine::ActionResult TakeoffInitState::onTick(::state_machine::StateContext& ctx) {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
-        ctx.emitOutput(
-            ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                   ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+        controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     }
 
     if (!skip_altctl_gate_) {
@@ -104,10 +97,7 @@ void TakeoffInitState::requestAltctlModeIfDue(::state_machine::StateContext& ctx
     }
 
     controller_.logInfo("[TakeoffInitState] Requesting ALTCTL mode (periodic)");
-    ::state_machine::Event event(output_event_type::REQUEST_MODE,
-                                 ::state_machine::EventTimestamp{controller_.getCurrentTime()});
-    event.payload["mode"] = std::string("ALTCTL");
-    ctx.emitOutput(std::move(event));
+    controller_.emitFlightEffect(FlightModeRequest{controller_.getCurrentTime(), "ALTCTL"});
     altctl_request_timer_.reset();
 }
 

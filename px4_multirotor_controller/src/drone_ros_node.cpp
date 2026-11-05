@@ -54,23 +54,19 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     ros1_utils::getParamWithLog(nh_private_, "debug_print", debug_print_, "Debug print");
     loadControllerConfig();
 
-    auto px4_consumer = std::make_unique<Px4ServiceOutputConsumer>(nh_, output_event_executor_);
-    px4_service_consumer_ = px4_consumer.get();
-    output_event_dispatcher_.addConsumer(std::move(px4_consumer));
-    output_event_dispatcher_.addConsumer(std::make_unique<ControlOutputConsumer>(
-        nh_, output_event_executor_, controller_, kRosQueueSize));
-    output_event_dispatcher_.addConsumer(std::make_unique<DebugOutputConsumer>(
+    px4_service_consumer_ = std::make_unique<Px4ServiceOutputConsumer>(nh_, output_event_executor_);
+    control_consumer_ = std::make_unique<ControlOutputConsumer>(
+        nh_, output_event_executor_, controller_, kRosQueueSize);
+    debug_consumer_ = std::make_unique<DebugOutputConsumer>(
         nh_, output_event_executor_, controller_, sensor_data_, vrpn_quality_stats_, debug_print_,
-        kRosQueueSize));
-    output_event_dispatcher_.addConsumer(std::make_unique<ReferenceActivationOutputConsumer>(
-        nh_, output_event_executor_, controller_, kRosQueueSize));
+        kRosQueueSize);
+    reference_consumer_ = std::make_unique<ReferenceActivationOutputConsumer>(
+        nh_, output_event_executor_, controller_, kRosQueueSize);
+    nmpc_consumer_ = std::make_unique<NmpcOutputConsumer>(nh_, driver_.nmpc(), kRosQueueSize);
 
     auto post_command = [this](FlightCommand command, double receipt_sec) {
         return controller_.postCommand(command, receipt_sec);
     };
-
-    output_event_dispatcher_.addConsumer(
-        std::make_unique<NmpcOutputConsumer>(nh_, driver_.nmpc(), kRosQueueSize));
 
     sensor_input_producer_ = std::make_unique<SensorInputProducer>(
         nh_, sensor_data_, vrpn_quality_stats_, driver_.statistics(), kRosQueueSize,
@@ -195,18 +191,23 @@ void DroneRosNode::controlLoopCallback() {
     driver_.update(Time(current_time));
 
     // 2. 消费状态机输出事件，并把阻塞型工作派发给异步执行器（非阻塞）
-    dispatchOutputEvents(controller_.getStateMachine().currentOutputEvents());
+    dispatchOutputEffects(controller_.flightEffects());
 }
 
-void DroneRosNode::dispatchOutputEvents(const std::vector<::state_machine::Event>& events) {
-    const auto result = output_event_dispatcher_.dispatch(events);
-    for (const auto& event : result.unhandled_events) {
-        ROS_WARN("[DroneRosNode] Unhandled output event id: %u", static_cast<unsigned>(event.id));
-    }
-    for (const auto& failure : result.failures) {
-        ROS_WARN("[DroneRosNode] Output consumer '%s' failed on event %u: %s",
-                 failure.consumer_name.c_str(), static_cast<unsigned>(failure.event.id),
-                 failure.message.c_str());
+void DroneRosNode::dispatchOutputEffects(const std::vector<FlightEffect>& effects) {
+    for (const auto& effect : effects) {
+        try {
+            if (px4_service_consumer_->handle(effect) || control_consumer_->handle(effect) ||
+                debug_consumer_->handle(effect) || reference_consumer_->handle(effect) ||
+                nmpc_consumer_->handle(effect)) {
+                continue;
+            }
+            ROS_WARN("[DroneRosNode] Unhandled output effect");
+        } catch (const std::exception& ex) {
+            ROS_WARN("[DroneRosNode] Output consumer failed: %s", ex.what());
+        } catch (...) {
+            ROS_WARN("[DroneRosNode] Output consumer failed with unknown exception");
+        }
     }
 }
 

@@ -12,9 +12,8 @@
 using namespace px4_multirotor_controller;
 template<class T, class = void> struct HasGeneration : std::false_type {};
 template<class T> struct HasGeneration<T, std::void_t<decltype(T{}.control_generation)>> : std::true_type {};
-template<class T> void token(T& result, const ::state_machine::Event& event) {
-    if constexpr (HasGeneration<T>::value) result.control_generation =
-        static_cast<uint64_t>(std::get<int64_t>(event.payload.at("control_generation")));
+template<class T> void token(T& result, const FlightNmpcRequest& request) {
+    if constexpr (HasGeneration<T>::value) result.control_generation = request.generation;
 }
 int main(int argc, char** argv) {
     SensorData sensor;
@@ -46,30 +45,30 @@ int main(int argc, char** argv) {
         VERIFY(controller.activeTrajectoryCache().updateAnalytic(ref, Time(now)));
     };
     request(event_type::TRAJECTORY_TRACKING_REQUESTED); seed_reference(); tick();
-    ::state_machine::Event solve;
+    FlightNmpcRequest solve{};
     bool found = false;
-    for (const auto& event : controller.getStateMachine().currentOutputEvents()) {
-        if (event.id == output_event_type::REQUEST_NMPC_SOLVE) { solve = event; found = true; }
+    for (const auto& event : controller.flightEffects()) {
+        if (const auto* request = std::get_if<FlightNmpcRequest>(&event)) { solve = *request; found = true; }
     }
     VERIFY(found);
-    NmpcSolveResult success; success.sequence = solve.correlation_id; token(success, solve);
+    NmpcSolveResult success; success.sequence = solve.sequence; token(success, solve);
     success.success = true; success.stamp = Time(now); success.target.thrust = 0.61;
     controller.nmpcResultBuffer().store(success); tick();
     bool published = false;
-    for (const auto& e : controller.getStateMachine().currentOutputEvents())
-        published |= e.id == output_event_type::PUBLISH_ATTITUDE_RATE_TARGET;
+    for (const auto& e : controller.flightEffects())
+        published |= std::holds_alternative<FlightAttitude>(e);
     VERIFY(published && controller.getAttitudeRateTarget().thrust == 0.61);
     request(event_type::HOVER_REQUESTED);
     request(event_type::TRAJECTORY_TRACKING_REQUESTED); seed_reference(); tick();
-    for (const auto& e : controller.getStateMachine().currentOutputEvents()) {
-        if (e.id == output_event_type::PUBLISH_ATTITUDE_RATE_TARGET) {
+    for (const auto& e : controller.flightEffects()) {
+        if (std::holds_alternative<FlightAttitude>(e)) {
             std::cerr << "OLD GENERATION TARGET WAS REPUBLISHED ON REENTRY\n"; return 1;
         }
     }
     // The old solve arriving after exit/reentry must also be rejected.
     controller.nmpcResultBuffer().store(success); tick();
-    for (const auto& e : controller.getStateMachine().currentOutputEvents()) {
-        if (e.id == output_event_type::PUBLISH_ATTITUDE_RATE_TARGET) {
+    for (const auto& e : controller.flightEffects()) {
+        if (std::holds_alternative<FlightAttitude>(e)) {
             std::cerr << "LATE OLD GENERATION TARGET WAS REPUBLISHED\n"; return 2;
         }
     }
@@ -102,12 +101,12 @@ int main(int argc, char** argv) {
         request(event_type::TRAJECTORY_TRACKING_REQUESTED); seed_reference(); tick();
         VERIFY(controller.getStateMachine().currentState(region_type::CONTROL) == state_type::Custom1);
         found = false;
-        for (const auto& event : controller.getStateMachine().currentOutputEvents()) {
-            if (event.id == output_event_type::REQUEST_NMPC_SOLVE) { solve = event; found = true; }
+        for (const auto& event : controller.flightEffects()) {
+            if (const auto* request = std::get_if<FlightNmpcRequest>(&event)) { solve = *request; found = true; }
         }
         VERIFY(found);
         const Time consume_time(now + 0.001);
-        NmpcSolveResult result; result.sequence = solve.correlation_id; token(result, solve);
+        NmpcSolveResult result; result.sequence = solve.sequence; token(result, solve);
         result.success = true; result.target.thrust = 0.73;
         const uint64_t stamp_ns = test.age_ns >= 0
             ? consume_time.toNSec() - static_cast<uint64_t>(test.age_ns)
@@ -121,8 +120,8 @@ int main(int argc, char** argv) {
         VERIFY(controller.nmpcResultBuffer().store(result) == !test.malformed);
         tick();
         published = false;
-        for (const auto& event : controller.getStateMachine().currentOutputEvents()) {
-            if (event.id == output_event_type::PUBLISH_ATTITUDE_RATE_TARGET) {
+        for (const auto& event : controller.flightEffects()) {
+            if (std::holds_alternative<FlightAttitude>(event)) {
                 published = true;
                 VERIFY(controller.getAttitudeRateTarget().thrust == 0.73);
             }
@@ -136,8 +135,8 @@ int main(int argc, char** argv) {
         // A replayed request cannot refresh or replace a target already consumed.
         result.target.thrust = 0.91;
         VERIFY(!controller.nmpcResultBuffer().store(result)); tick();
-        for (const auto& event : controller.getStateMachine().currentOutputEvents()) {
-            VERIFY(event.id != output_event_type::PUBLISH_ATTITUDE_RATE_TARGET);
+        for (const auto& event : controller.flightEffects()) {
+            VERIFY(!std::holds_alternative<FlightAttitude>(event));
         }
         // An out-of-order result cannot supersede this generation's stored request.
         if (result.sequence > 1) {

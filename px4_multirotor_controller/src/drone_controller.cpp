@@ -357,6 +357,7 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
 }
 
 void DroneController::update(double current_time) {
+    flight_effects_.clear();
     // 1. 更新当前时间
     current_time_ = current_time;
     // State timers measure the controller's time (see controller_clock.h).

@@ -54,17 +54,17 @@ TEST(ControllerClock, PausedAndSlowTakeoffUsesUpdateTimeForRequestsAndTimeout) {
     controller.update(entered_at);
     ASSERT_EQ(machine.currentState(region_type::CONTROL), state_type::TakeoffInit);
     bool disarm_requested = false;
-    for (const auto& event : machine.currentOutputEvents()) {
-        if (event.id == output_event_type::REQUEST_ARMING) {
-            disarm_requested = !std::get<bool>(event.payload.at("arm"));
+    for (const auto& effect : controller.flightEffects()) {
+        if (const auto* request = std::get_if<FlightArmRequest>(&effect)) {
+            disarm_requested = !request->arm;
         }
     }
     EXPECT_TRUE(disarm_requested);
     auto altctl_requests = [&] {
         unsigned count = 0;
-        for (const auto& event : machine.currentOutputEvents()) {
-            if (event.id == output_event_type::REQUEST_MODE &&
-                std::get<std::string>(event.payload.at("mode")) == "ALTCTL") ++count;
+        for (const auto& effect : controller.flightEffects()) {
+            if (const auto* request = std::get_if<FlightModeRequest>(&effect))
+                if (request->mode == "ALTCTL") ++count;
         }
         return count;
     };
@@ -213,10 +213,7 @@ TEST(NmpcExecution, ConfigSnapshotBusyLateCompletionStopAndRestart) {
     execution.start();
     auto make_request = [&] {
         auto& buffer = controller.nmpcResultBuffer();
-        ::state_machine::Event event(output_event_type::REQUEST_NMPC_SOLVE, ::state_machine::EventTimestamp{100.01});
-        event.correlation_id = buffer.reserveRequestSequence();
-        event.payload["control_generation"] = static_cast<int64_t>(buffer.activeGeneration());
-        return event;
+        return FlightNmpcRequest{100.01, buffer.reserveRequestSequence(), buffer.activeGeneration()};
     };
     controller.nmpcResultBuffer().beginGeneration();
     for (double invalid : {std::numeric_limits<double>::quiet_NaN(),
@@ -266,10 +263,7 @@ TEST(NmpcExecution, WorkerIsIdleWhenItsResultIsNotified) {
     NmpcExecution* owner = nullptr;
     auto make_request = [&] {
         auto& buffer = controller.nmpcResultBuffer();
-        ::state_machine::Event event(output_event_type::REQUEST_NMPC_SOLVE, ::state_machine::EventTimestamp{100.01});
-        event.correlation_id = buffer.reserveRequestSequence();
-        event.payload["control_generation"] = static_cast<int64_t>(buffer.activeGeneration());
-        return event;
+        return FlightNmpcRequest{100.01, buffer.reserveRequestSequence(), buffer.activeGeneration()};
     };
     NmpcExecution execution(controller, [] { return Time(100.01); },
         [&] {
@@ -323,11 +317,7 @@ TEST(NmpcExecution, BusyNotificationCanReenterWorkerOwner) {
     controller.nmpcResultBuffer().beginGeneration();
     auto request = [&] {
         auto& buffer = controller.nmpcResultBuffer();
-        ::state_machine::Event event(output_event_type::REQUEST_NMPC_SOLVE,
-                                     ::state_machine::EventTimestamp{100.01});
-        event.correlation_id = buffer.reserveRequestSequence();
-        event.payload["control_generation"] = static_cast<int64_t>(buffer.activeGeneration());
-        return event;
+        return FlightNmpcRequest{100.01, buffer.reserveRequestSequence(), buffer.activeGeneration()};
     };
     ASSERT_TRUE(execution.handle(request()));
     {
@@ -385,11 +375,7 @@ TEST(NmpcExecution, StopInvalidatesWhileBusyRejectionIsPreparing) {
     controller.nmpcResultBuffer().beginGeneration();
     auto request = [&] {
         auto& buffer = controller.nmpcResultBuffer();
-        ::state_machine::Event event(output_event_type::REQUEST_NMPC_SOLVE,
-                                     ::state_machine::EventTimestamp{100.01});
-        event.correlation_id = buffer.reserveRequestSequence();
-        event.payload["control_generation"] = static_cast<int64_t>(buffer.activeGeneration());
-        return event;
+        return FlightNmpcRequest{100.01, buffer.reserveRequestSequence(), buffer.activeGeneration()};
     };
     ASSERT_TRUE(execution.handle(request()));
     {

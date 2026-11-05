@@ -151,6 +151,33 @@ TEST_F(PositionDistanceRuntimeTest, UnobservedPairCannotApproveTakeoff) {
     EXPECT_EQ(state(), state_type::TakeoffInit);
 }
 
+TEST_F(PositionDistanceRuntimeTest, TransitionKeepsBothDueAndLandingSetpointsInOrder) {
+    start();
+    enterFlightState(state_type::Hover);
+    now_ += 0.04;  // Hover's existing 30 Hz publication is due on the next turn.
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Land, now_).ok());
+    tick();
+    ASSERT_EQ(state(), state_type::Landing);
+    const auto& outputs = controller_->flightEffects();
+    ASSERT_GE(outputs.size(), 3U);
+    EXPECT_TRUE(std::holds_alternative<FlightSetpoint>(outputs[0]));
+    EXPECT_TRUE(std::holds_alternative<FlightSetpoint>(outputs[1]));
+    EXPECT_TRUE(std::holds_alternative<FlightEvents>(outputs[2]));
+}
+
+TEST_F(PositionDistanceRuntimeTest, TakeoffPublishesSetpointBeforeInitialDisarmRequest) {
+    start();
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Takeoff, now_).ok());
+    tick();
+    ASSERT_EQ(state(), state_type::TakeoffInit);
+    const auto& outputs = controller_->flightEffects();
+    ASSERT_GE(outputs.size(), 2U);
+    EXPECT_TRUE(std::holds_alternative<FlightSetpoint>(outputs[0]));
+    const auto* disarm = std::get_if<FlightArmRequest>(&outputs[1]);
+    ASSERT_NE(disarm, nullptr);
+    EXPECT_FALSE(disarm->arm);
+}
+
 class SameTurnCommandTest : public PositionDistanceRuntimeTest,
                             public ::testing::WithParamInterface<bool> {};
 
@@ -164,8 +191,8 @@ TEST_P(SameTurnCommandTest, LandWinsOverTrackingRegardlessOfArrivalOrder) {
     ASSERT_TRUE(controller_->postCommand(second, now_).ok());
     tick();
     ASSERT_EQ(state(), state_type::Landing);
-    for (const auto& output : machine.currentOutputEvents()) {
-        EXPECT_NE(output.id, output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION);
+    for (const auto& output : controller_->flightEffects()) {
+        EXPECT_FALSE(std::holds_alternative<FlightReferenceActivation>(output));
     }
 }
 
@@ -195,8 +222,8 @@ TEST_F(PositionDistanceRuntimeTest, SameTurnPositionSafetyWinsOverTracking) {
     tick();
     ASSERT_TRUE(controller_->getPositionDistance().exceeded);
     ASSERT_EQ(state(), state_type::Landing);
-    for (const auto& output : machine.currentOutputEvents()) {
-        EXPECT_NE(output.id, output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION);
+    for (const auto& output : controller_->flightEffects()) {
+        EXPECT_FALSE(std::holds_alternative<FlightReferenceActivation>(output));
     }
 }
 

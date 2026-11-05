@@ -18,10 +18,7 @@ ReadyState::ReadyState(DroneController& controller) : controller_(controller) {}
     if (sensor_checks::isAirborne(sensor_data, controller_.getConfig().tracking_backend)) {
         controller_.logWarn("[ReadyState] Airborne flag set, skipping disarm request");
     } else {
-        ::state_machine::Event event(output_event_type::REQUEST_ARMING,
-                                     ::state_machine::EventTimestamp{controller_.getCurrentTime()});
-        event.payload["arm"] = false;
-        ctx.emitOutput(std::move(event));
+        controller_.emitFlightEffect(FlightArmRequest{controller_.getCurrentTime(), false});
     }
     return {};
 }

@@ -18,9 +18,6 @@ class DebugMonitorState final : public ::state_machine::State {
     ::state_machine::ActionResult onTick(::state_machine::StateContext& ctx) override;
 
    private:
-    void emit(::state_machine::StateContext& ctx, ::state_machine::EventId event_id,
-              double timestamp) const;
-
     static constexpr double STATUS_PUBLISH_INTERVAL = 0.2;
     static constexpr double DEBUG_PRINT_INTERVAL = 1.0;
 

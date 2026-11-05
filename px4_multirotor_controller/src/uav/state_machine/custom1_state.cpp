@@ -42,15 +42,7 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
     if (config.tracking_backend == TrackingBackend::NMPC) {
         controller_.logInfo("[Custom1State] Custom1 latched (nmpc); holding hover until reference");
         controller_.activeTrajectoryCache().clear();
-        ::state_machine::Event activation_event(
-            output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION,
-            ::state_machine::EventTimestamp{command_time_});
-        activation_event.source = "custom1_state";
-        const auto status = ctx.emitOutput(std::move(activation_event));
-        if (!status.ok()) {
-            controller_.logWarn("[Custom1State] Failed to emit reference activation event: %s",
-                                status.message.c_str());
-        }
+        controller_.emitFlightEffect(FlightReferenceActivation{command_time_});
         return {};
     }
     if (config.tracking_backend == TrackingBackend::DFBC) {
@@ -61,15 +53,7 @@ Custom1State::Custom1State(DroneController& controller) : controller_(controller
             controller_.mpcTrajectoryBuffer() = MpcTrajectoryBuffer{};
             return {};
         }
-        ::state_machine::Event activation_event(
-            output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION,
-            ::state_machine::EventTimestamp{command_time_});
-        activation_event.source = "custom1_state";
-        const auto status = ctx.emitOutput(std::move(activation_event));
-        if (!status.ok()) {
-            controller_.logWarn("[Custom1State] Failed to emit reference activation event: %s",
-                                status.message.c_str());
-        }
+        controller_.emitFlightEffect(FlightReferenceActivation{command_time_});
         return {};
     }
     if (config.tracking_backend == TrackingBackend::SMC) {
@@ -128,8 +112,7 @@ void Custom1State::handlePvaSmcMode(::state_machine::StateContext& ctx, double c
     const Setpoint lifted = liftWorldLocal(reference, now, config.local_type_mask,
                                            config.enable_yaw_control);
     controller_.getSetpoint() = pvaSmcSetpoint(lifted, *paired, config);
-    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                          ::state_machine::EventTimestamp{current_time}));
+    controller_.emitFlightEffect(FlightSetpoint{current_time});
     last_publish_time_ = current_time;
 }
 
@@ -169,8 +152,7 @@ void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
         return;
     }
     controller_.getSetpoint() = lifted.setpoint;
-    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                          ::state_machine::EventTimestamp{current_time}));
+    controller_.emitFlightEffect(FlightSetpoint{current_time});
     last_publish_time_ = current_time;
 }
 
@@ -201,9 +183,7 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
         if (tracking_position_held_) {
             if (shouldPublish(current_time)) {
                 controller_.getSetpoint() = tracking_frozen_hover_;
-                ctx.emitOutput(
-                    ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                           ::state_machine::EventTimestamp{current_time}));
+                controller_.emitFlightEffect(FlightSetpoint{current_time});
                 last_publish_time_ = current_time;
             }
             return;
@@ -258,8 +238,7 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
     last_success_time_ = current_time;
     tracking_position_held_ = false;
     controller_.getSetpoint() = result.local_setpoint;
-    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                          ::state_machine::EventTimestamp{current_time}));
+    controller_.emitFlightEffect(FlightSetpoint{current_time});
     last_publish_time_ = current_time;
 }
 
@@ -415,8 +394,7 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
     if (streaming)
         tracking_position_held_ = false;
     controller_.getAttitudeRateTarget() = result.attitude_rate_target;
-    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_ATTITUDE_RATE_TARGET,
-                                          ::state_machine::EventTimestamp{current_time}));
+    controller_.emitFlightEffect(FlightAttitude{current_time});
     last_publish_time_ = current_time;
 }
 
@@ -459,8 +437,7 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
         ++consecutive_failures_;
         if (last_success_time_ > 0.0 &&
             current_time - last_success_time_ <= controller_.getConfig().nmpc.result_timeout) {
-            ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_ATTITUDE_RATE_TARGET,
-                                                  ::state_machine::EventTimestamp{current_time}));
+            controller_.emitFlightEffect(FlightAttitude{current_time});
             last_publish_time_ = current_time;
             return;
         }
@@ -471,8 +448,7 @@ void Custom1State::consumeNmpcResult(::state_machine::StateContext& ctx, double 
     consecutive_failures_ = 0;
     last_success_time_ = current_time;
     controller_.getAttitudeRateTarget() = result.target;
-    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_ATTITUDE_RATE_TARGET,
-                                          ::state_machine::EventTimestamp{current_time}));
+    controller_.emitFlightEffect(FlightAttitude{current_time});
     last_publish_time_ = current_time;
 }
 
@@ -491,12 +467,8 @@ void Custom1State::dispatchNmpcRequest(::state_machine::StateContext& ctx, doubl
     }
     request_deadline_ = current_time + controller_.getConfig().nmpc.solve_timeout;
 
-    ::state_machine::Event event(output_event_type::REQUEST_NMPC_SOLVE,
-                                 ::state_machine::EventTimestamp{current_time});
-    event.source = "custom1_state";
-    event.correlation_id = request_sequence_;
-    event.payload["control_generation"] = static_cast<int64_t>(control_generation_);
-    ctx.emitOutput(std::move(event));
+    controller_.emitFlightEffect(
+        FlightNmpcRequest{current_time, request_sequence_, control_generation_});
 }
 
 void Custom1State::publishBackupSetpoint(::state_machine::StateContext& ctx, double current_time) {
@@ -516,8 +488,7 @@ void Custom1State::publishBackupSetpoint(::state_machine::StateContext& ctx, dou
     }
     backup.coordinate_frame = 1;
     controller_.getSetpoint() = backup;
-    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                          ::state_machine::EventTimestamp{current_time}));
+    controller_.emitFlightEffect(FlightSetpoint{current_time});
     last_publish_time_ = current_time;
 }
 
@@ -550,16 +521,14 @@ void Custom1State::holdTrackingPosition(::state_machine::StateContext& ctx, doub
         tracking_position_held_ = true;
     }
     controller_.getSetpoint() = tracking_frozen_hover_;
-    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                          ::state_machine::EventTimestamp{current_time}));
+    controller_.emitFlightEffect(FlightSetpoint{current_time});
     last_publish_time_ = current_time;
 }
 
 void Custom1State::publishCurrentHoverSetpoint(::state_machine::StateContext& ctx,
                                                double current_time) {
     controller_.getSetpoint() = measurementHoverSetpoint();
-    ctx.emitOutput(::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                          ::state_machine::EventTimestamp{current_time}));
+    controller_.emitFlightEffect(FlightSetpoint{current_time});
     last_publish_time_ = current_time;
 }
 

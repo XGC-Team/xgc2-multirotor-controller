@@ -5,21 +5,19 @@
 #include <ros/ros.h>
 
 #include <state_machine/runtime/async_task_executor.hpp>
-#include <state_machine/runtime/event_dispatcher.hpp>
 #include <string>
+
+#include "px4_multirotor_controller/uav/flight_effect.h"
 
 namespace px4_multirotor_controller {
 
-class Px4ServiceOutputConsumer final : public ::state_machine::runtime::EventConsumer {
+class Px4ServiceOutputConsumer final {
    public:
     Px4ServiceOutputConsumer(
         ros::NodeHandle& nh,
         ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor);
 
-    std::string name() const override {
-        return "Px4ServiceOutputConsumer";
-    }
-    bool handle(const ::state_machine::Event& event) override;
+    bool handle(const FlightEffect& effect);
     void initializeClientsIfNeeded();
 
    private:

@@ -69,11 +69,9 @@ void LandingState::configureLandingSetpoint() {
     landing_setpoint_.yaw_rate = 0.0;
 }
 
-void LandingState::emitLandingSetpoint(::state_machine::StateContext& ctx) {
+void LandingState::emitLandingSetpoint(::state_machine::StateContext&) {
     controller_.getSetpoint() = landing_setpoint_;
-    ctx.emitOutput(
-        ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                               ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
 }
 
 ::state_machine::ActionResult LandingState::onTick(::state_machine::StateContext& ctx) {
@@ -193,15 +191,10 @@ void LandingState::postTouchdownOnce(::state_machine::StateContext& ctx) {
         return;
     }
     if (!disarm_requested_) {
-        ::state_machine::Event event(output_event_type::REQUEST_ARMING,
-                                     ::state_machine::EventTimestamp{controller_.getCurrentTime()});
-        event.payload["arm"] = false;
-        const auto status = ctx.emitOutput(std::move(event));
-        if (status.ok()) {
-            disarm_requested_ = true;
-            controller_.logInfo(
-                "[LandingState] Normal disarm requested; waiting for fresh FCU armed=false");
-        }
+        controller_.emitFlightEffect(FlightArmRequest{controller_.getCurrentTime(), false});
+        disarm_requested_ = true;
+        controller_.logInfo(
+            "[LandingState] Normal disarm requested; waiting for fresh FCU armed=false");
     }
 }
 

@@ -124,6 +124,49 @@ std::vector<uint8_t> encode(const M& m) {
     return bytes;
 }
 
+// Convert typed flight outputs to the existing recorded trace format only in this fixture.
+// The retired state-machine event sequence is intentionally not manufactured.
+inline sm::Event recordedEffect(const pmc::FlightEffect& effect) {
+    return std::visit([](const auto& e) {
+        using E = std::decay_t<decltype(e)>;
+        sm::Event out;
+        out.timestamp = e.timestamp;
+        out.category = sm::EventCategory::kOutput;
+        if constexpr (std::is_same_v<E, pmc::FlightSetpoint>)
+            out.id = pmc::output_event_type::PUBLISH_SETPOINT;
+        else if constexpr (std::is_same_v<E, pmc::FlightAttitude>)
+            out.id = pmc::output_event_type::PUBLISH_ATTITUDE_RATE_TARGET;
+        else if constexpr (std::is_same_v<E, pmc::FlightArmRequest>) {
+            out.id = pmc::output_event_type::REQUEST_ARMING;
+            out.payload["arm"] = e.arm;
+        } else if constexpr (std::is_same_v<E, pmc::FlightModeRequest>) {
+            out.id = pmc::output_event_type::REQUEST_MODE;
+            out.payload["mode"] = e.mode;
+        } else if constexpr (std::is_same_v<E, pmc::FlightNmpcRequest>) {
+            out.id = pmc::output_event_type::REQUEST_NMPC_SOLVE;
+            out.source = "custom1_state";
+            out.correlation_id = e.sequence;
+            out.payload["control_generation"] = static_cast<int64_t>(e.generation);
+        } else if constexpr (std::is_same_v<E, pmc::FlightReferenceActivation>) {
+            out.id = pmc::output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION;
+            out.source = "custom1_state";
+        } else {
+            out.source = "debug";
+            if constexpr (std::is_same_v<E, pmc::FlightStatus>)
+                out.id = pmc::output_event_type::PUBLISH_CONTROLLER_STATUS;
+            else if constexpr (std::is_same_v<E, pmc::FlightSensorStats>)
+                out.id = pmc::output_event_type::PUBLISH_SENSOR_STATS;
+            else if constexpr (std::is_same_v<E, pmc::FlightEvents>)
+                out.id = pmc::output_event_type::PUBLISH_STATE_MACHINE_EVENTS;
+            else if constexpr (std::is_same_v<E, pmc::FlightTrackingError>)
+                out.id = pmc::output_event_type::PUBLISH_TRACKING_ERROR;
+            else if constexpr (std::is_same_v<E, pmc::FlightSensorDebug>)
+                out.id = pmc::output_event_type::PRINT_SENSOR_DEBUG;
+        }
+        return out;
+    }, effect);
+}
+
 // What an output event of the controller leads to, as the node's output consumers handle it.
 struct OutputEvent {
     sm::Event event;
@@ -342,9 +385,10 @@ class NodePath {
         runStatsTimer(t);
         controller_.update(t);
         std::vector<OutputEvent> handled;
-        for (const auto& e : controller_.getStateMachine().currentOutputEvents()) {
+        for (const auto& effect : controller_.flightEffects()) {
             OutputEvent out;
-            out.event = e;
+            out.event = recordedEffect(effect);
+            const auto& e = out.event;
             switch (e.id) {
                 case pmc::output_event_type::PUBLISH_SETPOINT:
                     out.setpoint = controller_.getSetpoint();

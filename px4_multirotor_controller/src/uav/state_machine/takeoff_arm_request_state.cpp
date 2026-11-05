@@ -16,9 +16,7 @@ TakeoffArmRequestState::TakeoffArmRequestState(DroneController& controller)
     confirmed_arm_frames_ = 0;
     arm_ready_event_posted_ = false;
 
-    ctx.emitOutput(
-        ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                               ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     setpoint_publish_timer_.start();
     arm_request_timer_.start();
 
@@ -36,9 +34,7 @@ TakeoffArmRequestState::TakeoffArmRequestState(DroneController& controller)
 
 void TakeoffArmRequestState::publishSetpointIfDue(::state_machine::StateContext& ctx) {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
-        ctx.emitOutput(
-            ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                   ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+        controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     }
 }
 
@@ -50,10 +46,7 @@ void TakeoffArmRequestState::requestArmIfDue(::state_machine::StateContext& ctx)
     const auto& sensor_data = controller_.getSensorData();
     controller_.logInfo("[TakeoffArmRequestState] Requesting ARM (periodic, armed: %s)",
                         sensor_data.fcu_armed ? "true" : "false");
-    ::state_machine::Event event(output_event_type::REQUEST_ARMING,
-                                 ::state_machine::EventTimestamp{controller_.getCurrentTime()});
-    event.payload["arm"] = true;
-    ctx.emitOutput(std::move(event));
+    controller_.emitFlightEffect(FlightArmRequest{controller_.getCurrentTime(), true});
     arm_request_timer_.reset();
 }
 

@@ -4,7 +4,6 @@
 #include <ros/ros.h>
 
 #include <state_machine/runtime/async_task_executor.hpp>
-#include <state_machine/runtime/event_dispatcher.hpp>
 #include <string>
 
 #include "px4_multirotor_controller/drone_controller.h"
@@ -12,16 +11,13 @@
 
 namespace px4_multirotor_controller {
 
-class ReferenceActivationOutputConsumer final : public ::state_machine::runtime::EventConsumer {
+class ReferenceActivationOutputConsumer final {
    public:
     ReferenceActivationOutputConsumer(
         ros::NodeHandle& nh, ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
         DroneController& controller, uint32_t queue_size);
 
-    std::string name() const override {
-        return "ReferenceActivationOutputConsumer";
-    }
-    bool handle(const ::state_machine::Event& event) override;
+    bool handle(const FlightEffect& effect);
 
    private:
     ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor_;

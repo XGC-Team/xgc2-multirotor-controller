@@ -5,7 +5,6 @@
 
 #include <memory>
 #include <state_machine/runtime/async_task_executor.hpp>
-#include <state_machine/runtime/event_dispatcher.hpp>
 
 #include "px4_multirotor_controller/driver/controller_driver.h"
 #include "px4_multirotor_controller/input/command_input_producer.h"
@@ -14,6 +13,11 @@
 #include "px4_multirotor_controller/output/px4_service_output_consumer.h"
 
 namespace px4_multirotor_controller {
+
+class ControlOutputConsumer;
+class DebugOutputConsumer;
+class NmpcOutputConsumer;
+class ReferenceActivationOutputConsumer;
 
 class DroneRosNode {
    public:
@@ -24,7 +28,7 @@ class DroneRosNode {
 
    private:
     void controlLoopCallback();
-    void dispatchOutputEvents(const std::vector<::state_machine::Event>& events);
+    void dispatchOutputEffects(const std::vector<FlightEffect>& effects);
     void loadControllerConfig();
     void loadVrpnQualityConfig();
     void publishLoadFact(const std::string& vrpn_pose_topic,
@@ -41,8 +45,11 @@ class DroneRosNode {
     DroneController& controller_;
 
     ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> output_event_executor_;
-    ::state_machine::runtime::EventDispatcher output_event_dispatcher_;
-    Px4ServiceOutputConsumer* px4_service_consumer_{nullptr};
+    std::unique_ptr<Px4ServiceOutputConsumer> px4_service_consumer_;
+    std::unique_ptr<ControlOutputConsumer> control_consumer_;
+    std::unique_ptr<DebugOutputConsumer> debug_consumer_;
+    std::unique_ptr<ReferenceActivationOutputConsumer> reference_consumer_;
+    std::unique_ptr<NmpcOutputConsumer> nmpc_consumer_;
 
     ros1_utils::PositionQualityStats vrpn_quality_stats_;
     bool debug_print_{true};

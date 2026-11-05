@@ -3,7 +3,6 @@
 #include <functional>
 #include <mutex>
 #include <thread>
-#include <state_machine/runtime/event_dispatcher.hpp>
 #include "px4_multirotor_controller/drone_controller.h"
 #include "px4_multirotor_controller/uav/nmpc_tracking_backend.h"
 namespace px4_multirotor_controller {
@@ -20,7 +19,7 @@ public:
  ~NmpcExecution();
  void start();
  void stop();
- bool handle(const ::state_machine::Event&);
+ bool handle(const FlightNmpcRequest&);
  void setDiagnosticSink(DiagnosticSink sink) { diagnostic_sink_ = std::move(sink); }
 private:
  void workerLoop(); void reject(uint64_t, uint64_t, int); void notifyResult(uint64_t);

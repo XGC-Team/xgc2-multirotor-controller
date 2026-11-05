@@ -11,9 +11,7 @@ HoverState::HoverState(DroneController& controller) : controller_(controller) {}
     controller_.logInfo("[HoverState] Entering Hover State");
 
     configureHoverSetpoint();
-    ctx.emitOutput(
-        ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                               ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     setpoint_publish_timer_.start();
     return {};
 }
@@ -74,9 +72,7 @@ void HoverState::configureHoverSetpoint() {
 
 void HoverState::publishSetpointIfDue(::state_machine::StateContext& ctx) {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
-        ctx.emitOutput(
-            ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                   ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+        controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     }
 }
 

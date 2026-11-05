@@ -29,12 +29,11 @@ ReferenceActivationOutputConsumer::ReferenceActivationOutputConsumer(
         "alg/multirotor_reference_trajectory/request/analytic", queue_size);
 }
 
-bool ReferenceActivationOutputConsumer::handle(const ::state_machine::Event& event) {
-    if (event.id != output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION) {
-        return false;
-    }
+bool ReferenceActivationOutputConsumer::handle(const FlightEffect& effect) {
+    const auto* activation = std::get_if<FlightReferenceActivation>(&effect);
+    if (!activation) return false;
 
-    const double stamp = event.timestamp > 0.0 ? event.timestamp : ros::Time::now().toSec();
+    const double stamp = activation->timestamp > 0.0 ? activation->timestamp : ros::Time::now().toSec();
     auto msg = toRosReference(
         activation_.make(stamp, controller_.getSensorData(), controller_.getConfig()));
     msg.header.frame_id = "map";

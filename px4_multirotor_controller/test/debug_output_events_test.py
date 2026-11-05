@@ -27,6 +27,7 @@ SUPPORT = r'''
 #include <utility>
 #include <variant>
 #include <vector>
+#include "px4_multirotor_controller/uav/flight_effect.h"
 template <class... Args> inline void rosInfoDouble(const char*, const Args&...) {}
 #define ROS_INFO(...) rosInfoDouble(__VA_ARGS__)
 namespace ros {
@@ -152,6 +153,7 @@ struct DroneController {
     StateMachineDouble machine;
     TrajectoryCacheDouble cache;
     StateMachineDouble& getStateMachine() { return machine; }
+    std::string flightStateName() const { return machine.state_name; }
     TrajectoryCacheDouble& activeTrajectoryCache() { return cache; }
 };
 }
@@ -171,7 +173,7 @@ int main() {
     ros1_utils::PositionQualityStats quality;
     const bool debug_print = false;
     DebugOutputConsumer consumer(nh, worker, controller, sensor, quality, debug_print, 5);
-    const state_machine::Event tick{output_event_type::PUBLISH_STATE_MACHINE_EVENTS};
+    const FlightEffect tick = FlightEvents{0.0};
     const std::string topic = "alg/state_machine_events";
 
     // No subscriber: 1000 ticks are handled with no snapshot, task or publish.
@@ -207,10 +209,10 @@ int main() {
     assert(worker.pending.empty() && controller.machine.snapshots == 4);
 
     // Required status stays independent of optional diagnostic subscriptions.
-    assert(consumer.handle({output_event_type::PUBLISH_CONTROLLER_STATUS}));
-    assert(consumer.handle({output_event_type::PUBLISH_SENSOR_STATS}));
-    assert(consumer.handle({output_event_type::PUBLISH_TRACKING_ERROR}));
-    assert(consumer.handle({output_event_type::PRINT_SENSOR_DEBUG}));
+    assert(consumer.handle(FlightStatus{0.0}));
+    assert(consumer.handle(FlightSensorStats{0.0}));
+    assert(consumer.handle(FlightTrackingError{0.0}));
+    assert(consumer.handle(FlightSensorDebug{0.0}));
     assert(worker.pending.empty());
     assert(controller.cache.samples == 0);
     assert(ros::publications().size() == 5);
@@ -218,22 +220,22 @@ int main() {
 
     // Any one stats subscriber preserves the existing single snapshot/task and all eight outputs.
     ros::subscribers("alg/stats/imu") = 1;
-    assert(consumer.handle({output_event_type::PUBLISH_SENSOR_STATS}));
+    assert(consumer.handle(FlightSensorStats{0.0}));
     assert(worker.pending.size() == 1);
     worker.drain(nh);
     assert(ros::publications().size() == 13);
     ros::subscribers("alg/stats/imu") = 0;
-    assert(consumer.handle({output_event_type::PUBLISH_SENSOR_STATS}));
+    assert(consumer.handle(FlightSensorStats{0.0}));
     assert(worker.pending.empty());
 
     // Tracking has a separate capability; reserve/sample/task are skipped while unsubscribed.
     ros::subscribers("alg/tracking/position_error") = 1;
-    assert(consumer.handle({output_event_type::PUBLISH_TRACKING_ERROR}));
+    assert(consumer.handle(FlightTrackingError{0.0}));
     assert(controller.cache.samples == 1 && worker.pending.size() == 1);
     worker.drain(nh);
     assert(ros::publications().size() == 14);
     ros::subscribers("alg/tracking/position_error") = 0;
-    assert(consumer.handle({output_event_type::PUBLISH_TRACKING_ERROR}));
+    assert(consumer.handle(FlightTrackingError{0.0}));
     assert(controller.cache.samples == 1 && worker.pending.empty());
 
     // An in-flight RPC blocks the existing output worker. Status still publishes
@@ -249,11 +251,11 @@ int main() {
     entered.wait();
     const auto before_status = ros::publications().size();
     controller.machine.state_name = "SelfCheck";
-    assert(consumer.handle({output_event_type::PUBLISH_CONTROLLER_STATUS}));
+    assert(consumer.handle(FlightStatus{0.0}));
     assert(ros::publications().size() == before_status + 1);
     assert(std::get<std_msgs::String>(ros::publications().back().message).data == "SelfCheck");
     controller.machine.state_name = "Ready";
-    assert(consumer.handle({output_event_type::PUBLISH_CONTROLLER_STATUS}));
+    assert(consumer.handle(FlightStatus{0.0}));
     assert(ros::publications().size() == before_status + 2);
     assert(std::get<std_msgs::String>(ros::publications().back().message).data == "Ready");
     assert(worker.pending.empty());
@@ -262,9 +264,9 @@ int main() {
     worker.drain(nh);
     assert(ros::publications().size() == before_status + 2);
     controller.machine.state_name.clear();
-    assert(consumer.handle({output_event_type::PUBLISH_CONTROLLER_STATUS}));
+    assert(consumer.handle(FlightStatus{0.0}));
     assert(std::get<std_msgs::String>(ros::publications().back().message).data == "Unknown");
-    assert(!consumer.handle({999}));
+    assert(!consumer.handle(FlightNmpcRequest{0.0, 0, 0}));
     std::cout << "1000 unsubscribed ticks: 0 snapshots, 0 tasks; "
                  "4 subscribed ticks: 4 messages in order\n";
 }

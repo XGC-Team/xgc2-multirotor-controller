@@ -7,7 +7,6 @@
 #include <condition_variable>
 #include <functional>
 #include <mutex>
-#include <state_machine/runtime/event_dispatcher.hpp>
 #include <string>
 #include <thread>
 
@@ -16,18 +15,13 @@
 
 namespace px4_multirotor_controller {
 
-class NmpcOutputConsumer final : public ::state_machine::runtime::EventConsumer {
+class NmpcOutputConsumer final {
    public:
-    using EventSink = std::function<::state_machine::Status(::state_machine::Event)>;
-
     NmpcOutputConsumer(ros::NodeHandle& nh, NmpcExecution& execution,
                        uint32_t queue_size);
-    ~NmpcOutputConsumer() override;
+    ~NmpcOutputConsumer();
 
-    std::string name() const override {
-        return "NmpcOutputConsumer";
-    }
-    bool handle(const ::state_machine::Event& event) override;
+    bool handle(const FlightEffect& effect);
 
    private:
     void publishDebug(uint64_t sequence, const Time& stamp, const UavNmpcTrackingBackend& backend);

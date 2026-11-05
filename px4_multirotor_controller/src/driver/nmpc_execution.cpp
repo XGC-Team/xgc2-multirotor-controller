@@ -19,21 +19,15 @@ void NmpcExecution::stop() {
  backend_.exit();
  { std::lock_guard<std::mutex> lock(mutex_); busy_ = false; }
 }
-bool NmpcExecution::handle(const ::state_machine::Event& event) {
-    if (event.id != output_event_type::REQUEST_NMPC_SOLVE) {
-        return false;
-    }
-
+bool NmpcExecution::handle(const FlightNmpcRequest& effect) {
     // A raw nonfinite event time cannot be represented by the original Time.
-    if (!std::isfinite(event.timestamp)) return true;
+    if (!std::isfinite(effect.timestamp)) return true;
 
-    const uint64_t sequence = event.correlation_id;
-    const auto token = event.payload.find("control_generation");
-    if (token == event.payload.end() || !std::holds_alternative<int64_t>(token->second)) return true;
-    const uint64_t generation = static_cast<uint64_t>(std::get<int64_t>(token->second));
+    const uint64_t sequence = effect.sequence;
+    const uint64_t generation = effect.generation;
     if (!controller_.nmpcResultBuffer().isGenerationActive(generation)) return true;
     const ControllerConfig config = controller_.getConfig();
-    const Time now(event.timestamp > 0.0 ? event.timestamp : clock_().toSec());
+    const Time now(effect.timestamp > 0.0 ? effect.timestamp : clock_().toSec());
     Request request;
     request.sequence = sequence;
     request.generation = generation;

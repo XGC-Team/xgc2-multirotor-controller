@@ -5,11 +5,14 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
+#include <vector>
 #include <state_machine/state_machine.hpp>
 
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/driver/command_input.h"
 #include "px4_multirotor_controller/uav/active_trajectory_cache.h"
+#include "px4_multirotor_controller/uav/flight_effect.h"
 #include "px4_multirotor_controller/uav/mpc_trajectory_buffer.h"
 #include "px4_multirotor_controller/uav/nmpc_result_buffer.h"
 #include "px4_multirotor_controller/uav/state_machine/health_monitor_state.h"
@@ -29,6 +32,11 @@ class DroneController {
     void update(double current_time);
 
     ::state_machine::Status postCommand(FlightCommand command, double receipt_sec);
+    void emitFlightEffect(FlightEffect effect) {
+        flight_effects_.push_back(std::move(effect));
+    }
+    const std::vector<FlightEffect>& flightEffects() const { return flight_effects_; }
+
     FlightState flightState() const;
     std::string flightStateName() const;
 
@@ -129,6 +137,8 @@ class DroneController {
     void emitLogInfo(const char* message) const;
     void emitLogWarn(const char* message) const;
     void emitLogError(const char* message) const;
+
+    std::vector<FlightEffect> flight_effects_;
 
     // 状态机（拥有所有状态的所有权）
     std::unique_ptr<::state_machine::StateMachine> state_machine_;

@@ -315,14 +315,13 @@ class ControllerModule {
         if (!update_due)
             return XGC2_OK;
         rt.driver.update(now);
-        const std::vector<sm::Event> outputs =
-            rt.driver.controller().getStateMachine().currentOutputEvents();
+        const auto& effects = rt.driver.controller().flightEffects();
         wrote_ = write_failed_ = false;
-        for (const sm::Event& event : outputs) {
+        for (const auto& effect : effects) {
             try {
-                handle(rt, event, ctx->now_ns, now);
+                handle(rt, effect, ctx->now_ns, now);
             } catch (const std::exception& e) {
-                log(kLogError, "output event " + std::to_string(event.id) + " failed: " + e.what());
+                log(kLogError, "flight output failed: " + std::string(e.what()));
                 write_failed_ = true;
             }
         }
@@ -611,97 +610,75 @@ class ControllerModule {
         }
     }
 
-    // The output consumers of the ROS node, for one output event.
-    void handle(Runtime& rt, const sm::Event& event, int64_t now_ns, const pmc::Time& now) {
+    // The output consumers of the ROS node, for one typed effect.
+    void handle(Runtime& rt, const pmc::FlightEffect& effect, int64_t now_ns, const pmc::Time& now) {
         pmc::DroneController& controller = rt.driver.controller();
-        switch (event.id) {
-            case pmc::output_event_type::PUBLISH_SETPOINT:  // ControlOutputConsumer
-                write<xgc2_px4_position_target_v1>(kSetpoint, now_ns, [&](auto& m) {
-                    const pmc::Setpoint& s = controller.getSetpoint();
-                    stamp(now, m.stamp_sec, m.stamp_nsec);
-                    m.position[0] = s.x;
-                    m.position[1] = s.y;
-                    m.position[2] = s.z;
-                    m.velocity[0] = s.vx;
-                    m.velocity[1] = s.vy;
-                    m.velocity[2] = s.vz;
-                    m.acceleration[0] = s.ax;
-                    m.acceleration[1] = s.ay;
-                    m.acceleration[2] = s.az;
-                    m.yaw = pmc::quaternionToYaw(s.qx, s.qy, s.qz, s.qw);
-                    m.yaw_rate = s.yaw_rate;
-                    m.type_mask = s.type_mask;
-                    m.coordinate_frame = s.coordinate_frame;
-                    std::memset(m.reserved, 0, sizeof m.reserved);
-                    return true;
-                });
-                break;
-            case pmc::output_event_type::PUBLISH_ATTITUDE_RATE_TARGET:  // ControlOutputConsumer
-                write<xgc2_px4_attitude_rate_target_v1>(kAttitudeRate, now_ns, [&](auto& m) {
-                    const pmc::AttitudeRateTarget& a = controller.getAttitudeRateTarget();
-                    stamp(now, m.stamp_sec, m.stamp_nsec);
-                    m.body_rate[0] = a.body_rate_x;
-                    m.body_rate[1] = a.body_rate_y;
-                    m.body_rate[2] = a.body_rate_z;
-                    m.thrust = pmc::clamp(a.thrust, 0.0, 1.0);
-                    return true;
-                });
-                break;
-            case pmc::output_event_type::REQUEST_ARMING: {  // Px4ServiceOutputConsumer
-                const auto it = event.payload.find("arm");
-                if (it == event.payload.end() || !std::holds_alternative<bool>(it->second)) {
-                    log(kLogWarn, "REQUEST_ARMING missing bool payload 'arm'");
-                    break;
-                }
-                write<xgc2_px4_fcu_request_v1>(kFcuRequest, now_ns, [&](auto& m) {
-                    std::memset(&m, 0, sizeof m);
-                    stamp(now, m.stamp_sec, m.stamp_nsec);
-                    m.kind = XGC2_PX4_FCU_REQUEST_ARM;
-                    m.arm = std::get<bool>(it->second) ? 1U : 0U;
-                    return true;
-                });
-                break;
-            }
-            case pmc::output_event_type::REQUEST_MODE: {  // Px4ServiceOutputConsumer
-                const auto it = event.payload.find("mode");
-                if (it == event.payload.end() || !std::holds_alternative<std::string>(it->second)) {
-                    log(kLogWarn, "REQUEST_MODE missing string payload 'mode'");
-                    break;
-                }
-                write<xgc2_px4_fcu_request_v1>(kFcuRequest, now_ns, [&](auto& m) {
-                    std::memset(&m, 0, sizeof m);
-                    stamp(now, m.stamp_sec, m.stamp_nsec);
-                    m.kind = XGC2_PX4_FCU_REQUEST_MODE;
-                    return copyText(std::get<std::string>(it->second), m.mode, sizeof m.mode);
-                });
-                break;
-            }
-            case pmc::output_event_type::PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION: {
-                // ReferenceActivationOutputConsumer: the request goes to the reference generator.
-                const double stamp_sec = event.timestamp > 0.0 ? event.timestamp : now.toSec();
-                const pmc::reference::AnalyticReference request = rt.activation.make(
-                    stamp_sec, controller.getSensorData(), controller.getConfig());
-                write<xgc2_px4_reference_analytic_v1>(kRefRequest, now_ns, [&](auto& m) {
-                    return conv::toPayload(request, "map", m);
-                });
-                break;
-            }
-            case pmc::output_event_type::REQUEST_NMPC_SOLVE:  // NmpcOutputConsumer
-                rt.driver.nmpc().handle(event);
-                break;
-            case pmc::output_event_type::PUBLISH_CONTROLLER_STATUS:  // DebugOutputConsumer
-                write<xgc2_px4_controller_status_v1>(kStatus, now_ns, [&](auto& m) {
-                    std::string state = controller.flightStateName();
-                    if (state.empty())
-                        state = "Unknown";
-                    stamp(now, m.stamp_sec, m.stamp_nsec);
-                    return copyText(state, m.state, sizeof m.state);
-                });
-                break;
-            default:
-                // The node's telemetry for observers is not a port of the module.
-                break;
+        if (std::holds_alternative<pmc::FlightSetpoint>(effect)) {
+            write<xgc2_px4_position_target_v1>(kSetpoint, now_ns, [&](auto& m) {
+                const pmc::Setpoint& s = controller.getSetpoint();
+                stamp(now, m.stamp_sec, m.stamp_nsec);
+                m.position[0] = s.x;
+                m.position[1] = s.y;
+                m.position[2] = s.z;
+                m.velocity[0] = s.vx;
+                m.velocity[1] = s.vy;
+                m.velocity[2] = s.vz;
+                m.acceleration[0] = s.ax;
+                m.acceleration[1] = s.ay;
+                m.acceleration[2] = s.az;
+                m.yaw = pmc::quaternionToYaw(s.qx, s.qy, s.qz, s.qw);
+                m.yaw_rate = s.yaw_rate;
+                m.type_mask = s.type_mask;
+                m.coordinate_frame = s.coordinate_frame;
+                std::memset(m.reserved, 0, sizeof m.reserved);
+                return true;
+            });
+        } else if (std::holds_alternative<pmc::FlightAttitude>(effect)) {
+            write<xgc2_px4_attitude_rate_target_v1>(kAttitudeRate, now_ns, [&](auto& m) {
+                const pmc::AttitudeRateTarget& a = controller.getAttitudeRateTarget();
+                stamp(now, m.stamp_sec, m.stamp_nsec);
+                m.body_rate[0] = a.body_rate_x;
+                m.body_rate[1] = a.body_rate_y;
+                m.body_rate[2] = a.body_rate_z;
+                m.thrust = pmc::clamp(a.thrust, 0.0, 1.0);
+                return true;
+            });
+        } else if (const auto* arm = std::get_if<pmc::FlightArmRequest>(&effect)) {
+            write<xgc2_px4_fcu_request_v1>(kFcuRequest, now_ns, [&](auto& m) {
+                std::memset(&m, 0, sizeof m);
+                stamp(now, m.stamp_sec, m.stamp_nsec);
+                m.kind = XGC2_PX4_FCU_REQUEST_ARM;
+                m.arm = arm->arm ? 1U : 0U;
+                return true;
+            });
+        } else if (const auto* mode = std::get_if<pmc::FlightModeRequest>(&effect)) {
+            write<xgc2_px4_fcu_request_v1>(kFcuRequest, now_ns, [&](auto& m) {
+                std::memset(&m, 0, sizeof m);
+                stamp(now, m.stamp_sec, m.stamp_nsec);
+                m.kind = XGC2_PX4_FCU_REQUEST_MODE;
+                return copyText(mode->mode, m.mode, sizeof m.mode);
+            });
+        } else if (const auto* activation = std::get_if<pmc::FlightReferenceActivation>(&effect)) {
+            // ReferenceActivationOutputConsumer: the request goes to the reference generator.
+            const double stamp_sec =
+                activation->timestamp > 0.0 ? activation->timestamp : now.toSec();
+            const pmc::reference::AnalyticReference request = rt.activation.make(
+                stamp_sec, controller.getSensorData(), controller.getConfig());
+            write<xgc2_px4_reference_analytic_v1>(kRefRequest, now_ns, [&](auto& m) {
+                return conv::toPayload(request, "map", m);
+            });
+        } else if (const auto* request = std::get_if<pmc::FlightNmpcRequest>(&effect)) {
+            rt.driver.nmpc().handle(*request);
+        } else if (std::holds_alternative<pmc::FlightStatus>(effect)) {
+            write<xgc2_px4_controller_status_v1>(kStatus, now_ns, [&](auto& m) {
+                std::string state = controller.flightStateName();
+                if (state.empty())
+                    state = "Unknown";
+                stamp(now, m.stamp_sec, m.stamp_nsec);
+                return copyText(state, m.state, sizeof m.state);
+            });
         }
+        // The remaining ROS telemetry for observers is not a port of the module.
     }
 
     // The flight state as the instance's detail; degraded while the last output could not be

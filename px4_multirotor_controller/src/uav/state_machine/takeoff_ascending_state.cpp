@@ -18,9 +18,7 @@ TakeoffAscendingState::TakeoffAscendingState(DroneController& controller)
     timeout_event_posted_ = false;
     confirmed_settled_frames_ = 0;
 
-    ctx.emitOutput(
-        ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                               ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     setpoint_publish_timer_.start();
     status_log_timer_.start();
     return {};
@@ -51,9 +49,7 @@ TakeoffAscendingState::TakeoffAscendingState(DroneController& controller)
 
 void TakeoffAscendingState::publishSetpointIfDue(::state_machine::StateContext& ctx) {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
-        ctx.emitOutput(
-            ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                   ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+        controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     }
 }
 

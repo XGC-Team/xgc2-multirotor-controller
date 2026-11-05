@@ -8,14 +8,13 @@
 #include <std_msgs/UInt32MultiArray.h>
 
 #include <state_machine/runtime/async_task_executor.hpp>
-#include <state_machine/runtime/event_dispatcher.hpp>
 #include <string>
 
 #include "px4_multirotor_controller/drone_controller.h"
 
 namespace px4_multirotor_controller {
 
-class DebugOutputConsumer final : public ::state_machine::runtime::EventConsumer {
+class DebugOutputConsumer final {
    public:
     DebugOutputConsumer(ros::NodeHandle& nh,
                         ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
@@ -23,10 +22,7 @@ class DebugOutputConsumer final : public ::state_machine::runtime::EventConsumer
                         const ros1_utils::PositionQualityStats& vrpn_quality_stats,
                         const bool& debug_print_enabled, uint32_t queue_size);
 
-    std::string name() const override {
-        return "DebugOutputConsumer";
-    }
-    bool handle(const ::state_machine::Event& event) override;
+    bool handle(const FlightEffect& effect);
 
    private:
     struct SensorStatsSnapshot {

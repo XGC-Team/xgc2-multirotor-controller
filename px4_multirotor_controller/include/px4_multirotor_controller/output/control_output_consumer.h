@@ -5,23 +5,19 @@
 #include <ros/ros.h>
 
 #include <state_machine/runtime/async_task_executor.hpp>
-#include <state_machine/runtime/event_dispatcher.hpp>
 #include <string>
 
 #include "px4_multirotor_controller/drone_controller.h"
 
 namespace px4_multirotor_controller {
 
-class ControlOutputConsumer final : public ::state_machine::runtime::EventConsumer {
+class ControlOutputConsumer final {
    public:
     ControlOutputConsumer(ros::NodeHandle& nh,
                           ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
                           DroneController& controller, uint32_t queue_size);
 
-    std::string name() const override {
-        return "ControlOutputConsumer";
-    }
-    bool handle(const ::state_machine::Event& event) override;
+    bool handle(const FlightEffect& effect);
 
    private:
     mavros_msgs::PositionTarget makeSetpointMessage(const Setpoint& setpoint) const;

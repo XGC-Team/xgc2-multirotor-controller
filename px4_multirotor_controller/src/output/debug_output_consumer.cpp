@@ -50,80 +50,80 @@ DebugOutputConsumer::DebugOutputConsumer(
         nh.advertise<std_msgs::Float32MultiArray>("alg/tracking/position_error", queue_size);
 }
 
-bool DebugOutputConsumer::handle(const ::state_machine::Event& event) {
-    switch (event.id) {
-        case output_event_type::PUBLISH_CONTROLLER_STATUS: {
-            std_msgs::String msg;
-            msg.data = controller_.flightStateName();
-            if (msg.data.empty()) {
-                msg.data = "Unknown";
-            }
-            // Match control publishing: the ROS bounded transport queue owns
-            // delivery, not the worker that may be blocked in an Arm/Mode RPC.
-            controller_status_pub_.publish(msg);
+bool DebugOutputConsumer::handle(const FlightEffect& effect) {
+    if (std::holds_alternative<FlightStatus>(effect)) {
+        std_msgs::String msg;
+        msg.data = controller_.flightStateName();
+        if (msg.data.empty()) {
+            msg.data = "Unknown";
+        }
+        // Match control publishing: the ROS bounded transport queue owns
+        // delivery, not the worker that may be blocked in an Arm/Mode RPC.
+        controller_status_pub_.publish(msg);
+        return true;
+    }
+    if (std::holds_alternative<FlightEvents>(effect)) {
+        // DebugMonitor requests this every control tick (1 kHz). With no
+        // subscriber roscpp drops the message anyway, so skip the snapshot,
+        // the task allocation and the worker wake-up. A subscriber still
+        // receives every tick's message from the moment it is connected.
+        if (events_pub_.getNumSubscribers() == 0) {
             return true;
         }
-        case output_event_type::PUBLISH_STATE_MACHINE_EVENTS:
-            // DebugMonitor requests this every control tick (1 kHz). With no
-            // subscriber roscpp drops the message anyway, so skip the snapshot,
-            // the task allocation and the worker wake-up. A subscriber still
-            // receives every tick's message from the moment it is connected.
-            if (events_pub_.getNumSubscribers() == 0) {
-                return true;
-            }
-            executor_.pushTask(makePublishTask("PublishStateMachineEvents", events_pub_,
-                                               snapshotStateMachineEvents()));
+        executor_.pushTask(makePublishTask("PublishStateMachineEvents", events_pub_,
+                                           snapshotStateMachineEvents()));
+        return true;
+    }
+    if (std::holds_alternative<FlightSensorStats>(effect)) {
+        if (stats_state_estimate_pub_.getNumSubscribers() == 0 &&
+            stats_local_pos_pub_.getNumSubscribers() == 0 &&
+            stats_local_vel_pub_.getNumSubscribers() == 0 &&
+            stats_imu_pub_.getNumSubscribers() == 0 &&
+            stats_state_pub_.getNumSubscribers() == 0 &&
+            stats_battery_pub_.getNumSubscribers() == 0 &&
+            stats_vrpn_pose_pub_.getNumSubscribers() == 0 &&
+            vrpn_quality_pub_.getNumSubscribers() == 0) {
             return true;
-        case output_event_type::PUBLISH_SENSOR_STATS: {
-            if (stats_state_estimate_pub_.getNumSubscribers() == 0 &&
-                stats_local_pos_pub_.getNumSubscribers() == 0 &&
-                stats_local_vel_pub_.getNumSubscribers() == 0 &&
-                stats_imu_pub_.getNumSubscribers() == 0 &&
-                stats_state_pub_.getNumSubscribers() == 0 &&
-                stats_battery_pub_.getNumSubscribers() == 0 &&
-                stats_vrpn_pose_pub_.getNumSubscribers() == 0 &&
-                vrpn_quality_pub_.getNumSubscribers() == 0) {
-                return true;
-            }
-            const auto snapshot = snapshotSensorStats();
+        }
+        const auto snapshot = snapshotSensorStats();
+        executor_.pushTask(
+            std::make_unique<::state_machine::runtime::LambdaTask<ros::NodeHandle>>(
+                "PublishSensorStats",
+                [snapshot, state_estimate_pub = stats_state_estimate_pub_,
+                 local_pos_pub = stats_local_pos_pub_, local_vel_pub = stats_local_vel_pub_,
+                 imu_pub = stats_imu_pub_, state_pub = stats_state_pub_,
+                 battery_pub = stats_battery_pub_, vrpn_pose_pub = stats_vrpn_pose_pub_,
+                 quality_pub = vrpn_quality_pub_](ros::NodeHandle&) mutable {
+                    state_estimate_pub.publish(makeTopicStatsMessage(snapshot.state_estimate));
+                    local_pos_pub.publish(makeTopicStatsMessage(snapshot.local_pos));
+                    local_vel_pub.publish(makeTopicStatsMessage(snapshot.local_velocity));
+                    imu_pub.publish(makeTopicStatsMessage(snapshot.imu));
+                    state_pub.publish(makeTopicStatsMessage(snapshot.state));
+                    battery_pub.publish(makeTopicStatsMessage(snapshot.battery));
+                    vrpn_pose_pub.publish(makeTopicStatsMessage(snapshot.vrpn_pose));
+                    quality_pub.publish(makeVrpnQualityMessage(snapshot.vrpn_quality));
+                }));
+        return true;
+    }
+    if (std::holds_alternative<FlightTrackingError>(effect)) {
+        if (tracking_error_pub_.getNumSubscribers() == 0) {
+            return true;
+        }
+        executor_.pushTask(makePublishTask("PublishTrackingError", tracking_error_pub_,
+                                           snapshotTrackingError()));
+        return true;
+    }
+    if (std::holds_alternative<FlightSensorDebug>(effect)) {
+        if (debug_print_enabled_) {
+            const SensorData snapshot = sensor_data_;
             executor_.pushTask(
                 std::make_unique<::state_machine::runtime::LambdaTask<ros::NodeHandle>>(
-                    "PublishSensorStats",
-                    [snapshot, state_estimate_pub = stats_state_estimate_pub_,
-                     local_pos_pub = stats_local_pos_pub_, local_vel_pub = stats_local_vel_pub_,
-                     imu_pub = stats_imu_pub_, state_pub = stats_state_pub_,
-                     battery_pub = stats_battery_pub_, vrpn_pose_pub = stats_vrpn_pose_pub_,
-                     quality_pub = vrpn_quality_pub_](ros::NodeHandle&) mutable {
-                        state_estimate_pub.publish(makeTopicStatsMessage(snapshot.state_estimate));
-                        local_pos_pub.publish(makeTopicStatsMessage(snapshot.local_pos));
-                        local_vel_pub.publish(makeTopicStatsMessage(snapshot.local_velocity));
-                        imu_pub.publish(makeTopicStatsMessage(snapshot.imu));
-                        state_pub.publish(makeTopicStatsMessage(snapshot.state));
-                        battery_pub.publish(makeTopicStatsMessage(snapshot.battery));
-                        vrpn_pose_pub.publish(makeTopicStatsMessage(snapshot.vrpn_pose));
-                        quality_pub.publish(makeVrpnQualityMessage(snapshot.vrpn_quality));
-                    }));
-            return true;
+                    "PrintSensorDebug",
+                    [snapshot](ros::NodeHandle&) { printSensorDebug(snapshot); }));
         }
-        case output_event_type::PUBLISH_TRACKING_ERROR:
-            if (tracking_error_pub_.getNumSubscribers() == 0) {
-                return true;
-            }
-            executor_.pushTask(makePublishTask("PublishTrackingError", tracking_error_pub_,
-                                               snapshotTrackingError()));
-            return true;
-        case output_event_type::PRINT_SENSOR_DEBUG:
-            if (debug_print_enabled_) {
-                const SensorData snapshot = sensor_data_;
-                executor_.pushTask(
-                    std::make_unique<::state_machine::runtime::LambdaTask<ros::NodeHandle>>(
-                        "PrintSensorDebug",
-                        [snapshot](ros::NodeHandle&) { printSensorDebug(snapshot); }));
-            }
-            return true;
-        default:
-            return false;
+        return true;
     }
+    return false;
 }
 
 std_msgs::Float32MultiArray DebugOutputConsumer::snapshotTrackingError() const {

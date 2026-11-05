@@ -18,9 +18,7 @@ TakeoffOffboardRequestState::TakeoffOffboardRequestState(DroneController& contro
     confirmed_offboard_frames_ = 0;
     offboard_ready_event_posted_ = false;
 
-    ctx.emitOutput(
-        ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                               ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+    controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     setpoint_publish_timer_.start();
     mode_request_timer_.start();
 
@@ -39,9 +37,7 @@ TakeoffOffboardRequestState::TakeoffOffboardRequestState(DroneController& contro
 
 void TakeoffOffboardRequestState::publishSetpointIfDue(::state_machine::StateContext& ctx) {
     if (shouldRunEvery(setpoint_publish_timer_, SETPOINT_PUBLISH_INTERVAL, true)) {
-        ctx.emitOutput(
-            ::state_machine::Event(output_event_type::PUBLISH_SETPOINT,
-                                   ::state_machine::EventTimestamp{controller_.getCurrentTime()}));
+        controller_.emitFlightEffect(FlightSetpoint{controller_.getCurrentTime()});
     }
 }
 
@@ -51,10 +47,7 @@ void TakeoffOffboardRequestState::requestOffboardModeIfDue(::state_machine::Stat
     }
 
     controller_.logInfo("[TakeoffOffboardRequestState] Requesting OFFBOARD mode (periodic)");
-    ::state_machine::Event event(output_event_type::REQUEST_MODE,
-                                 ::state_machine::EventTimestamp{controller_.getCurrentTime()});
-    event.payload["mode"] = std::string("OFFBOARD");
-    ctx.emitOutput(std::move(event));
+    controller_.emitFlightEffect(FlightModeRequest{controller_.getCurrentTime(), "OFFBOARD"});
     mode_request_timer_.reset();
 }
 
