@@ -3,8 +3,6 @@
 #include <chrono>
 #include <ratio>
 
-#include <state_machine/runtime/steady_timer.hpp>
-
 namespace px4_multirotor_controller {
 
 // The controller's own clock: the time passed to DroneController::update().
@@ -32,6 +30,21 @@ struct ControllerClock {
     }
 };
 
-using ControllerTimer = ::state_machine::runtime::Timer<ControllerClock>;
+// The flight states use this controller-time interval, including when ROS
+// time is paused or replayed. Reset does not start a stopped timer.
+class ControllerTimer {
+   public:
+    void start() { start_time_ = ControllerClock::now(); started_ = true; }
+    ControllerClock::duration elapsed() const {
+        return started_ ? ControllerClock::now() - start_time_ : ControllerClock::duration(0);
+    }
+    bool started() const { return started_; }
+    void reset() { start_time_ = ControllerClock::now(); }
+    void stop() { started_ = false; }
+
+   private:
+    ControllerClock::time_point start_time_{};
+    bool started_{false};
+};
 
 }  // namespace px4_multirotor_controller
