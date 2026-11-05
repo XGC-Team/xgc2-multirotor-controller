@@ -12,13 +12,6 @@ SUPPORT = r'''
 #include <memory>
 #include <string>
 namespace std_msgs { struct String { using ConstPtr = std::shared_ptr<const String>; std::string data; }; }
-namespace state_machine {
-using EventId = uint32_t;
-struct Status { bool ok() const { return true; } std::string message; };
-struct EventTimestamp { double seconds; };
-struct Event { EventId id; EventTimestamp stamp; std::string source;
-Event(EventId value, EventTimestamp time): id(value), stamp(time) {} };
-}
 namespace ros {
 struct Subscriber {};
 struct Time { static Time now() { return {}; } double toSec() const { return 1; } };
@@ -60,7 +53,7 @@ int main() {
 with tempfile.TemporaryDirectory(prefix="xgc-command-input-") as directory:
     root = Path(directory)
     (root / "support.h").write_text(SUPPORT)
-    for name in ["ros/ros.h", "std_msgs/String.h", "state_machine/state_machine.hpp", "px4_multirotor_controller/common/types.h"]:
+    for name in ["ros/ros.h", "std_msgs/String.h", "px4_multirotor_controller/common/types.h"]:
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('#include "support.h"\n')

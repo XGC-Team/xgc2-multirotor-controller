@@ -72,34 +72,6 @@ struct PositionQualityStats {
     double x_mean_deviation{0.0}, y_mean_deviation{0.0}, z_mean_deviation{0.0};
 };
 }
-namespace state_machine {
-struct Event { uint32_t id; };
-struct ProcessedEventRecord { Event event; };
-namespace runtime {
-struct EventConsumer {
-    virtual ~EventConsumer() = default;
-    virtual std::string name() const = 0;
-    virtual bool handle(const Event&) = 0;
-};
-template<class Context> struct Task {
-    virtual ~Task() = default;
-    virtual void execute(Context&) = 0;
-};
-template<class Context> struct LambdaTask : Task<Context> {
-    std::function<void(Context&)> fn;
-    LambdaTask(std::string, std::function<void(Context&)> callback) : fn(std::move(callback)) {}
-    void execute(Context& context) override { fn(context); }
-};
-template<class Context> struct AsyncTaskExecutor {
-    std::vector<std::unique_ptr<Task<Context>>> pending;
-    void pushTask(std::unique_ptr<Task<Context>> task) { pending.push_back(std::move(task)); }
-    void drain(Context& context) {
-        for (auto& task : pending) task->execute(context);
-        pending.clear();
-    }
-};
-}
-}
 namespace px4_multirotor_controller {
 struct Time {};
 inline Time toCoreTime(const ros::Time&) { return Time{}; }
@@ -136,14 +108,9 @@ struct Vector3 {
 };
 struct UavReferencePoint { Vector3 position; };
 struct StateMachineDouble {
-    std::vector<state_machine::ProcessedEventRecord> processed;
+    std::vector<uint32_t> diagnostic_ids;
     int snapshots{0};
-    std::vector<state_machine::ProcessedEventRecord> currentEvents() {
-        ++snapshots;
-        return processed;
-    }
     std::string state_name{"Hover"};
-    std::string currentStateName(uint32_t) const { return state_name; }
 };
 struct TrajectoryCacheDouble {
     mutable unsigned samples{0};
@@ -152,12 +119,9 @@ struct TrajectoryCacheDouble {
 struct DroneController {
     StateMachineDouble machine;
     TrajectoryCacheDouble cache;
-    std::vector<uint32_t> diagnostic_ids;
     const std::vector<uint32_t>& flightDiagnosticEvents() {
         ++machine.snapshots;
-        diagnostic_ids.clear();
-        for (const auto& record : machine.processed) diagnostic_ids.push_back(record.event.id);
-        return diagnostic_ids;
+        return machine.diagnostic_ids;
     }
     std::string flightStateName() const { return machine.state_name; }
     TrajectoryCacheDouble& activeTrajectoryCache() { return cache; }
@@ -183,7 +147,7 @@ int main() {
     const std::string topic = "alg/state_machine_events";
 
     // No subscriber: 1000 ticks are handled with no snapshot, task or publish.
-    controller.machine.processed = {{{50}}, {{52}}};
+    controller.machine.diagnostic_ids = {50, 52};
     for (int i = 0; i < 1000; ++i)
         assert(consumer.handle(tick));
     assert(worker.pending.empty());
@@ -193,7 +157,7 @@ int main() {
     // Subscribed: one message per requested publication, in order.
     ros::subscribers(topic) = 1;
     for (uint32_t i = 0; i < 3; ++i) {
-        controller.machine.processed = {{{50 + i}}, {{55}}};
+        controller.machine.diagnostic_ids = {50 + i, 55};
         assert(consumer.handle(tick));
         assert(worker.pending.size() == 1);
         worker.drain(nh);
@@ -307,8 +271,6 @@ class DebugOutputEventsTest(unittest.TestCase):
                 "ros/ros.h", "ros1_utils/param_utils.h", "ros1_utils/topic_stats.h",
                 "std_msgs/Float32MultiArray.h", "std_msgs/String.h",
                 "std_msgs/UInt32MultiArray.h",
-                "state_machine/runtime/async_task_executor.hpp",
-                "state_machine/runtime/event_dispatcher.hpp",
                 "px4_multirotor_controller/drone_controller.h",
                 "px4_multirotor_controller/ros_time_conversion.h",
                 "px4_multirotor_controller/common/types.h",

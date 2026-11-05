@@ -22,40 +22,6 @@ SUPPORT = r'''
 #include <vector>
 #include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/uav/flight_effect.h"
-namespace state_machine {
-struct ActionResult {};
-struct Status { bool ok() const { return true; } };
-struct EventTimestamp { double seconds; };
-struct Event {
-    uint32_t id;
-    EventTimestamp timestamp;
-    std::map<std::string, bool> payload;
-    Event(uint32_t value, EventTimestamp stamp) : id(value), timestamp(stamp) {}
-};
-struct StateContext {
-    double elapsed_seconds{0};
-    std::vector<Event> internals;
-    std::chrono::duration<double> elapsed(uint32_t) const {
-        return std::chrono::duration<double>(elapsed_seconds);
-    }
-    Status postInternalEvent(Event event) { internals.push_back(std::move(event)); return {}; }
-};
-struct State {
-    virtual ~State() = default;
-    virtual std::string name() const = 0;
-    virtual ActionResult onEnter(StateContext&) = 0;
-    virtual ActionResult onTick(StateContext&) = 0;
-    virtual ActionResult onExit(StateContext&) = 0;
-};
-namespace runtime {
-template<class Clock = void> struct Timer {
-    void start() {}
-    void stop() {}
-    void reset() {}
-    std::chrono::duration<double> elapsed() const { return std::chrono::duration<double>(1); }
-};
-}
-}
 namespace px4_multirotor_controller {
 enum class FlightSignal : uint32_t { Touchdown = 10 };
 enum class TrackingBackend { PX4_LOCAL, NMPC, DFBC };
@@ -132,9 +98,6 @@ struct TestLanding : LandingState {
     using LandingState::onTick;
     using LandingState::onExit;
 };
-size_t count(const std::vector<state_machine::Event>& events, uint32_t id) {
-    return std::count_if(events.begin(), events.end(), [id](const auto& event) {return event.id == id;});
-}
 size_t count(const std::vector<FlightEffect>& events, uint32_t id) {
     return std::count_if(events.begin(), events.end(), [id](const auto& effect) {
         return (id == output_event_type::PUBLISH_SETPOINT && std::holds_alternative<FlightSetpoint>(effect)) ||
@@ -264,8 +227,6 @@ class LandingConfirmationTest(unittest.TestCase):
             (root / "support.hpp").write_text(SUPPORT)
             for name in (
                 "px4_multirotor_controller/uav/flight_signal.h",
-                "state_machine/state_machine.hpp",
-                "state_machine/runtime/steady_timer.hpp",
                 "px4_multirotor_controller/common/types.h",
                 "px4_multirotor_controller/state_machine/timing.h",
                 "px4_multirotor_controller/common/sensor_checks.h",

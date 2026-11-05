@@ -134,37 +134,6 @@ struct NodeHandle {
 #define ROS_INFO(...) ::ros::log(__VA_ARGS__)
 #define ROS_WARN(...) ::ros::log(__VA_ARGS__)
 #define ROS_ERROR(...) ::ros::log(__VA_ARGS__)
-namespace state_machine {
-struct Event {
-    uint32_t id;
-    std::map<std::string, std::variant<bool, std::string>> payload{};
-};
-namespace runtime {
-struct EventConsumer {
-    virtual ~EventConsumer() = default;
-    virtual std::string name() const = 0;
-    virtual bool handle(const Event&) = 0;
-};
-template<class Context> struct Task {
-    virtual ~Task() = default;
-    virtual void execute(Context&) = 0;
-    virtual std::string name() const { return {}; }
-};
-template<class Context> struct LambdaTask : Task<Context> {
-    std::function<void(Context&)> fn;
-    LambdaTask(std::string, std::function<void(Context&)> callback) : fn(std::move(callback)) {}
-    void execute(Context& context) override { fn(context); }
-};
-template<class Context> struct AsyncTaskExecutor {
-    std::vector<std::unique_ptr<Task<Context>>> pending;
-    void pushTask(std::unique_ptr<Task<Context>> task) { pending.push_back(std::move(task)); }
-    void drain(Context& context) {
-        for (auto& task : pending) task->execute(context);
-        pending.clear();
-    }
-};
-}
-}
 namespace px4_multirotor_controller {
 namespace output_event_type {
 constexpr uint32_t REQUEST_ARMING = 99;
@@ -363,8 +332,6 @@ class ControlOutputSchedulingTest(unittest.TestCase):
             for name in (
                 "ros/ros.h", "mavros_msgs/AttitudeTarget.h", "mavros_msgs/PositionTarget.h",
                 "mavros_msgs/CommandLong.h", "mavros_msgs/SetMode.h",
-                "state_machine/runtime/async_task_executor.hpp",
-                "state_machine/runtime/event_dispatcher.hpp",
                 "px4_multirotor_controller/drone_controller.h",
                 "px4_multirotor_controller/common/types.h",
                 "px4_multirotor_controller/nmpc/nmpc_math_utils.h",

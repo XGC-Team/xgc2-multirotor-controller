@@ -22,33 +22,6 @@ SUPPORT = r'''
 #include <utility>
 #include <vector>
 #include "px4_multirotor_controller/common/world_boundary.h"
-namespace state_machine {
-using EventId = uint32_t;
-struct ActionResult {};
-struct GuardContext {};
-struct Status {
-    std::string message;
-    bool ok() const { return true; }
-};
-struct EventTimestamp { double seconds; };
-struct Event {
-    EventId id;
-    EventTimestamp timestamp;
-    std::string source;
-    Event(EventId value, EventTimestamp stamp) : id(value), timestamp(stamp) {}
-};
-struct StateContext {
-    std::vector<Event> internals;
-    Status postInternalEvent(Event event) { internals.push_back(std::move(event)); return {}; }
-};
-struct State {
-    virtual ~State() = default;
-    virtual std::string name() const = 0;
-    void tick(StateContext& ctx) { (void)onTick(ctx); }
-protected:
-    virtual ActionResult onTick(StateContext&) { return {}; }
-};
-}
 namespace px4_multirotor_controller {
 enum class FlightSignal : uint32_t;
 enum class TrackingBackend { PX4_LOCAL, NMPC, DFBC };
@@ -411,7 +384,6 @@ class WorldBoundaryTest(unittest.TestCase):
     def write_doubles(self, root):
         (root / "support.h").write_text(SUPPORT)
         for name in [
-            "state_machine/state_machine.hpp",
             "px4_multirotor_controller/common/types.h",
             "px4_multirotor_controller/common/sensor_checks.h",
             "px4_multirotor_controller/drone_controller.h",
