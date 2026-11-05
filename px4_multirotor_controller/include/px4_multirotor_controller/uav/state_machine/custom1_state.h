@@ -80,8 +80,7 @@ class Custom1State : public ::state_machine::State {
     bool referenceWillFinishBeforeNextHorizon(double current_time) const;
     bool referenceWillFinishBeforeNextSynchronousUpdate(double current_time) const;
     bool shouldDispatchNmpc(double current_time) const;
-    bool shouldRunSynchronousStrategy(double current_time) const;
-    double synchronousStrategyPeriod() const;
+    bool shouldRunSynchronousStrategy(double current_time, double period) const;
     bool shouldPublish(double current_time) const;
 };
 

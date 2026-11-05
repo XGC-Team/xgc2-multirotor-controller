@@ -205,6 +205,30 @@ TEST_F(SmcCustom1RuntimeTest, Custom1PublishesWorldAccelerationWithoutHoverThrus
     EXPECT_GT(std::abs(command.position_cmd.ax), 1e-3);
 }
 
+TEST_F(SmcCustom1RuntimeTest, UpdatedGainsAndPeriodApplyToTheNextDueControl) {
+    start(TrackingBackend::SMC);
+    enterCustom1();
+    sensor_.local_x = 0.2;
+    const double t0 = controller_->getCurrentTime();
+    const Eigen::Vector3d position(0.0, 0.0, 1.0);
+    cache(Time(t0), Time(t0 - 0.05), position, Eigen::Vector3d::Zero(),
+          Eigen::Vector3d::Zero());
+    at(t0 + 0.02);
+    ASSERT_TRUE(publishedCommand(*controller_).position);
+
+    ControllerConfig changed = controller_->getConfig();
+    changed.smc.k1 = 1.2;
+    changed.nmpc.control_period = 0.05;
+    controller_->setConfig(changed);
+    at(t0 + 0.05);
+    EXPECT_FALSE(publishedCommand(*controller_).position);
+    at(t0 + 0.071);
+    expectAccelerationSetpoint(publishedCommand(*controller_),
+                               expectedSmcAcceleration(changed, sensor_, position,
+                                                       Eigen::Vector3d::Zero(),
+                                                       Eigen::Vector3d::Zero()));
+}
+
 TEST_F(SmcCustom1RuntimeTest, FutureSegmentDoesNotReplaceTheActiveOne) {
     start(TrackingBackend::SMC);
     enterCustom1();

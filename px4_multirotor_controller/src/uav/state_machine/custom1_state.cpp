@@ -177,7 +177,6 @@ void Custom1State::handlePx4LocalPassThrough(::state_machine::StateContext& ctx,
 void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double current_time) {
     const ControllerConfig config = controller_.getConfig();
     const Time now(current_time);
-    smc_strategy_.configure(config);
     if (!sync_strategy_entered_) {
         sync_strategy_entered_ = smc_strategy_.enter(controller_.getSensorData(), now);
     }
@@ -223,7 +222,8 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
         tracking_armed_ = true;
         controller_.logInfo("[Custom1State] smc takeover after aligned reference");
     }
-    if (!sync_strategy_entered_ || !shouldRunSynchronousStrategy(current_time)) {
+    if (!sync_strategy_entered_ ||
+        !shouldRunSynchronousStrategy(current_time, config.nmpc.control_period)) {
         if (!sync_strategy_entered_ && shouldPublish(current_time)) {
             publishCurrentHoverSetpoint(ctx, current_time);
         }
@@ -242,6 +242,7 @@ void Custom1State::handleSmcMode(::state_machine::StateContext& ctx, double curr
     input.stamp = sample.planning_time;
     input.type_mask = lifted.setpoint.type_mask;
     TrackingStrategyResult result;
+    smc_strategy_.configure(config);
     if (!smc_strategy_.update(input, result) ||
         result.output_kind != TrackingStrategyResult::OutputKind::LocalSetpoint) {
         ++consecutive_failures_;
@@ -377,7 +378,7 @@ void Custom1State::handleSynchronousAttitudeRateMode(::state_machine::StateConte
         }
     }
 
-    if (!shouldRunSynchronousStrategy(current_time)) {
+    if (!shouldRunSynchronousStrategy(current_time, dfbc_strategy_.period())) {
         return;
     }
 
@@ -602,7 +603,7 @@ bool Custom1State::referenceWillFinishBeforeNextSynchronousUpdate(double current
         return false;
     }
 
-    const double period = std::max(1.0e-3, synchronousStrategyPeriod());
+    const double period = std::max(1.0e-3, dfbc_strategy_.period());
     return remaining <= period + 1.0e-6;
 }
 
@@ -614,16 +615,9 @@ bool Custom1State::shouldDispatchNmpc(double current_time) const {
     return last_request_time_ <= 0.0 || current_time - last_request_time_ >= period;
 }
 
-bool Custom1State::shouldRunSynchronousStrategy(double current_time) const {
-    const double period = std::max(1.0e-3, synchronousStrategyPeriod());
+bool Custom1State::shouldRunSynchronousStrategy(double current_time, double configured_period) const {
+    const double period = std::max(1.0e-3, configured_period);
     return last_publish_time_ <= 0.0 || current_time - last_publish_time_ >= period;
-}
-
-double Custom1State::synchronousStrategyPeriod() const {
-    if (controller_.getConfig().tracking_backend == TrackingBackend::SMC) {
-        return smc_strategy_.period();
-    }
-    return dfbc_strategy_.period();
 }
 
 bool Custom1State::shouldPublish(double current_time) const {
