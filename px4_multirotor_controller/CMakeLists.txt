@@ -25,7 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
   ${MULTIROTOR_CONTROLLER_CATKIN_COMPONENTS}
 )
 find_package(xgc2_acados REQUIRED CONFIG)
-find_package(xgc2_state_machine 0.2.0 REQUIRED CONFIG)
+find_package(xgc2_state_machine 0.2.0 REQUIRED CONFIG COMPONENTS workers)
 find_package(Xgc2Module 0.3.0 REQUIRED CONFIG)
 find_package(HoverThrustEstimator 1.2.0 REQUIRED CONFIG)
 # Keep the headers of the selected hover runtime ahead of catkin's installed
@@ -498,6 +498,7 @@ add_dependencies(${PROJECT_NAME}_node
 target_link_libraries(${PROJECT_NAME}_node
   px4_multirotor_controller_core
   px4_multirotor_controller_uav_nmpc_runtime
+  xgc2_state_machine::workers
   xgc2_math::control
   xgc2_math::geometry
   xgc2_math::trajectory
@@ -771,7 +772,7 @@ if(CATKIN_ENABLE_TESTING)
     target_compile_definitions(controller_transport_parity PRIVATE
       CONTROLLER_MODULE_PATH="$<TARGET_FILE:${PROJECT_NAME}_module>")
     target_link_libraries(controller_transport_parity px4_multirotor_controller_core
-                          Xgc2Module::SDK ${catkin_LIBRARIES} dl pthread)
+                          xgc2_state_machine::workers Xgc2Module::SDK ${catkin_LIBRARIES} dl pthread)
   endif()
 
   get_target_property(CONTROLLER_ROS_TEST_SOURCES ${PROJECT_NAME}_node SOURCES)
@@ -787,7 +788,7 @@ if(CATKIN_ENABLE_TESTING)
       ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${CATKIN_DEVEL_PREFIX}/include ${MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS})
     target_link_libraries(controller_ros_scheduler_test px4_multirotor_controller_core
-      px4_multirotor_controller_uav_nmpc_runtime xgc2_math::control xgc2_math::geometry
+      px4_multirotor_controller_uav_nmpc_runtime xgc2_state_machine::workers xgc2_math::control xgc2_math::geometry
       xgc2_math::trajectory ${catkin_LIBRARIES} ${JSONCPP_LIBRARIES} pthread gtest_main)
   endif()
 

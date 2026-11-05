@@ -8,57 +8,10 @@
 
 namespace px4_multirotor_controller {
 
-ControllerOutputWorker::~ControllerOutputWorker() { stop(); }
-
-void ControllerOutputWorker::start() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (running_) return;
-    running_ = true;
-    try {
-        worker_ = std::thread(&ControllerOutputWorker::run, this);
-    } catch (...) {
-        running_ = false;
-        throw;
-    }
-}
-
-void ControllerOutputWorker::stop() {
-    std::queue<ControllerOutput> discarded;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        running_ = false;
-        pending_.swap(discarded);
-    }
-    ready_.notify_all();
-    if (worker_.joinable()) worker_.join();
-}
-
-void ControllerOutputWorker::post(ControllerOutput output) {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!running_) return;
-        pending_.push(std::move(output));
-    }
-    ready_.notify_one();
-}
-
-void ControllerOutputWorker::run() {
-    for (;;) {
-        ControllerOutput output;
-        {
-            std::unique_lock<std::mutex> lock(mutex_);
-            ready_.wait(lock, [this] { return !running_ || !pending_.empty(); });
-            if (!running_) return;
-            output = std::move(pending_.front());
-            pending_.pop();
-        }
-        try {
-            execute(output);
-        } catch (...) {
-            // The original asynchronous worker isolated failed tasks too.
-        }
-    }
-}
+ControllerOutputWorker::~ControllerOutputWorker() = default;
+void ControllerOutputWorker::start() { worker_.start(); }
+void ControllerOutputWorker::stop() { worker_.stop(); }
+void ControllerOutputWorker::post(ControllerOutput output) { worker_.post(std::move(output)); }
 
 void ControllerOutputWorker::execute(const ControllerOutput& output) {
     std::visit([](const auto& item) {

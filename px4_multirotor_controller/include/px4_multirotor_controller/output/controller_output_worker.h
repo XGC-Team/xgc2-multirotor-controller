@@ -5,13 +5,10 @@
 #include <ros1_utils/topic_stats.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/UInt32MultiArray.h>
+#include <state_machine/ordered_worker.hpp>
 
 #include <array>
-#include <condition_variable>
-#include <mutex>
-#include <queue>
 #include <string>
-#include <thread>
 #include <variant>
 
 #include "px4_multirotor_controller/common/types.h"
@@ -50,13 +47,9 @@ class ControllerOutputWorker {
     void post(ControllerOutput output);
 
    private:
-    void run();
     static void execute(const ControllerOutput& output);
-    std::mutex mutex_;
-    std::condition_variable ready_;
-    std::queue<ControllerOutput> pending_;
-    std::thread worker_;
-    bool running_{false};
+    using Execute = void (*)(const ControllerOutput&);
+    state_machine::OrderedWorker<ControllerOutput, Execute> worker_{&ControllerOutputWorker::execute};
 };
 
 }  // namespace px4_multirotor_controller

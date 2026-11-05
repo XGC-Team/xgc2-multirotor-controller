@@ -5,11 +5,8 @@
 #include <multirotor_reference_trajectory_msgs/SampledReference.h>
 #include <nav_msgs/Path.h>
 #include <ros/ros.h>
+#include <state_machine/ordered_worker.hpp>
 
-#include <condition_variable>
-#include <mutex>
-#include <queue>
-#include <thread>
 #include <variant>
 
 namespace multirotor_reference_trajectory {
@@ -32,12 +29,9 @@ class ReferenceOutputWorker {
     void post(ReferencePublication publication);
 
    private:
-    void run();
-    std::mutex mutex_;
-    std::condition_variable ready_;
-    std::queue<ReferencePublication> pending_;
-    std::thread worker_;
-    bool running_{false};
+    static void execute(const ReferencePublication& publication);
+    using Execute = void (*)(const ReferencePublication&);
+    state_machine::OrderedWorker<ReferencePublication, Execute> worker_{&ReferenceOutputWorker::execute};
 };
 
 }  // namespace multirotor_reference_trajectory

@@ -9,7 +9,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
 )
-find_package(xgc2_state_machine 0.2.0 REQUIRED CONFIG)
+find_package(xgc2_state_machine 0.2.0 REQUIRED CONFIG COMPONENTS workers)
 find_package(xgc2_math 0.5.12 REQUIRED CONFIG)
 find_package(Xgc2Module 0.3.0 REQUIRED CONFIG)
 
@@ -65,6 +65,7 @@ add_dependencies(multirotor_reference_trajectory_node ${${PROJECT_NAME}_EXPORTED
                                       ${catkin_EXPORTED_TARGETS})
 target_link_libraries(multirotor_reference_trajectory_node
   multirotor_reference_trajectory_core
+  xgc2_state_machine::workers
   xgc2_math::trajectory
   ${catkin_LIBRARIES}
   pthread
