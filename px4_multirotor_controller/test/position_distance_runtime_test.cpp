@@ -3,6 +3,8 @@
 #include <ros/time.h>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <memory>
 
 #include "px4_multirotor_controller/drone_controller.h"
@@ -361,6 +363,100 @@ TEST_F(PositionDistanceRuntimeTest, GroundReconfigureRetainsExistingCustom1Publi
                             [](const FlightEffect& effect) {
                                 return std::holds_alternative<FlightSetpoint>(effect);
                             }));
+}
+
+TEST_F(PositionDistanceRuntimeTest, RealSetpointDeadlineDoesNotMoveOnAnEarlyTurn) {
+    start();
+    EXPECT_FALSE(controller_->update(now_));
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Takeoff, now_));
+    now_ += 0.01;
+    EXPECT_TRUE(controller_->update(now_));  // Continue the entered state once.
+    ASSERT_EQ(state(), state_type::TakeoffInit);
+    EXPECT_FALSE(controller_->update(now_));
+
+    const auto due = controller_->nextWake();
+    ASSERT_TRUE(due);
+    EXPECT_NEAR(*due - now_, kLocalSetpointPublishInterval, 1e-9);
+    controller_->update(std::nextafter(*due, -std::numeric_limits<double>::infinity()));
+    EXPECT_FALSE(std::any_of(controller_->flightEffects().begin(), controller_->flightEffects().end(),
+                             [](const FlightEffect& effect) {
+                                 return std::holds_alternative<FlightSetpoint>(effect);
+                             }));
+    ASSERT_TRUE(controller_->nextWake());
+    EXPECT_DOUBLE_EQ(*controller_->nextWake(), *due);
+    controller_->update(*due);
+    EXPECT_TRUE(std::any_of(controller_->flightEffects().begin(), controller_->flightEffects().end(),
+                            [](const FlightEffect& effect) {
+                                return std::holds_alternative<FlightSetpoint>(effect);
+                            }));
+}
+
+TEST_F(PositionDistanceRuntimeTest, ExistingTakeoffTimeoutRemainsStrictAtTheDeadline) {
+    start();
+    ASSERT_TRUE(controller_->postCommand(FlightCommand::Takeoff, 101.0));
+    controller_->update(101.0);
+    ASSERT_EQ(state(), state_type::TakeoffInit);
+    controller_->update(111.0);
+    ASSERT_EQ(state(), state_type::TakeoffInit);
+    const auto due = controller_->nextWake();
+    ASSERT_TRUE(due);
+    EXPECT_GT(*due, 111.0);
+    EXPECT_LT(*due, 111.000001);
+    controller_->update(*due);
+    EXPECT_EQ(state(), state_type::Landing);
+}
+
+TEST_F(PositionDistanceRuntimeTest, FreshImuObservationsDoNotDependOnEmptyTurns) {
+    sensor_.local_pos_stats.is_active = false;
+    controller_ = std::make_unique<DroneController>(sensor_);
+    ControllerConfig config;
+    config.tracking_backend = TrackingBackend::PX4_LOCAL;
+    config.safety.acc_saturation_xy = 1.0;
+    config.safety.acc_saturation_z = 1.0;
+    controller_->setConfig(config);
+    controller_->getSetpoint().ax = 2.0;
+
+    controller_->onFreshImu();
+    tick();
+    EXPECT_EQ(state(), state_type::SelfCheck);
+    sensor_.local_pos_stats.is_active = true;
+    controller_->onFreshImu();
+    tick();
+    ASSERT_EQ(state(), state_type::Ready);
+    controller_->onFreshImu();
+    tick();
+    EXPECT_EQ(state(), state_type::Landing);
+    EXPECT_EQ(controller_->flightDiagnosticEvents(),
+              (std::vector<uint32_t>{event_type::SAFE_CONTROL_SATURATION_XY}));
+    tick();  // A wake without another observation must not replay the same sample.
+    EXPECT_TRUE(controller_->flightDiagnosticEvents().empty());
+}
+
+TEST_F(PositionDistanceRuntimeTest, DistinctImuSamplesEachProduceTheirOwnSaturationFacts) {
+    start();
+    auto config = controller_->getConfig();
+    config.safety.acc_saturation_xy = 1.0;
+    config.safety.acc_saturation_z = 1.0;
+    controller_->setConfig(config);
+    controller_->onFreshImu();  // Original zero setpoint is not saturated.
+    tick();
+    EXPECT_EQ(state(), state_type::Ready);
+    EXPECT_TRUE(controller_->flightDiagnosticEvents().empty());
+
+    controller_->getSetpoint().ax = 2.0;
+    controller_->getSetpoint().az = -2.0;
+    controller_->onFreshImu();
+    controller_->onFreshImu();  // Two distinct received samples in the same turn.
+    tick();
+    EXPECT_EQ(state(), state_type::Landing);
+    EXPECT_EQ(controller_->flightDiagnosticEvents(),
+              (std::vector<uint32_t>{event_type::SAFE_CONTROL_SATURATION_XY,
+                                     event_type::SAFE_CONTROL_SATURATION_Z,
+                                     event_type::SAFE_CONTROL_SATURATION_XY,
+                                     event_type::SAFE_CONTROL_SATURATION_Z}));
+    sensor_.imu_stats.is_new = true;  // No new ingress: flags cannot replay a sample.
+    tick();
+    EXPECT_TRUE(controller_->flightDiagnosticEvents().empty());
 }
 
 class PositionDistanceFlightTest : public PositionDistanceRuntimeTest,

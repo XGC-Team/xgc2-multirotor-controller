@@ -29,7 +29,8 @@ class SensorInputProducer {
     SensorInputProducer(ros::NodeHandle& nh, SensorData& sensor_data,
                         ros1_utils::PositionQualityStats& vrpn_quality_stats,
                         SensorStatistics& statistics, uint32_t queue_size,
-                        std::function<void()> on_state_message, ControllerDriver* driver = nullptr);
+                        std::function<void()> on_state_message, ControllerDriver* driver = nullptr,
+                        std::function<void()> on_input = {});
 
     void setVrpnQualityConfig(const ros1_utils::PositionQualityConfig& config);
     void setStateEstimateTopic(std::string state_estimate_topic);
@@ -58,6 +59,7 @@ class SensorInputProducer {
     ros1_utils::PositionQualityStats& vrpn_quality_stats_;
     uint32_t queue_size_{5};
     std::function<void()> on_state_message_;
+    std::function<void()> on_input_;
     SensorStatistics& statistics_;
     std::vector<ros::Subscriber> subscribers_;
     using LocalPvPolicy = message_filters::sync_policies::ExactTime<geometry_msgs::PoseStamped,

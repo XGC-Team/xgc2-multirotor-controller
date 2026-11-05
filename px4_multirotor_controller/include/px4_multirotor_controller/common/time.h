@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -118,6 +119,12 @@ class Time {
 
     double toSec() const { return static_cast<double>(sec) + 1e-9 * static_cast<double>(nsec); }
     uint64_t toNSec() const { return static_cast<uint64_t>(sec) * 1000000000ull + static_cast<uint64_t>(nsec); }
+    double toSecAtOrAfter() const {
+        double value = toSec();
+        if (Time(value).toNSec() < toNSec())
+            value = std::nextafter(value + 1e-9, std::numeric_limits<double>::infinity());
+        return value;
+    }
     bool isZero() const { return sec == 0 && nsec == 0; }
 
     Duration operator-(const Time& rhs) const {
@@ -169,5 +176,41 @@ class Time {
         ns = nsec_part;
     }
 };
+
+// Find the first integer host tick that satisfies the existing double-clock
+// comparison. ceil(seconds * 1e9) may be later because several ticks map to
+// the same double.
+inline uint64_t controllerClockWakeNs(double seconds) {
+    if (seconds <= 0.0) return 0;
+    const double before = std::max(0.0, std::nextafter(seconds, -std::numeric_limits<double>::infinity()));
+    const double after = std::nextafter(seconds, std::numeric_limits<double>::infinity());
+    uint64_t low = Time(before).toNSec();
+    if (low > 0) --low;
+    uint64_t high = Time(after).toNSec() + 1;
+    while (low < high) {
+        const uint64_t mid = low + (high - low) / 2;
+        if (Time().fromNSec(mid).toSec() < seconds) low = mid + 1;
+        else high = mid;
+    }
+    return low;
+}
+
+// ROS has historically converted its time to double and back before advancing
+// integer sensor statistics; preserve that input conversion at its deadline.
+inline uint64_t rosStatisticsWakeNs(const Time& due) {
+    const double seconds = due.toSec();
+    if (seconds <= 0.0) return 0;
+    const double before = std::max(0.0, std::nextafter(seconds, -std::numeric_limits<double>::infinity()));
+    const double after = std::nextafter(seconds, std::numeric_limits<double>::infinity());
+    uint64_t low = Time(before).toNSec();
+    if (low > 0) --low;
+    uint64_t high = Time(after).toNSec() + 1;
+    while (low < high) {
+        const uint64_t mid = low + (high - low) / 2;
+        if (Time(Time().fromNSec(mid).toSec()).toNSec() < due.toNSec()) low = mid + 1;
+        else high = mid;
+    }
+    return low;
+}
 
 }  // namespace px4_multirotor_controller

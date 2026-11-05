@@ -10,6 +10,11 @@ namespace px4_multirotor_controller {
 
 TakeoffOffboardRequestState::TakeoffOffboardRequestState(DroneController& controller) : controller_(controller) {}
 
+std::optional<double> TakeoffOffboardRequestState::nextWake() const {
+    return earlierDeadline(setpoint_publish_timer_.dueAt(SETPOINT_PUBLISH_INTERVAL),
+                           mode_request_timer_.dueAt(OFFBOARD_REQUEST_INTERVAL));
+}
+
 void TakeoffOffboardRequestState::onEnter(
     ) {
     controller_.logInfo("[TakeoffOffboardRequestState] Entering OFFBOARD Request State");

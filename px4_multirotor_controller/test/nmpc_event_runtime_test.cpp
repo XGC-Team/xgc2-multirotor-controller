@@ -198,6 +198,21 @@ TEST(ActiveTrajectoryCache, ReportsFiniteReferenceEndBeforeHorizonSamplingFails)
     EXPECT_FALSE(cache.sampleHorizon(Time(68.95), 0.1, 10, 9.8066, horizon));
 }
 
+TEST(ActiveTrajectoryCache, RemainingTimeDeadlineUsesTheActualFutureStart) {
+    ActiveTrajectoryCache cache;
+    ASSERT_TRUE(cache.updateAnalytic(makeAnalyticReference(), Time(5.0)));
+    const auto due = cache.nextTimeRemainingAtMost(Time(5.0), 1.1);
+    ASSERT_TRUE(due);
+    EXPECT_NEAR(*due, 68.9, 1e-8);
+    double remaining = 0.0;
+    ASSERT_TRUE(cache.finiteTimeRemaining(Time(*due - 0.000001), remaining));
+    EXPECT_GT(remaining, 1.1);
+    ASSERT_TRUE(cache.finiteTimeRemaining(Time(*due), remaining));
+    EXPECT_LE(remaining, 1.1);
+    EXPECT_DOUBLE_EQ(*cache.nextTimeRemainingAtMost(Time(69.0), 1.1), 69.0);
+    EXPECT_DOUBLE_EQ(*cache.nextTimeRemainingAtMost(Time(5.0), 61.0), 5.0);
+}
+
 TEST(ActiveTrajectoryCache, SampledReferenceRequiresFiniteHighOrderSamples) {
     ActiveTrajectoryCache cache;
     ASSERT_TRUE(cache.updateSampled(makeSampledReference(), Time(20.0)));

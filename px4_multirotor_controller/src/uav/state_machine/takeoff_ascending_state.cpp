@@ -10,6 +10,15 @@ namespace px4_multirotor_controller {
 
 TakeoffAscendingState::TakeoffAscendingState(DroneController& controller) : controller_(controller) {}
 
+std::optional<double> TakeoffAscendingState::nextWake() const {
+    return earlierDeadline(setpoint_publish_timer_.dueAt(SETPOINT_PUBLISH_INTERVAL),
+                           status_log_timer_.dueAt(1.0));
+}
+
+std::optional<double> TakeoffAscendingState::timeoutAfterEntry() const {
+    return timeout_event_posted_ ? std::nullopt : std::optional<double>{ASCENDING_TIMEOUT};
+}
+
 void TakeoffAscendingState::onEnter() {
     controller_.logInfo("[TakeoffAscendingState] Starting ascent");
 

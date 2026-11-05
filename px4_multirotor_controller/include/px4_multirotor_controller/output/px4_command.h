@@ -6,7 +6,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <state_machine/runtime/async_task_executor.hpp>
 #include <string>
 #include <utility>
 
@@ -43,56 +42,21 @@ inline bool sendArmDisarmCommand(ros::ServiceClient* client, bool arm, const cha
     return false;
 }
 
+inline void sendModeCommand(ros::ServiceClient* client, const std::string& mode) {
+    if (!client) {
+        ROS_ERROR("[SetModeOutputTask] Service client not set!");
+        return;
+    }
+    mavros_msgs::SetMode srv;
+    srv.request.custom_mode = mode;
+    if (client->call(srv)) {
+        ROS_INFO("[SetModeOutputTask] Set mode to '%s', result: %s", mode.c_str(),
+                 srv.response.mode_sent ? "SUCCESS" : "FAILED");
+    } else {
+        ROS_ERROR("[SetModeOutputTask] Failed to call set_mode service");
+    }
+}
+
 }  // namespace detail
-
-class ArmOutputTask : public ::state_machine::runtime::Task<ros::NodeHandle> {
-   public:
-    ArmOutputTask(bool arm, ros::ServiceClient* client) : arm_(arm), client_(client) {}
-
-    void execute(ros::NodeHandle& nh) override {
-        (void)nh;
-        detail::sendArmDisarmCommand(client_, arm_, "ArmOutputTask");
-    }
-
-    std::string name() const override {
-        return arm_ ? "Arm" : "Disarm";
-    }
-
-   private:
-    bool arm_;
-    ros::ServiceClient* client_;
-};
-
-class SetModeOutputTask : public ::state_machine::runtime::Task<ros::NodeHandle> {
-   public:
-    SetModeOutputTask(std::string mode, ros::ServiceClient* client)
-        : mode_(std::move(mode)), client_(client) {}
-
-    void execute(ros::NodeHandle& nh) override {
-        (void)nh;
-        if (!client_) {
-            ROS_ERROR("[SetModeOutputTask] Service client not set!");
-            return;
-        }
-
-        mavros_msgs::SetMode srv;
-        srv.request.custom_mode = mode_;
-
-        if (client_->call(srv)) {
-            ROS_INFO("[SetModeOutputTask] Set mode to '%s', result: %s", mode_.c_str(),
-                     srv.response.mode_sent ? "SUCCESS" : "FAILED");
-        } else {
-            ROS_ERROR("[SetModeOutputTask] Failed to call set_mode service");
-        }
-    }
-
-    std::string name() const override {
-        return "SetMode(" + mode_ + ")";
-    }
-
-   private:
-    std::string mode_;
-    ros::ServiceClient* client_;
-};
 
 }  // namespace px4_multirotor_controller

@@ -13,8 +13,9 @@ namespace px4_multirotor_controller {
 
 TrajectoryInputProducer::TrajectoryInputProducer(ros::NodeHandle& nh, DroneController& controller,
                                                  SensorData& sensor_data,
-                                                 uint32_t queue_size)
-    : controller_(controller), sensor_data_(sensor_data) {
+                                                 uint32_t queue_size,
+                                                 std::function<void()> on_input)
+    : controller_(controller), sensor_data_(sensor_data), on_input_(std::move(on_input)) {
     alg_setpoint_sub_ = nh.subscribe("alg/setpoint_raw/local", queue_size,
                                      &TrajectoryInputProducer::algSetpointCallback, this);
     active_analytic_sub_ =
@@ -60,6 +61,7 @@ void TrajectoryInputProducer::algSetpointCallback(
                               "PVA and a non-zero header stamp");
             return;
         case PlannerSetpointResult::kCached:
+            if (on_input_) on_input_();
             return;
     }
 }
@@ -75,6 +77,7 @@ void TrajectoryInputProducer::activeAnalyticCallback(
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active analytic trajectory");
         return;
     }
+    if (on_input_) on_input_();
 }
 
 void TrajectoryInputProducer::activeSampledCallback(
@@ -88,6 +91,7 @@ void TrajectoryInputProducer::activeSampledCallback(
         ROS_WARN_THROTTLE(1.0, "[TrajectoryInputProducer] Rejected active sampled trajectory");
         return;
     }
+    if (on_input_) on_input_();
 }
 
 void TrajectoryInputProducer::hoverThrustCallback(
@@ -96,6 +100,7 @@ void TrajectoryInputProducer::hoverThrustCallback(
     ingestHoverThrust(
         sensor_data_, msg ? msg->hover_thrust : std::nan(""), msg ? msg->flags : 0U,
         msg ? msg->header.stamp.toSec() : 0.0, ros::Time::now().toSec());
+    if (on_input_) on_input_();
 }
 
 }  // namespace px4_multirotor_controller

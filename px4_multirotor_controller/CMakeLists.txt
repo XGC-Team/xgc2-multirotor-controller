@@ -25,7 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
   ${MULTIROTOR_CONTROLLER_CATKIN_COMPONENTS}
 )
 find_package(xgc2_acados REQUIRED CONFIG)
-find_package(xgc2_state_machine REQUIRED CONFIG)
+find_package(xgc2_state_machine 0.2.0 REQUIRED CONFIG)
 find_package(Xgc2Module 0.3.0 REQUIRED CONFIG)
 find_package(HoverThrustEstimator 1.2.0 REQUIRED CONFIG)
 # Keep the headers of the selected hover runtime ahead of catkin's installed
@@ -294,6 +294,7 @@ endif()
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
   INCLUDE_DIRS include
+  LIBRARIES px4_multirotor_controller_core px4_multirotor_controller_uav_nmpc_runtime
   CATKIN_DEPENDS roscpp std_msgs geometry_msgs nav_msgs sensor_msgs mavros_msgs message_filters ros1_utils
                  multirotor_reference_trajectory_msgs px4_multirotor_controller_msgs
                  hover_thrust_estimator_msgs rigid_state_estimator_msgs
@@ -381,6 +382,7 @@ target_include_directories(px4_multirotor_controller_uav_nmpc_runtime BEFORE PRI
 add_dependencies(px4_multirotor_controller_uav_nmpc_runtime ${catkin_EXPORTED_TARGETS})
 add_dependencies(px4_multirotor_controller_uav_nmpc_runtime px4_multirotor_controller_uav_nmpc_generated)
 target_link_libraries(px4_multirotor_controller_uav_nmpc_runtime
+  xgc2_state_machine::state_machine
   px4_multirotor_controller_uav_nmpc_generated
   HoverThrustEstimator::Runtime
   xgc2_math::control
@@ -449,6 +451,7 @@ target_include_directories(px4_multirotor_controller_core BEFORE PUBLIC
 )
 add_dependencies(px4_multirotor_controller_core px4_multirotor_controller_uav_nmpc_generated)
 target_link_libraries(px4_multirotor_controller_core
+  xgc2_state_machine::state_machine
   px4_multirotor_controller_uav_nmpc_runtime
   HoverThrustEstimator::Runtime
   xgc2_math::control
@@ -469,6 +472,7 @@ add_executable(${PROJECT_NAME}_node
   src/input/command_input_producer.cpp
   src/input/sensor_input_producer.cpp
   src/input/trajectory_input_producer.cpp
+  src/output/controller_output_worker.cpp
   src/output/control_output_consumer.cpp
   src/output/debug_output_consumer.cpp
   src/output/nmpc_output_consumer.cpp
@@ -754,6 +758,8 @@ if(CATKIN_ENABLE_TESTING)
     test/controller_transport_parity.test
     test/controller_transport_parity.cpp
     src/input/sensor_input_producer.cpp
+    src/output/controller_output_worker.cpp
+    src/output/control_output_consumer.cpp
     src/output/debug_output_consumer.cpp
   )
   if(TARGET controller_transport_parity)
@@ -766,6 +772,23 @@ if(CATKIN_ENABLE_TESTING)
       CONTROLLER_MODULE_PATH="$<TARGET_FILE:${PROJECT_NAME}_module>")
     target_link_libraries(controller_transport_parity px4_multirotor_controller_core
                           Xgc2Module::SDK ${catkin_LIBRARIES} dl pthread)
+  endif()
+
+  get_target_property(CONTROLLER_ROS_TEST_SOURCES ${PROJECT_NAME}_node SOURCES)
+  list(REMOVE_ITEM CONTROLLER_ROS_TEST_SOURCES src/main.cpp)
+  add_rostest_gtest(controller_ros_scheduler_test
+    test/controller_ros_scheduler.test
+    test/controller_ros_scheduler_test.cpp
+    ${CONTROLLER_ROS_TEST_SOURCES}
+  )
+  if(TARGET controller_ros_scheduler_test)
+    add_dependencies(controller_ros_scheduler_test ${catkin_EXPORTED_TARGETS})
+    target_include_directories(controller_ros_scheduler_test BEFORE PRIVATE
+      ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${CATKIN_DEVEL_PREFIX}/include ${MULTIROTOR_HOVER_THRUST_INCLUDE_DIRS})
+    target_link_libraries(controller_ros_scheduler_test px4_multirotor_controller_core
+      px4_multirotor_controller_uav_nmpc_runtime xgc2_math::control xgc2_math::geometry
+      xgc2_math::trajectory ${catkin_LIBRARIES} ${JSONCPP_LIBRARIES} pthread gtest_main)
   endif()
 
   # The module against the ROS node's behavior on the recorded flights and a scripted flight.

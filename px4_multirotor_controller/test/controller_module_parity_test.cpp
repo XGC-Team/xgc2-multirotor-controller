@@ -6,7 +6,9 @@
 // Each 1 ms tick delivers the messages received since the previous tick to the node path (the
 // callbacks of ros::spinOnce()) and, mapped to payloads as the ROS edge does
 // (ros_payload_mapping.h), to the module's ports with their receipt time, then updates both at the
-// same nanosecond time. Everything the node's output consumers would send must come out of the
+// same nanosecond time. The old node oracle retains its original 1 ms polling. The module runs only
+// on delivered input, an existing requested wake or its declared deadline; the replay clock's
+// 1 ms resolution does not supply a periodic TIMER to the module. Everything the node's output consumers would send must come out of the
 // module's ports, in the same order and bit for bit, and both must be in the same flight state
 // after every tick.
 //
@@ -262,21 +264,32 @@ void replay(const std::vector<Record>& records, const std::string& module_config
     controller_replay::NodePath node(oracle_config, pmc::Time().fromNSec(t0_ns).toSec());
 
     size_t next = 0;
+    uint64_t observed_wakes = 0;
     for (uint64_t k = 0;; ++k) {
         const uint64_t tick_ns = t0_ns + k * kTickNs;
         if (tick_ns > t_end_ns)
             break;
+        bool delivered = false;
         while (next < records.size() && records[next].t_ns <= tick_ns) {
             node.receive(records[next]);
             deliver(host, records[next]);
             if (::testing::Test::HasFatalFailure())
                 return;
             ++next;
+            delivered = true;
         }
         const pmc::Time now = pmc::Time().fromNSec(tick_ns);
         host.setNow(static_cast<int64_t>(tick_ns));
         const uint64_t wakes = host.wakeCount();
-        ASSERT_EQ(host.step(), XGC2_OK) << "tick " << k;
+        uint32_t reasons = delivered ? XGC2_STEP_INPUT : 0;
+        if (host.pendingDeadline() >= 0 && host.pendingDeadline() <= host.now())
+            reasons |= XGC2_STEP_DEADLINE;
+        if (wakes != observed_wakes) {
+            reasons |= XGC2_STEP_WAKE;
+            observed_wakes = wakes;
+        }
+        if (reasons)
+            ASSERT_EQ(host.step(reasons), XGC2_OK) << "tick " << k;
         const std::vector<OutputEvent> handled = node.update(now.toSec());
         const Expected want = expectedOutputs(handled, now);
         // A solve requested in this tick is done by the module's worker: wait for its wake, so its
@@ -306,7 +319,9 @@ void replay(const std::vector<Record>& records, const std::string& module_config
                 << "fcu request " << i << " at tick " << k;
         }
         const auto statuses = host.outputsAs<xgc2_px4_controller_status_v1>("status");
-        ASSERT_EQ(statuses.size(), want.statuses.size()) << "statuses at tick " << k;
+        ASSERT_EQ(statuses.size(), want.statuses.size())
+            << "statuses at tick " << k << " now_ns=" << host.now()
+            << " pending_deadline_ns=" << host.pendingDeadline();
         for (size_t i = 0; i < statuses.size(); ++i) {
             ASSERT_STREQ(statuses[i].state, want.statuses[i].c_str())
                 << "status " << i << " at tick " << k;

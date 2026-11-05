@@ -1,13 +1,26 @@
 #include "px4_multirotor_controller/uav/state_machine/debug_monitor_state.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/drone_controller.h"
 
 namespace px4_multirotor_controller {
 
 DebugMonitorState::DebugMonitorState(DroneController& controller) : controller_(controller) {}
+
+std::optional<double> DebugMonitorState::nextWake() const {
+    const double now = controller_.getCurrentTime();
+    const double status = status_publish_initialized_
+                              ? controllerDueAt(last_status_publish_time_, STATUS_PUBLISH_INTERVAL)
+                              : now;
+    const double debug = debug_print_initialized_
+                             ? controllerDueAt(last_debug_print_time_, DEBUG_PRINT_INTERVAL)
+                             : now;
+    return std::min(status, debug);
+}
 
 void DebugMonitorState::onTick() {
     const double now = controller_.getCurrentTime();

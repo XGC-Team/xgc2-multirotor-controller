@@ -8,8 +8,6 @@
 #include <cmath>
 #include <memory>
 
-#include <state_machine/runtime/async_task_executor.hpp>
-
 #include "px4_multirotor_controller/output/control_output_consumer.h"
 
 #include <xgc2_math/control/smc_tracking_controller.hpp>
@@ -281,6 +279,43 @@ TEST_F(SmcCustom1RuntimeTest, FutureSegmentDoesNotReplaceTheActiveOne) {
     EXPECT_GT(std::abs(on_second.position_cmd.ax - still_first.position_cmd.ax), 1e-3);
 }
 
+TEST_F(SmcCustom1RuntimeTest, FutureSmcSegmentWakesAtItsRealEffectiveTime) {
+    start(TrackingBackend::SMC);
+    enterCustom1();
+    const double t0 = controller_->getCurrentTime();
+    const double effective = t0 + 0.005;
+    cache(Time(effective), Time(t0), Eigen::Vector3d(0.0, 0.0, 1.0),
+          Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+    at(t0 + 0.001);  // The input turn does not promote a future segment.
+    EXPECT_FALSE(controller_->mpcTrajectoryBuffer().active().is_valid);
+    const auto due = controller_->nextWake();
+    ASSERT_TRUE(due);
+    EXPECT_NEAR(*due, effective, 1e-8);
+    at(*due);
+    EXPECT_TRUE(controller_->mpcTrajectoryBuffer().active().is_valid);
+    EXPECT_EQ(controller_->mpcTrajectoryBuffer().active().planning_time, Time(effective));
+}
+
+TEST_F(SmcCustom1RuntimeTest, FuturePvaFrameWakesAndPublishesAtItsEffectiveTime) {
+    start(TrackingBackend::PVA_SMC, Px4LocalLiftMode::ZeroOrderHold);
+    enterCustom1();
+    const double t0 = controller_->getCurrentTime();
+    const double effective = t0 + 0.005;
+    sensor_.paired_local_pv = SensorData::LocalPv{Eigen::Vector3d(0.0, 0.0, 1.0),
+                                                   Eigen::Vector3d::Zero()};
+    cache(Time(effective), Time(t0), Eigen::Vector3d(0.0, 0.0, 1.0),
+          Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+    at(t0 + 0.001);
+    EXPECT_FALSE(publishedCommand(*controller_).position);
+    const auto due = controller_->nextWake();
+    ASSERT_TRUE(due);
+    EXPECT_NEAR(*due, effective, 1e-8);
+    at(*due);
+    ASSERT_TRUE(publishedCommand(*controller_).position);
+    ASSERT_TRUE(controller_->nextWake());
+    EXPECT_NEAR(*controller_->nextWake() - *due, 0.01, 1e-8);
+}
+
 TEST_F(SmcCustom1RuntimeTest, BoundaryArrivalPreservesTheNowEffectivePendingSegment) {
     start(TrackingBackend::SMC);
     enterCustom1();
@@ -375,6 +410,40 @@ TEST_F(SmcCustom1RuntimeTest, ZeroOrderHoldWaitsForHeaderAndDoesNotIntegrate) {
     EXPECT_NEAR(held.position_cmd.x, 0.0, 1e-9);
     EXPECT_NEAR(held.position_cmd.vx, 1.0, 1e-9);
     EXPECT_NEAR(held.position_cmd.z, 1.0, 1e-9);
+}
+
+TEST_F(SmcCustom1RuntimeTest, ZeroOrderHoldExpiryUsesExistingCadenceAndRecovers) {
+    start(TrackingBackend::PX4_LOCAL, Px4LocalLiftMode::ZeroOrderHold);
+    enterHover();
+    const double t0 = controller_->getCurrentTime();
+    cache(Time(t0 + 0.05), Time(t0), Eigen::Vector3d(0.0, 0.0, 1.0),
+          Eigen::Vector3d(1.0, 0.0, 0.0), Eigen::Vector3d::Zero());
+    request(event_type::TRAJECTORY_TRACKING_REQUESTED);
+    at(t0 + 0.08);
+    auto valid = publishedCommand(*controller_);
+    ASSERT_TRUE(valid.position);
+    EXPECT_NEAR(valid.position_cmd.vx, 1.0, 1e-9);
+
+    at(t0 + 0.151);  // Strictly after the original 100 ms reference window.
+    auto expired = publishedCommand(*controller_);
+    ASSERT_TRUE(expired.position);
+    EXPECT_DOUBLE_EQ(expired.position_cmd.vx, 0.0);
+    at(t0 + 0.152);  // An unrelated early wake must not publish again.
+    EXPECT_FALSE(publishedCommand(*controller_).position);
+    at(t0 + 0.17);
+    EXPECT_FALSE(publishedCommand(*controller_).position);
+    at(t0 + 0.185);
+    ASSERT_TRUE(publishedCommand(*controller_).position);
+
+    cache(Time(t0 + 0.20), Time(t0 + 0.187), Eigen::Vector3d(0.4, 0.0, 1.0),
+          Eigen::Vector3d(0.2, 0.0, 0.0), Eigen::Vector3d::Zero());
+    at(t0 + 0.202);
+    EXPECT_FALSE(publishedCommand(*controller_).position);
+    at(t0 + 0.219);
+    const auto recovered = publishedCommand(*controller_);
+    ASSERT_TRUE(recovered.position);
+    EXPECT_NEAR(recovered.position_cmd.x, 0.4, 1e-9);
+    EXPECT_NEAR(recovered.position_cmd.vx, 0.2, 1e-9);
 }
 
 TEST(StageEffectiveTime, ZeroOrderHoldAndSmcShareTheWindowLegacyDoesNot) {
@@ -614,8 +683,7 @@ TEST_F(SmcCustom1RuntimeTest, ConsumerDropsBodyRateAndHoldsFrozenHover) {
     start(TrackingBackend::SMC);
     enterCustom1();
     const double t0 = controller_->getCurrentTime();
-    ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> executor(nh);
-    ControlOutputConsumer consumer(nh, executor, *controller_, 10);
+    ControlOutputConsumer consumer(nh, *controller_, 10);
     const auto connected = [&]() {
         ros::spinOnce();
         return setpoint_sub.getNumPublishers() > 0 && attitude_sub.getNumPublishers() > 0;

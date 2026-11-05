@@ -11,9 +11,9 @@
 
 namespace px4_multirotor_controller {
 
-Px4ServiceOutputConsumer::Px4ServiceOutputConsumer(
-    ros::NodeHandle& nh, ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor)
-    : nh_(nh), executor_(executor) {}
+Px4ServiceOutputConsumer::Px4ServiceOutputConsumer(ros::NodeHandle& nh,
+                                                   ControllerOutputWorker& worker)
+    : nh_(nh), worker_(worker) {}
 
 void Px4ServiceOutputConsumer::initializeClientsIfNeeded() {
     if (clients_initialized_) {
@@ -35,7 +35,7 @@ bool Px4ServiceOutputConsumer::handle(const FlightEffect& effect) {
             ROS_WARN("[Px4ServiceOutputConsumer] Arming client not initialized, dropping arm request");
             return true;
         }
-        executor_.pushTask(std::make_unique<ArmOutputTask>(arm->arm, &arming_client_));
+        worker_.post(OutputArm{arm->arm, &arming_client_});
         return true;
     }
     if (const auto* mode = std::get_if<FlightModeRequest>(&effect)) {
@@ -43,7 +43,7 @@ bool Px4ServiceOutputConsumer::handle(const FlightEffect& effect) {
             ROS_WARN("[Px4ServiceOutputConsumer] SetMode client not initialized, dropping mode request");
             return true;
         }
-        executor_.pushTask(std::make_unique<SetModeOutputTask>(mode->mode, &set_mode_client_));
+        worker_.post(OutputMode{mode->mode, &set_mode_client_});
         return true;
     }
     return false;

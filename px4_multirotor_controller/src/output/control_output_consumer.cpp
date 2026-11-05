@@ -5,12 +5,9 @@
 
 namespace px4_multirotor_controller {
 
-ControlOutputConsumer::ControlOutputConsumer(
-    ros::NodeHandle& nh, ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
-    DroneController& controller, uint32_t queue_size)
+ControlOutputConsumer::ControlOutputConsumer(ros::NodeHandle& nh, DroneController& controller,
+                                             uint32_t queue_size)
     : controller_(controller) {
-    // Keep the constructor contract, but never put control samples behind blocking RPCs.
-    (void)executor;
     setpoint_raw_pub_ =
         nh.advertise<mavros_msgs::PositionTarget>("mavros/setpoint_raw/local", queue_size);
     attitude_target_pub_ =

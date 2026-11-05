@@ -79,7 +79,16 @@ class Vehicle {
         controller_.setNow(now_);
         ++tick_;
         deliverSensors();
-        if (controller_.step() != XGC2_OK)
+        uint32_t reasons = XGC2_STEP_INPUT;
+        const auto deadline = controller_.pendingDeadline();
+        if (deadline >= 0 && deadline <= now_)
+            reasons |= XGC2_STEP_DEADLINE;
+        const auto wakes = controller_.wakeCount();
+        if (wakes != seen_wakes_) {
+            reasons |= XGC2_STEP_WAKE;
+            seen_wakes_ = wakes;
+        }
+        if (controller_.step(reasons) != XGC2_OK)
             failed = true;
         collect();
         if (reference_ != nullptr)
@@ -90,6 +99,7 @@ class Vehicle {
 
     // An extra step at the current time, as the host runs after a wake().
     void wakeStep() {
+        seen_wakes_ = controller_.wakeCount();
         if (controller_.step(XGC2_STEP_WAKE) != XGC2_OK)
             failed = true;
         collect();
@@ -241,6 +251,7 @@ class Vehicle {
     TestHost* reference_{nullptr};
     int64_t now_;
     uint64_t tick_{0};
+    uint64_t seen_wakes_{0};
     double x_{0.0}, y_{0.0}, z_{0.0};
     std::string mode_{"MANUAL"};
     bool armed_{false};

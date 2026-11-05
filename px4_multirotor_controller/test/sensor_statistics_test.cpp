@@ -1,4 +1,5 @@
 #include "px4_multirotor_controller/driver/sensor_statistics.h"
+#include "px4_multirotor_controller/common/controller_clock.h"
 
 #include <gtest/gtest.h>
 
@@ -35,6 +36,73 @@ TEST(SensorStatisticsClock, OriginalWindowAndHeartbeatCadence) {
     EXPECT_NEAR(data.local_pos_stats.frequency_hz, 50.0, 1e-9);
     EXPECT_NEAR(data.local_pos_stats.dt_max, 0.02, 1e-9);
     EXPECT_GT(data.local_pos_stats.jitter, 0.0);
+}
+
+TEST(SensorStatisticsClock, DeadlineDrivenTurnsPreserveWindowAndHeartbeat) {
+    SensorData data;
+    SensorStatistics statistics(data);
+    EXPECT_FALSE(statistics.nextWake());
+    statistics.start(Time(100, 25000000));
+    statistics.observe(SensorStream::State, Time(100, 25000000));
+    ASSERT_TRUE(statistics.nextWake());
+    EXPECT_EQ(statistics.nextWake()->toNSec(), Time(100, 125000000).toNSec());
+
+    // Drive only the owner's existing 100 ms / 1 s obligations: no 1 kHz
+    // empty turns are needed for the original 2.5 s heartbeat result.
+    for (int i = 0; i < 30; ++i) {
+        const auto due = statistics.nextWake();
+        ASSERT_TRUE(due);
+        statistics.advance(*due);
+        if (i == 28) EXPECT_TRUE(data.state_stats.is_active);
+    }
+    EXPECT_FALSE(data.state_stats.is_active);
+    EXPECT_DOUBLE_EQ(data.state_stats.time_since_last_msg, 3.0);
+    EXPECT_EQ(statistics.nextWake()->toNSec(), Time(103, 125000000).toNSec());
+}
+
+TEST(ControllerTimerClock, DeadlineUsesTheSameFloatingPointDueBoundary) {
+    for (const double start : {100.0, 1792520000.35}) {
+        ControllerClock::set(start);
+        ControllerTimer timer;
+        timer.start();
+        constexpr double period = 1.0 / 30.0;
+        const auto due = timer.dueAt(period);
+        ASSERT_TRUE(due);
+        ControllerClock::set(std::nextafter(*due, -std::numeric_limits<double>::infinity()));
+        EXPECT_LT(timer.elapsed().count(), period);
+        ControllerClock::set(*due);
+        EXPECT_GE(timer.elapsed().count(), period);
+        timer.stop();
+        EXPECT_FALSE(timer.dueAt(period));
+    }
+}
+
+TEST(ControllerTimerClock, NanosecondDeadlineNeverRoundsEarlyAtUtcEpoch) {
+    for (const auto due : {Time(100, 123456789), Time(kEpoch, 123456789)}) {
+        EXPECT_GE(Time(due.toSecAtOrAfter()).toNSec(), due.toNSec());
+    }
+}
+
+TEST(SensorStatisticsClock, HostDeadlineUsesTheFirstTickAcceptedByTheActualClock) {
+    for (const uint64_t input : {100801000000ULL, 1790430421203000000ULL,
+                                 1790430550505000000ULL}) {
+        const double seconds = Time().fromNSec(input).toSec();
+        const uint64_t first = controllerClockWakeNs(seconds);
+        EXPECT_LE(first, input);
+        EXPECT_GE(Time().fromNSec(first).toSec(), seconds);
+        if (first > 0)
+            EXPECT_LT(Time().fromNSec(first - 1).toSec(), seconds);
+    }
+    for (const Time due : {Time(100, 200000000), Time(1790430421U, 203000000),
+                           Time(1790430550U, 505000000)}) {
+        const uint64_t first = rosStatisticsWakeNs(due);
+        const auto rounded = [](uint64_t ns) {
+            return Time(Time().fromNSec(ns).toSec()).toNSec();
+        };
+        EXPECT_GE(rounded(first), due.toNSec());
+        if (first > 0)
+            EXPECT_LT(rounded(first - 1), due.toNSec());
+    }
 }
 
 TEST(SensorStatisticsClock, ZeroToEpochSkipsMissedPeriodsAndKeepsOriginalPhase) {

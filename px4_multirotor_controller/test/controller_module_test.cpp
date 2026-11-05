@@ -242,11 +242,45 @@ TEST_F(ControllerModuleTest, RefusesAnInvalidConfiguration) {
     }
 }
 
-TEST_F(ControllerModuleTest, StartAsksForTheControlPeriodAndReportsTheFlightState) {
+TEST_F(ControllerModuleTest, StartDisablesThePumpAndRequestsTheInitialTurn) {
     open(config());
-    EXPECT_EQ(host_->periodNs(), 1000000);  // the node's 1 kHz loop
+    EXPECT_EQ(host_->periodNs(), 0);
+    EXPECT_GE(host_->wakeCount(), 1U);
     EXPECT_EQ(host_->lastReportDetail(), "SelfCheck");
     EXPECT_EQ(host_->reports().front().first, 0);
+}
+
+TEST_F(ControllerModuleTest, NativeImuEventTriggersExistingSaturationWithoutEmptyTicks) {
+    open(config(std::string(kFlightConfig) + ", \"tracking_backend\": \"px4_local\", "
+                "\"acc_saturation_xy\": 1.0"));
+    ASSERT_TRUE(reach("Ready", 3.0));
+    xgc2_px4_command_v1 command{};
+    std::strcpy(command.text, "takeoff");
+    ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
+    ASSERT_TRUE(reach("Hover", 20.0)) << vehicle_->state();
+    xgc2_px4_position_target_v1 reference{};
+    reference.coordinate_frame = 1;
+    reference.type_mask = pmc::kDefaultPvaLocalTypeMask;
+    reference.position[2] = vehicle_->altitude();
+    ASSERT_TRUE(host_->push("alg_setpoint", reference, vehicle_->now()));
+    vehicle_->run(0.001);
+    std::strcpy(command.text, "custom1");
+    ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
+    ASSERT_TRUE(reach("Custom1", 3.0)) << vehicle_->state();
+
+    reference.acceleration[0] = 2.0;
+    ASSERT_TRUE(host_->push("alg_setpoint", reference, vehicle_->now()));
+    ASSERT_TRUE(vehicle_->runUntil(
+        [&] { return vehicle_->last_setpoint.acceleration[0] == 2.0; }, 0.2));
+    ASSERT_EQ(host_->lastReportDetail(), "Custom1");
+    ASSERT_EQ(host_->step(XGC2_STEP_WAKE), XGC2_OK);
+    EXPECT_EQ(host_->lastReportDetail(), "Custom1");  // no fresh IMU
+
+    xgc2_px4_imu_v1 imu{};
+    ASSERT_TRUE(host_->push("imu", imu, host_->now()));
+    ASSERT_TRUE(host_->push("imu", imu, host_->now()));
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    EXPECT_EQ(host_->lastReportDetail(), "Landing");
 }
 
 TEST_F(ControllerModuleTest, BecomesReadyWithTheSensorsAndLeavesReadyWithoutThem) {
@@ -260,18 +294,19 @@ TEST_F(ControllerModuleTest, BecomesReadyWithTheSensorsAndLeavesReadyWithoutThem
     EXPECT_FALSE(vehicle_->failed);
 }
 
-TEST_F(ControllerModuleTest, AStepWithOnlyInputsDeliversThemAndLeavesTheUpdateToThePeriod) {
+TEST_F(ControllerModuleTest, InputTurnProcessesTheCommandWithoutAnExtraTimer) {
     open(config(kFlightConfig));
     ASSERT_TRUE(reach("Ready", 3.0));
     xgc2_px4_command_v1 command{};
     std::strcpy(command.text, "takeoff");
     ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
-    // Like the node's callbacks between two iterations of its loop: the command is queued ...
     ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
-    EXPECT_EQ(host_->lastReportDetail(), "Ready");
-    // ... and the next update of the controller acts on it.
-    ASSERT_EQ(host_->step(XGC2_STEP_TIMER), XGC2_OK);
     EXPECT_EQ(host_->lastReportDetail(), "TakeoffInit");
+    host_->clearOutputs();
+    const auto deadline = host_->pendingDeadline();
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);  // No new input.
+    EXPECT_EQ(host_->pendingDeadline(), deadline);
+    EXPECT_TRUE(host_->outputs("setpoint").empty());
 }
 
 TEST_F(ControllerModuleTest, LifecycleAndStepsUseTheSameHomeWorker) {

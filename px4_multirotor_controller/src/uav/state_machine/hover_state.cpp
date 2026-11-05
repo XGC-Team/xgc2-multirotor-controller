@@ -7,6 +7,10 @@ namespace px4_multirotor_controller {
 
 HoverState::HoverState(DroneController& controller) : controller_(controller) {}
 
+std::optional<double> HoverState::nextWake() const {
+    return setpoint_publish_timer_.dueAt(SETPOINT_PUBLISH_INTERVAL);
+}
+
 void HoverState::onEnter() {
     controller_.logInfo("[HoverState] Entering Hover State");
 

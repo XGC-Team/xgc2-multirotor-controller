@@ -15,13 +15,14 @@ SensorInputProducer::SensorInputProducer(ros::NodeHandle& nh, SensorData& sensor
                                          ros1_utils::PositionQualityStats& vrpn_quality_stats,
                                          SensorStatistics& statistics, uint32_t queue_size,
                                          std::function<void()> on_state_message,
-                                         ControllerDriver* driver)
+                                         ControllerDriver* driver, std::function<void()> on_input)
     : driver_(driver),
       nh_(nh),
       sensor_data_(sensor_data),
       vrpn_quality_stats_(vrpn_quality_stats),
       queue_size_(queue_size),
       on_state_message_(std::move(on_state_message)),
+      on_input_(std::move(on_input)),
       statistics_(statistics) {
     statistics_.setQualityOutput(SensorStream::Pose, &vrpn_quality_stats_.effective_frequency_hz);
 }
@@ -63,15 +64,18 @@ void SensorInputProducer::start() {
             [this](const rigid_state_estimator_msgs::RigidStateEstimate::ConstPtr& message) {
                 statistics_.observe(SensorStream::Estimate, toCoreTime(ros::Time::now()));
                 stateEstimateCallback(message);
+                if (on_input_) on_input_();
             }));
     }
     auto on_position = [this](const geometry_msgs::PoseStamped::ConstPtr& message) {
         statistics_.observe(SensorStream::LocalPose, toCoreTime(ros::Time::now()));
         localPosCallback(message);
+        if (on_input_) on_input_();
     };
     auto on_velocity = [this](const geometry_msgs::TwistStamped::ConstPtr& message) {
         statistics_.observe(SensorStream::LocalVelocity, toCoreTime(ros::Time::now()));
         velocityCallback(message);
+        if (on_input_) on_input_();
     };
     if (driver_ && driver_->controller().getConfig().tracking_backend == TrackingBackend::PVA_SMC) {
         paired_position_ = std::make_unique<message_filters::Subscriber<geometry_msgs::PoseStamped>>(
@@ -97,11 +101,15 @@ void SensorInputProducer::start() {
         "mavros/imu/data", queue_size_, [this](const sensor_msgs::Imu::ConstPtr& message) {
             statistics_.observe(SensorStream::Imu, toCoreTime(ros::Time::now()));
             imuCallback(message);
+            if (driver_)
+                driver_->onFreshImu();
+            if (on_input_) on_input_();
         }));
     subscribers_.push_back(nh_.subscribe<mavros_msgs::State>(
         "mavros/state", queue_size_, [this](const mavros_msgs::State::ConstPtr& message) {
             statistics_.observe(SensorStream::State, toCoreTime(ros::Time::now()));
             stateCallback(message);
+            if (on_input_) on_input_();
         }));
     subscribers_.push_back(nh_.subscribe<sensor_msgs::BatteryState>(
         "mavros/battery", queue_size_, [this](const sensor_msgs::BatteryState::ConstPtr& message) {
@@ -112,6 +120,7 @@ void SensorInputProducer::start() {
         vrpn_pose_topic_, queue_size_, [this](const geometry_msgs::PoseStamped::ConstPtr& message) {
             statistics_.observe(SensorStream::Pose, toCoreTime(ros::Time::now()));
             vrpnPoseCallback(message);
+            if (on_input_) on_input_();
         }));
     if (driver_ && driver_->internalHoverThrust()) {
         subscribers_.push_back(nh_.subscribe<mavros_msgs::AttitudeTarget>(
@@ -214,6 +223,7 @@ void SensorInputProducer::targetAttitudeCallback(const mavros_msgs::AttitudeTarg
     const bool ignored = (msg->type_mask & mavros_msgs::AttitudeTarget::IGNORE_THRUST) != 0;
     driver_->ingestThrust(msg->thrust, ignored,
                           msg->header.stamp.isZero() ? now : msg->header.stamp.toSec(), now);
+    if (on_input_) on_input_();
 }
 
 void SensorInputProducer::stateEstimateCallback(

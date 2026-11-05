@@ -15,6 +15,116 @@ namespace px4_multirotor_controller {
 
 Custom1State::Custom1State(DroneController& controller) : controller_(controller) {}
 
+std::optional<double> Custom1State::nextWake() const {
+    const auto config = controller_.getConfig();
+    const double now_sec = controller_.getCurrentTime();
+    const Time now(now_sec);
+    const auto& buffer = controller_.mpcTrajectoryBuffer();
+    const auto& sample = buffer.active();
+    std::optional<double> due;
+    const auto include = [&](std::optional<double> candidate) {
+        due = earlierDeadline(due, candidate);
+    };
+    const auto publish_due = [&] {
+        return controllerDueAt(last_publish_time_, controller_.custom1PublishPeriod());
+    };
+    const auto synchronous_due = [&](double period) {
+        period = std::max(1.0e-3, period);
+        if (last_publish_time_ <= 0.0)
+            return now_sec > 0.0 ? now_sec : controllerDueAt(now_sec, period);
+        return controllerDueAt(last_publish_time_, period);
+    };
+
+    const bool pair_available = controller_.getSensorData().paired_local_pv.has_value();
+    const bool effective_time = usesStageEffectiveTime(config.tracking_backend,
+                                                       config.px4_local_lift);
+    if (buffer.hasPending() && effective_time &&
+        (config.tracking_backend != TrackingBackend::PVA_SMC || pair_available)) {
+        include(buffer.pending().planning_time.toSecAtOrAfter());
+    }
+    if (sample.is_valid && effective_time && config.tracking_backend != TrackingBackend::PVA_SMC) {
+        const auto period_ns = segmentPeriodNs(config.planning_period);
+        if (period_ns >= 0) {
+            const Time expires = sample.planning_time + Duration().fromNSec(period_ns + 1);
+            if (now < expires) include(expires.toSecAtOrAfter());
+        }
+    }
+
+    if (config.tracking_backend == TrackingBackend::PVA_SMC) {
+        if (sample.is_valid && pair_available) include(publish_due());
+        return due;
+    }
+    if (config.tracking_backend == TrackingBackend::PX4_LOCAL) {
+        include(publish_due());
+        if (!passThroughMayTakeSetpoint(sample, hover_x_, hover_y_, hover_z_,
+                                       config.nmpc.plan_hover_xy_tol, config.nmpc.plan_hover_z_tol,
+                                       tracking_armed_))
+            include(trajectory_wait_log_timer_.dueAt(1.0));
+        return due;
+    }
+    if (config.tracking_backend == TrackingBackend::SMC) {
+        const bool ready = stageWindowOpen(sample, now, config.planning_period) &&
+                           smcWorldPvaAvailable(sample.type_mask, sample.coordinate_frame) &&
+                           passThroughMayTakeSetpoint(sample, hover_x_, hover_y_, hover_z_,
+                                                      config.nmpc.plan_hover_xy_tol,
+                                                      config.nmpc.plan_hover_z_tol, tracking_armed_);
+        if (ready && sync_strategy_entered_)
+            include(synchronous_due(config.nmpc.control_period));
+        else
+            include(publish_due());
+        if (!ready && !tracking_armed_ && !tracking_position_held_)
+            include(trajectory_wait_log_timer_.dueAt(1.0));
+        return due;
+    }
+    if (config.tracking_backend == TrackingBackend::DFBC) {
+        const bool streaming = config.dfbc.reference_source == DfbcReferenceSource::PLANNER_SETPOINT;
+        const bool ready = streaming
+            ? stageWindowOpen(sample, now, config.planning_period) &&
+                  smcWorldPvaAvailable(sample.type_mask, sample.coordinate_frame) &&
+                  passThroughMayTakeSetpoint(sample, hover_x_, hover_y_, hover_z_,
+                                             config.nmpc.plan_hover_xy_tol,
+                                             config.nmpc.plan_hover_z_tol, tracking_armed_)
+            : controller_.activeTrajectoryCache().valid();
+        if (ready) {
+            include(synchronous_due(dfbc_strategy_.period()));
+            if (!streaming)
+                include(controller_.activeTrajectoryCache().nextTimeRemainingAtMost(
+                    now, std::max(1.0e-3, dfbc_strategy_.period()) + 1.0e-6));
+        } else {
+            include(publish_due());
+            if (!streaming) include(nmpc_wait_log_timer_.dueAt(1.0));
+        }
+        return due;
+    }
+
+    if (request_in_flight_)
+        include(controllerStrictDueAt(request_deadline_, 0.0));
+    if (!controller_.activeTrajectoryCache().valid()) {
+        include(publish_due());
+        include(nmpc_wait_log_timer_.dueAt(1.0));
+        return due;
+    }
+    const double span = config.nmpc.prediction_horizon /
+                        static_cast<double>(UavNmpcSolver::horizonSteps()) *
+                        static_cast<double>(UavNmpcSolver::horizonSteps() + 1);
+    include(controller_.activeTrajectoryCache().nextTimeRemainingAtMost(now, span + 1.0e-6));
+    if (last_success_time_ > 0.0 && config.nmpc.result_timeout > 0.0) {
+        const double stale = controllerStrictDueAt(last_success_time_, config.nmpc.result_timeout);
+        if (now_sec < stale) {
+            include(stale);
+        } else {
+            include(publish_due());
+            include(controller_.nmpcStaleOutputLogTimer().dueAt(1.0));
+        }
+    }
+    if (!request_in_flight_) {
+        include(last_request_time_ <= 0.0
+                    ? (now_sec > 0.0 ? now_sec : controllerDueAt(now_sec, config.nmpc.control_period))
+                    : controllerDueAt(last_request_time_, config.nmpc.control_period));
+    }
+    return due;
+}
+
 void Custom1State::onEnter() {
     const auto& config = controller_.getConfig();
     controller_.clearCustom1Request();
@@ -140,7 +250,9 @@ void Custom1State::handlePx4LocalPassThrough(
         return;
     }
     if (!lifted.success) {
-        publishCurrentHoverSetpoint(current_time);
+        if (shouldPublish(current_time)) {
+            publishCurrentHoverSetpoint(current_time);
+        }
         return;
     }
 

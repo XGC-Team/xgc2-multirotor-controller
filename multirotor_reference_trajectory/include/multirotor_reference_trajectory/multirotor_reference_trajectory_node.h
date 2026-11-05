@@ -5,7 +5,6 @@
 
 #include <memory>
 #include <optional>
-#include <state_machine/runtime/async_task_executor.hpp>
 #include <string>
 
 #include "multirotor_reference_trajectory/input/reference_input_producer.h"
@@ -31,7 +30,7 @@ class ReferenceTrajectoryNode {
     ros::NodeHandle nh_;
     ros::NodeHandle private_nh_;
     ReferenceTrajectoryRuntime runtime_;
-    ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> output_executor_;
+    ReferenceOutputWorker output_worker_;
     std::unique_ptr<ReferenceOutputConsumer> output_consumer_;
     std::unique_ptr<ReferenceInputProducer> input_producer_;
     ros::CallbackInterfacePtr turn_callback_;

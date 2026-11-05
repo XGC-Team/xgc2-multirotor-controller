@@ -1,6 +1,9 @@
 #pragma once
 
 #include <chrono>
+#include <cmath>
+#include <limits>
+#include <optional>
 #include <ratio>
 
 namespace px4_multirotor_controller {
@@ -30,6 +33,26 @@ struct ControllerClock {
     }
 };
 
+inline double controllerDueAt(double start, double interval) {
+    double due = start + interval;
+    if (due - start < interval)
+        due = std::nextafter(due, std::numeric_limits<double>::infinity());
+    return due;
+}
+
+inline double controllerStrictDueAt(double start, double interval) {
+    double due = start + interval;
+    if (due - start <= interval)
+        due = std::nextafter(due, std::numeric_limits<double>::infinity());
+    return due;
+}
+
+inline std::optional<double> earlierDeadline(std::optional<double> a, std::optional<double> b) {
+    if (!a) return b;
+    if (!b) return a;
+    return *a < *b ? a : b;
+}
+
 // The flight states use this controller-time interval, including when ROS
 // time is paused or replayed. Reset does not start a stopped timer.
 class ControllerTimer {
@@ -41,6 +64,14 @@ class ControllerTimer {
     bool started() const { return started_; }
     void reset() { start_time_ = ControllerClock::now(); }
     void stop() { started_ = false; }
+
+    // First representable controller time at which elapsed() >= interval.
+    // Keep the same subtraction used by the existing due check; plain
+    // start + interval can round down and repeatedly arm an early deadline.
+    std::optional<double> dueAt(double interval) const {
+        if (!started_) return std::nullopt;
+        return controllerDueAt(start_time_.time_since_epoch().count(), interval);
+    }
 
    private:
     ControllerClock::time_point start_time_{};

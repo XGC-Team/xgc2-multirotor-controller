@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <functional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -27,6 +28,17 @@ namespace px4_multirotor_controller {
 namespace {
 
 constexpr uint32_t kRosQueueSize = 5;
+
+class OwnerTurn final : public ros::CallbackInterface {
+   public:
+    explicit OwnerTurn(std::function<void()> callback) : callback_(std::move(callback)) {}
+    CallResult call() override {
+        callback_();
+        return Success;
+    }
+   private:
+    std::function<void()> callback_;
+};
 
 std::uint64_t clockNanoseconds(clockid_t clock) {
     timespec stamp{};
@@ -46,26 +58,30 @@ std::string resolveTopicName(const ros::NodeHandle& nh, const std::string& topic
 DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     : nh_(nh),
       nh_private_("~"),
-      driver_(sensor_data_),
-      controller_(driver_.controller()),
-      output_event_executor_(nh) {
+      driver_(sensor_data_, [this] { requestTurn(); }),
+      controller_(driver_.controller()) {
     ROS_INFO("[DroneRosNode] Initializing...");
 
     ros1_utils::getParamWithLog(nh_private_, "debug_print", debug_print_, "Debug print");
     loadControllerConfig();
+    turn_callback_.reset(new OwnerTurn([this] { runTurn(); }));
+    deadline_timer_ = nh_.createTimer(ros::Duration(1.0), &DroneRosNode::onDeadline,
+                                      this, true, false);
 
-    px4_service_consumer_ = std::make_unique<Px4ServiceOutputConsumer>(nh_, output_event_executor_);
+    px4_service_consumer_ = std::make_unique<Px4ServiceOutputConsumer>(nh_, output_worker_);
     control_consumer_ = std::make_unique<ControlOutputConsumer>(
-        nh_, output_event_executor_, controller_, kRosQueueSize);
+        nh_, controller_, kRosQueueSize);
     debug_consumer_ = std::make_unique<DebugOutputConsumer>(
-        nh_, output_event_executor_, controller_, sensor_data_, vrpn_quality_stats_, debug_print_,
+        nh_, output_worker_, controller_, sensor_data_, vrpn_quality_stats_, debug_print_,
         kRosQueueSize);
     reference_consumer_ = std::make_unique<ReferenceActivationOutputConsumer>(
-        nh_, output_event_executor_, controller_, kRosQueueSize);
+        nh_, output_worker_, controller_, kRosQueueSize);
     nmpc_consumer_ = std::make_unique<NmpcOutputConsumer>(nh_, driver_.nmpc(), kRosQueueSize);
 
     auto post_command = [this](FlightCommand command, double receipt_sec) {
-        return controller_.postCommand(command, receipt_sec);
+        const bool accepted = controller_.postCommand(command, receipt_sec);
+        if (accepted) requestTurn();
+        return accepted;
     };
 
     sensor_input_producer_ = std::make_unique<SensorInputProducer>(
@@ -75,7 +91,7 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
                 px4_service_consumer_->initializeClientsIfNeeded();
             }
         },
-        &driver_);
+        &driver_, [this] { requestTurn(); });
     loadVrpnQualityConfig();
     std::string state_estimate_topic;
     std::string vrpn_pose_topic;
@@ -91,11 +107,12 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
     command_input_producer_ =
         std::make_unique<CommandInputProducer>(nh_, post_command, kRosQueueSize);
     trajectory_input_producer_ = std::make_unique<TrajectoryInputProducer>(
-        nh_, controller_, sensor_data_, kRosQueueSize);
+        nh_, controller_, sensor_data_, kRosQueueSize, [this] { requestTurn(); });
 
-    output_event_executor_.start();
+    output_worker_.start();
     sensor_input_producer_->start();
     driver_.start(toCoreTime(ros::Time::now()));
+    requestTurn();
 
     ROS_INFO("[DroneRosNode] Initialized (with async output event executor)");
     ROS_INFO("[DroneRosNode] Subscribed topics:");
@@ -126,10 +143,16 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
 DroneRosNode::~DroneRosNode() {
     ROS_INFO("[DroneRosNode] Shutting down...");
 
+    deadline_timer_.stop();
+    {
+        std::lock_guard<std::mutex> lock(turn_mutex_);
+        accepting_turns_ = false;
+        nh_.getCallbackQueue()->removeByID(reinterpret_cast<uintptr_t>(this));
+    }
     // 显式停止异步输出事件队列
     // 关键：必须在 nh_ 析构前停止，确保后台线程不再访问 nh_
     // stop() 会阻塞等待线程完全退出，并清空待处理队列
-    output_event_executor_.stop();
+    output_worker_.stop();
     driver_.stop();
 
     // 注：生产者、消费者、ROS 订阅者和发布者在析构时自动取消注册。
@@ -137,61 +160,53 @@ DroneRosNode::~DroneRosNode() {
     ROS_INFO("[DroneRosNode] Shutdown complete");
 }
 
-void DroneRosNode::run(double frequency) {
-    ROS_INFO("[DroneRosNode] Starting control loop at %.1f Hz", frequency);
-
-    // ============================================================
-    // 线程模型：ROS/FSM 主循环单线程，输出事件由单 worker 异步消费
-    // ============================================================
-    // 执行顺序：
-    // 1. ros::spinOnce()      - 处理所有待处理的ROS回调（非阻塞）
-    // 2. controlLoopCallback() - 执行控制逻辑
-    // 3. resetNewFlags()       - 清除新数据标志
-    // 4. rate.sleep()          - 维持固定频率
-    //
-    // 线程安全保证：
-    // - ROS 订阅回调、上下文更新、FSM update 在主线程中串行执行
-    // - 输出消费者在主线程快照必要数据，再把发布/服务任务放入 worker
-    // ============================================================
-
-    ros::Rate rate(frequency);
-
-    while (ros::ok()) {
-        // 处理ROS回调（订阅者消息）
-        ros::spinOnce();
-
-        // 执行控制循环
-        controlLoopCallback();
-
-        // 清除所有新数据标志
-        if (sensor_input_producer_) {
-            sensor_input_producer_->resetNewFlags();
-        }
-
-        // 按设定频率休眠
-        rate.sleep();
-    }
-
-    ROS_INFO("[DroneRosNode] Control loop exited");
+void DroneRosNode::run() {
+    ros::spin();
 }
 
-void DroneRosNode::controlLoopCallback() {
-    // 高频控制循环
+void DroneRosNode::requestTurn() {
+    std::lock_guard<std::mutex> lock(turn_mutex_);
+    if (!accepting_turns_ || turn_queued_)
+        return;
+    turn_queued_ = true;
+    nh_.getCallbackQueue()->addCallback(turn_callback_, reinterpret_cast<uintptr_t>(this));
+}
 
-    // 获取当前时间（转换为秒）
-    double current_time = ros::Time::now().toSec();
-
-    // 0. Topic stats are written on the ROS side; hand the core its copy.
-    if (sensor_input_producer_) {
-        sensor_input_producer_->syncStats();
+void DroneRosNode::runTurn() {
+    {
+        std::lock_guard<std::mutex> lock(turn_mutex_);
+        turn_queued_ = false;
     }
-
-    // 1. 更新控制器（传入当前时间用于频率控制）
-    // 传感器数据通过引用自动同步，无需拷贝
-    driver_.update(Time(current_time));
-
-    // 2. 消费状态机输出事件，并把阻塞型工作派发给异步执行器（非阻塞）
+    const double current_time = ros::Time::now().toSec();
+    sensor_input_producer_->syncStats();
+    const bool continuation = driver_.update(Time(current_time));
     dispatchOutputEffects(controller_.flightEffects());
+    sensor_input_producer_->resetNewFlags();
+    armDeadline();
+    if (continuation) requestTurn();
+}
+
+void DroneRosNode::onDeadline(const ros::TimerEvent&) {
+    armed_deadline_.reset();
+    requestTurn();
+}
+
+void DroneRosNode::armDeadline() {
+    const auto next = driver_.nextWake(true);
+    const uint64_t now = ros::Time::now().toNSec();
+    if (!next || *next <= now) {
+        deadline_timer_.stop();
+        armed_deadline_.reset();
+        if (next) requestTurn();
+        return;
+    }
+    if (armed_deadline_ && *armed_deadline_ == *next)
+        return;
+    ros::Duration delay;
+    delay.fromNSec(static_cast<int64_t>(*next - now));
+    deadline_timer_.setPeriod(delay, true);
+    deadline_timer_.start();
+    armed_deadline_ = next;
 }
 
 void DroneRosNode::dispatchOutputEffects(const std::vector<FlightEffect>& effects) {

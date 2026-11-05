@@ -3,7 +3,7 @@ include(CMakeFindDependencyMacro)
 find_dependency(Eigen3 CONFIG)
 find_dependency(xgc2_acados CONFIG)
 find_dependency(xgc2_math 0.5.12 CONFIG)
-find_dependency(xgc2_state_machine CONFIG)
+find_dependency(xgc2_state_machine 0.2.0 CONFIG)
 find_dependency(HoverThrustEstimator 1.2.0 CONFIG)
 
 list(APPEND px4_multirotor_controller_INCLUDE_DIRS
@@ -11,6 +11,7 @@ list(APPEND px4_multirotor_controller_INCLUDE_DIRS
   ${XGC2_STATE_MACHINE_INCLUDE_DIRS}
 )
 list(APPEND px4_multirotor_controller_LIBRARIES
+  xgc2_state_machine::state_machine
   Eigen3::Eigen
   ${XGC2_ACADOS_LIBRARIES}
   xgc2_math::control

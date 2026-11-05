@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -32,9 +33,11 @@ class DroneController {
 
     // 主更新循环（由ROS节点在每个控制周期调用）
     // current_time: 当前时间戳（秒），用于频率控制
-    void update(double current_time);
+    bool update(double current_time);
+    std::optional<double> nextWake() const;
 
     bool postCommand(FlightCommand command, double receipt_sec);
+    void onFreshImu();
     void emitFlightEffect(FlightEffect effect) {
         flight_effects_.push_back(std::move(effect));
     }

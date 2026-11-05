@@ -33,12 +33,9 @@
 // statistics and its frame counters are part of its safety logic and count every message, as the
 // node's callbacks do, so a burst of two messages within one step must not become one. Only the
 // active reference is a state: the reference module publishes it as one, and the newest is the one
-// that counts. A step applies the samples that arrived in stamp order; a step of the period (or of
-// a wake) then updates the controller at the host clock and handles the output events the way the
-// node's consumers do, so with the period of 1 ms it is one iteration of the node's 1 kHz control
-// loop, and a step that only has samples to deliver leaves the update to the next one. The NMPC
-// solver runs on a worker thread of ControllerDriver; its completion wakes the host, so the step
-// that consumes the result does not wait for the next period.
+// that counts. A step applies samples in stamp order, then a relevant input, owner deadline or
+// solver completion advances the same controller. Its existing control and publication periods
+// remain due checks inside that owner; inputs do not reanchor them.
 //
 // The telemetry the node publishes for observers (sensor statistics, state machine events, tracking
 // error, NMPC debug samples) is not a port of the module.
@@ -47,7 +44,7 @@
 // {"smc": {"k1": ...}}). Keys that are absent keep the values of that file, which is compiled into
 // the core. world_boundary_json must be given (a string: "null" for no geofence or the boundary as
 // JSON text), as in the ROS node. A key the controller does not read is an error. control_frequency
-// is not a key: the module asks the host for a 1 kHz step like the node. A configure() while the
+// is not a key: the module requests the controller's actual deadlines. A configure() while the
 // controller is flying is refused (XGC2_ERR_STATE); on the ground it takes effect at once.
 //
 // start() builds the controller afresh; stop() tears it down (the solver thread is joined).
@@ -66,6 +63,7 @@
 #include <exception>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <module_support/json_config.hpp>
 #include <stdexcept>
 #include <string>
@@ -191,7 +189,6 @@ constexpr int kLogWarn = 2;
 constexpr int kLogError = 3;
 constexpr int kHealthOk = 0;
 constexpr int kHealthDegraded = 1;
-constexpr int64_t kControlPeriodNs = 1000000;  // the node's hard-coded 1 kHz loop
 
 class ControllerModule;
 
@@ -249,6 +246,22 @@ class ControllerModule {
         host_->log(ctx_, level, message.c_str());
     }
 
+    void armDeadline() {
+        const auto next = runtime_->driver.nextWake(false);
+        if (!next) {
+            if (armed_deadline_) {
+                host_->wake_at_ns(ctx_, -1);
+                armed_deadline_.reset();
+            }
+            return;
+        }
+        const int64_t deadline = static_cast<int64_t>(*next);
+        if (!armed_deadline_ || *armed_deadline_ != deadline) {
+            host_->wake_at_ns(ctx_, deadline);
+            armed_deadline_ = deadline;
+        }
+    }
+
     // Parses the configuration and, when it is valid, makes it the controller's.
     xgc2_status configure(const xgc2_config* config) {
         pmc::ControllerConfig next;
@@ -276,7 +289,11 @@ class ControllerModule {
             return XGC2_ERR_STATE;
         runtime_ = std::make_unique<Runtime>(config_, [this] { host_->wake(ctx_); });
         runtime_->driver.start(time(host_->now_ns(ctx_)));
-        host_->set_period_ns(ctx_, kControlPeriodNs);
+        if (!period_disabled_) {
+            host_->set_period_ns(ctx_, 0);
+            period_disabled_ = true;
+        }
+        host_->wake(ctx_);
         reported_ = false;
         reportIfChanged();
         return XGC2_OK;
@@ -287,24 +304,27 @@ class ControllerModule {
             // Joins the solver thread: no wake() is called after this returns.
             LogScope scope(this);
             runtime_->driver.stop();
+            if (armed_deadline_) {
+                host_->wake_at_ns(ctx_, -1);
+                armed_deadline_.reset();
+            }
             runtime_.reset();
         }
         return XGC2_OK;
     }
 
-    // One iteration of DroneRosNode::run(): the samples that arrived, one controller update, the
-    // output events.
+    // One owner turn: a batch of inputs, a deadline, configuration or solver completion.
     xgc2_status step(const xgc2_step_ctx* ctx) {
         if (!runtime_)
             return XGC2_ERR_STATE;
         Runtime& rt = *runtime_;
         const pmc::Time now = time(ctx->now_ns);
-        // The node's callbacks deliver samples whenever they arrive and its loop updates the
-        // controller at its own rate: a step that only has samples to deliver leaves the update to
-        // the period, or to the wake of a finished solve.
-        const bool update_due = (ctx->reasons & (XGC2_STEP_TIMER | XGC2_STEP_WAKE)) != 0;
+        if ((ctx->reasons & XGC2_STEP_DEADLINE) != 0)
+            armed_deadline_.reset();
         collectInputs(ctx);
+        bool relevant_input = false;
         for (const Input& input : inputs_) {
+            relevant_input = relevant_input || input.port != kBattery;
             try {
                 apply(rt, input);
             } catch (const std::exception& e) {
@@ -312,9 +332,10 @@ class ControllerModule {
                     std::string("input ") + kPorts[input.port].name + " refused: " + e.what());
             }
         }
-        if (!update_due)
+        if (!relevant_input &&
+            (ctx->reasons & (XGC2_STEP_WAKE | XGC2_STEP_DEADLINE | XGC2_STEP_CONFIG)) == 0)
             return XGC2_OK;
-        rt.driver.update(now);
+        const bool continuation = rt.driver.update(now);
         const auto& effects = rt.driver.controller().flightEffects();
         wrote_ = write_failed_ = false;
         for (const auto& effect : effects) {
@@ -333,6 +354,9 @@ class ControllerModule {
             output_failed_ = false;
         }
         rt.driver.statistics().resetNewFlags();
+        armDeadline();
+        if (continuation)
+            host_->wake(ctx_);
         reportIfChanged();
         return XGC2_OK;
     }
@@ -482,6 +506,7 @@ class ControllerModule {
                 break;
             }
             case kImu:
+                rt.driver.onFreshImu();
                 break;
             case kFcuState: {
                 const auto& m = *static_cast<const xgc2_px4_fcu_state_v1*>(data);
@@ -697,6 +722,8 @@ class ControllerModule {
     const xgc2_host_api* host_;
     void* ctx_;
     pmc::ControllerConfig config_;
+    std::optional<int64_t> armed_deadline_;
+    bool period_disabled_{false};
     std::unique_ptr<Runtime> runtime_;
     std::vector<Input> inputs_;
     uint64_t post_failures_{0};

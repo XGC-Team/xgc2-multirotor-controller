@@ -12,17 +12,26 @@
 #include <geometry_msgs/TwistStamped.h>
 #include <gtest/gtest.h>
 #include <mavros_msgs/State.h>
+#include <mavros_msgs/CommandLong.h>
+#include <mavros_msgs/PositionTarget.h>
+#include <mavros_msgs/SetMode.h>
 #include <ros/ros.h>
 #include <ros/callback_queue.h>
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/UInt32MultiArray.h>
 
 #include <xgc2/sdk/test_host.hpp>
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <future>
+#include <mutex>
 #include <string>
 
 #include "px4_multirotor_controller/driver/controller_config.h"
 #include "px4_multirotor_controller/driver/controller_driver.h"
 #include "px4_multirotor_controller/input/sensor_input_producer.h"
+#include "px4_multirotor_controller/output/control_output_consumer.h"
 #include "px4_multirotor_controller/output/debug_output_consumer.h"
 #include "replay/ros_payload_mapping.h"
 
@@ -77,6 +86,7 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
     EXPECT_EQ(local.getNumSubscribers(), 1U);
     EXPECT_EQ(velocity.getNumSubscribers(), 1U);
 
+    uint64_t seen_wakes = 0;
     auto tick = [&](double time, bool send) {
         ros::Time::setNow(ros::Time(time));
         host.setNow(static_cast<int64_t>(Time(time).toNSec()));
@@ -121,7 +131,14 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
                       static_cast<uint64_t>(host.now()));
         }
         ros_driver.update(Time(time));
-        EXPECT_EQ(host.step(), XGC2_OK);
+        uint32_t reasons = XGC2_STEP_INPUT;
+        if (host.pendingDeadline() >= 0 && host.pendingDeadline() <= host.now())
+            reasons |= XGC2_STEP_DEADLINE;
+        if (host.wakeCount() != seen_wakes) {
+            reasons |= XGC2_STEP_WAKE;
+            seen_wakes = host.wakeCount();
+        }
+        EXPECT_EQ(host.step(reasons), XGC2_OK);
         EXPECT_EQ(ros_driver.controller().flightStateName(),
                   host.lastReportDetail())
             << "at t=" << time;
@@ -139,6 +156,173 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
     ASSERT_EQ(host.stop(), XGC2_OK);
     ros_driver.stop();
     EXPECT_EQ(host.step(), XGC2_ERR_STATE);
+}
+
+TEST(ControllerTransports, EachDeliveredImuIsConsumedOnceEvenInOneCallbackBatch) {
+    ros::Time::setNow(ros::Time(100.0));
+    ros::CallbackQueue queue;
+    ros::NodeHandle nh("fresh_imu_receipts");
+    nh.setCallbackQueue(&queue);
+    SensorData data;
+    data.fcu_connected = true;
+    ControllerDriver driver(data);
+    ControllerConfig config;
+    config.tracking_backend = TrackingBackend::PX4_LOCAL;
+    config.safety.acc_saturation_xy = 1.0;
+    driver.controller().setConfig(config);
+    ros1_utils::PositionQualityStats quality;
+    SensorInputProducer producer(nh, data, quality, driver.statistics(), 20, [] {}, &driver);
+    producer.start();
+    driver.start(Time(100.0));
+    for (const auto stream : {SensorStream::LocalPose, SensorStream::LocalVelocity,
+                              SensorStream::Imu, SensorStream::State, SensorStream::Pose})
+        driver.statistics().observe(stream, Time(100.0));
+    driver.update(Time(100.0));
+    ASSERT_EQ(driver.controller().flightState(), FlightState::Ready);
+    driver.statistics().resetNewFlags();
+
+    auto imu = nh.advertise<sensor_msgs::Imu>("mavros/imu/data", 20);
+    const auto connect_deadline = ros::WallTime::now() + ros::WallDuration(3.0);
+    while (!imu.getNumSubscribers() && ros::WallTime::now() < connect_deadline)
+        queue.callAvailable(ros::WallDuration(0.01));
+    ASSERT_EQ(imu.getNumSubscribers(), 1U);
+    driver.controller().getSetpoint().ax = 2.0;
+    sensor_msgs::Imu message;
+    message.orientation.w = 1.0;
+    imu.publish(message);
+    imu.publish(message);
+    ASSERT_EQ(queue.callOne(ros::WallDuration(2.0)), ros::CallbackQueue::Called);
+    ASSERT_EQ(queue.callOne(ros::WallDuration(2.0)), ros::CallbackQueue::Called);
+    driver.update(Time(100.01));
+    EXPECT_EQ(driver.controller().flightState(), FlightState::Landing);
+    EXPECT_EQ(driver.controller().flightDiagnosticEvents(),
+              (std::vector<uint32_t>{event_type::SAFE_CONTROL_SATURATION_XY,
+                                     event_type::SAFE_CONTROL_SATURATION_XY}));
+    driver.statistics().resetNewFlags();
+    driver.update(Time(100.02));  // A solver/timer wake cannot consume either sample twice.
+    EXPECT_TRUE(driver.controller().flightDiagnosticEvents().empty());
+    driver.stop();
+}
+
+TEST(ControllerTransports, ConcreteWorkerPreservesQueuedOrderAndDoesNotBlockSetpoints) {
+    ros::CallbackQueue subscriber_queue;
+    ros::CallbackQueue service_queue;
+    ros::NodeHandle nh("ordered_controller_output");
+    ros::NodeHandle subscriber_nh(nh), service_nh(nh);
+    subscriber_nh.setCallbackQueue(&subscriber_queue);
+    service_nh.setCallbackQueue(&service_queue);
+    std::vector<uint32_t> events;
+    size_t setpoints = 0;
+    std::vector<std::string> statuses;
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool release = false;
+    std::atomic<bool> first_seen{false};
+    std::atomic<bool> mode_after_first{false};
+    auto event_sub = subscriber_nh.subscribe<std_msgs::UInt32MultiArray>(
+        "events", 10, [&](const std_msgs::UInt32MultiArray::ConstPtr& m) {
+            events.insert(events.end(), m->data.begin(), m->data.end());
+            if (std::find(m->data.begin(), m->data.end(), 11U) != m->data.end()) {
+                first_seen.store(true);
+                condition.notify_all();
+            }
+        });
+    auto setpoint_sub = subscriber_nh.subscribe<mavros_msgs::PositionTarget>(
+        "mavros/setpoint_raw/local", 10, [&](const mavros_msgs::PositionTarget::ConstPtr&) {
+            ++setpoints;
+        });
+    auto status_sub = subscriber_nh.subscribe<std_msgs::String>(
+        "custom/statustext", 10, [&](const std_msgs::String::ConstPtr& m) {
+            statuses.push_back(m->data);
+        });
+    auto event_pub = nh.advertise<std_msgs::UInt32MultiArray>("events", 10);
+    SensorData data;
+    DroneController controller(data);
+    ControlOutputConsumer control(nh, controller, 10);
+
+    std::promise<void> arm_entered;
+    std::atomic<unsigned> mode_calls{0};
+    boost::function<bool(mavros_msgs::CommandLong::Request&, mavros_msgs::CommandLong::Response&)>
+        arm_callback = [&](auto& request, auto& response) {
+            EXPECT_EQ(request.command, 400);
+            EXPECT_DOUBLE_EQ(request.param1, 1.0);
+            arm_entered.set_value();
+            std::unique_lock<std::mutex> lock(mutex);
+            condition.wait(lock, [&] { return release; });
+            response.success = true;
+            return true;
+        };
+    boost::function<bool(mavros_msgs::SetMode::Request&, mavros_msgs::SetMode::Response&)>
+        mode_callback = [&](auto& request, auto& response) {
+            EXPECT_EQ(request.custom_mode, "OFFBOARD");
+            // The fixture observes the preceding ROS publication before
+            // completing this RPC. Production does not wait on a subscriber.
+            std::unique_lock<std::mutex> lock(mutex);
+            mode_after_first.store(condition.wait_for(
+                lock, std::chrono::seconds(2), [&] { return first_seen.load(); }));
+            ++mode_calls;
+            response.mode_sent = true;
+            return true;
+        };
+    auto arm_server = service_nh.advertiseService("mavros/cmd/command", arm_callback);
+    auto mode_server = service_nh.advertiseService("mavros/set_mode", mode_callback);
+    ros::AsyncSpinner service_spinner(1, &service_queue);
+    service_spinner.start();
+    auto arm_client = nh.serviceClient<mavros_msgs::CommandLong>("mavros/cmd/command");
+    auto mode_client = nh.serviceClient<mavros_msgs::SetMode>("mavros/set_mode");
+    ControllerOutputWorker worker;
+    ros1_utils::PositionQualityStats quality;
+    const bool debug_print = false;
+    DebugOutputConsumer debug(nh, worker, controller, data, quality, debug_print, 10);
+    struct Release {
+        std::mutex& mutex;
+        std::condition_variable& condition;
+        bool& release;
+        ~Release() {
+            { std::lock_guard<std::mutex> lock(mutex); release = true; }
+            condition.notify_all();
+        }
+    } release_on_exit{mutex, condition, release};
+    const auto connected = ros::WallTime::now() + ros::WallDuration(3.0);
+    while ((!event_sub.getNumPublishers() || !setpoint_sub.getNumPublishers() ||
+            !status_sub.getNumPublishers()) &&
+           ros::WallTime::now() < connected)
+        subscriber_queue.callAvailable(ros::WallDuration(0.01));
+    ASSERT_TRUE(event_sub.getNumPublishers() && setpoint_sub.getNumPublishers() &&
+                status_sub.getNumPublishers());
+
+    worker.start();
+    auto entered = arm_entered.get_future();
+    worker.post(OutputArm{true, &arm_client});
+    ASSERT_EQ(entered.wait_for(std::chrono::seconds(3)), std::future_status::ready);
+    std_msgs::UInt32MultiArray first, second;
+    first.data = {11};
+    second.data = {22};
+    worker.post(OutputEvents{event_pub, first});
+    worker.post(OutputMode{"OFFBOARD", &mode_client});
+    worker.post(OutputEvents{event_pub, second});
+    ASSERT_TRUE(control.handle(FlightSetpoint{100.0}));
+    ASSERT_TRUE(debug.handle(FlightStatus{100.0}));
+    const auto direct_deadline = ros::WallTime::now() + ros::WallDuration(2.0);
+    while ((!setpoints || statuses.empty()) && ros::WallTime::now() < direct_deadline)
+        subscriber_queue.callAvailable(ros::WallDuration(0.01));
+    EXPECT_EQ(setpoints, 1U);
+    EXPECT_EQ(statuses, (std::vector<std::string>{"SelfCheck"}));
+    EXPECT_TRUE(events.empty());
+    EXPECT_EQ(mode_calls.load(), 0U);
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        release = true;
+    }
+    condition.notify_all();
+    const auto drain_deadline = ros::WallTime::now() + ros::WallDuration(2.0);
+    while ((events.size() < 2 || mode_calls.load() != 1) && ros::WallTime::now() < drain_deadline)
+        subscriber_queue.callAvailable(ros::WallDuration(0.01));
+    EXPECT_EQ(events, (std::vector<uint32_t>{11, 22}));
+    EXPECT_EQ(mode_calls.load(), 1U);
+    EXPECT_TRUE(mode_after_first.load());
+    worker.stop();
+    service_spinner.stop();
 }
 
 TEST(ControllerTransports, RosLocalPvUsesActualExactTimePairs) {
@@ -248,7 +432,7 @@ TEST(ControllerTransports, RosDiagnosticsKeepDistinctFactsWithoutEmptyTurns) {
     controller.setConfig(config);
     ros1_utils::PositionQualityStats quality;
     const bool debug_print = false;
-    state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> worker(nh);
+    ControllerOutputWorker worker;
     DebugOutputConsumer consumer(nh, worker, controller, data, quality, debug_print, 20);
     worker.start();
 

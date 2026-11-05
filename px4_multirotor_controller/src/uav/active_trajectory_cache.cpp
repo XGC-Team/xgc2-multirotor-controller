@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
@@ -205,6 +206,30 @@ bool ActiveTrajectoryCache::finiteTimeRemaining(const Time& now, double& remaini
     const double elapsed = std::max(0.0, (now - start_time_).toSec());
     remaining = duration - elapsed;
     return std::isfinite(remaining);
+}
+
+std::optional<double> ActiveTrajectoryCache::nextTimeRemainingAtMost(const Time& now,
+                                                                     double limit) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!evaluator_ || start_time_.isZero() || fatalReferenceFlags(flags_))
+        return std::nullopt;
+    const double duration = evaluator_->duration();
+    if (!std::isfinite(duration) || duration <= 0.0 || std::isnan(limit) ||
+        limit == -std::numeric_limits<double>::infinity())
+        return std::nullopt;
+    if (duration <= limit)
+        return now.toSec();
+
+    double due = std::max(now.toSec(), start_time_.toSec() + (duration - limit));
+    // Match finiteTimeRemaining's nanosecond clock and <= comparison. At large
+    // UTC epochs a double may round the calculated boundary to the early side.
+    const auto remainingAt = [this, duration](double time) {
+        const double elapsed = std::max(0.0, (Time(time) - start_time_).toSec());
+        return duration - elapsed;
+    };
+    if (remainingAt(due) > limit)
+        due = std::nextafter(due + 1e-9, std::numeric_limits<double>::infinity());
+    return due;
 }
 
 bool ActiveTrajectoryCache::finiteVector(const Eigen::Vector3d& value) {

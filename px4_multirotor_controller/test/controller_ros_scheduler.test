@@ -1,0 +1,4 @@
+<launch>
+  <test test-name="controller_ros_scheduler" pkg="px4_multirotor_controller"
+        type="controller_ros_scheduler_test" time-limit="30" />
+</launch>

@@ -21,6 +21,8 @@ class LandingState {
     void onEnter();
     void onTick();
     void onExit();
+    std::optional<double> nextWake() const;
+    std::optional<double> timeoutAfterEntry() const;
 
    private:
     // 退出原因枚举

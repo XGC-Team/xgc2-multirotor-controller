@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include "px4_multirotor_controller/uav/flight_signal.h"
 
 namespace px4_multirotor_controller {
@@ -12,6 +13,7 @@ class DebugMonitorState final {
 
 
     void onTick();
+    std::optional<double> nextWake() const;
 
    private:
     static constexpr double STATUS_PUBLISH_INTERVAL = 0.2;

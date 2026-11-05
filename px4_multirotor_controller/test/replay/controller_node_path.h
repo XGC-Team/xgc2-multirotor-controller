@@ -32,8 +32,8 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
-#include <state_machine/state_machine.hpp>  // historical trace representation only
 
 #include "px4_multirotor_controller/common/time.h"
 #include "px4_multirotor_controller/common/types.h"
@@ -50,7 +50,16 @@
 namespace controller_replay {
 
 namespace pmc = px4_multirotor_controller;
-namespace sm = state_machine;
+
+// Only the fields actually written or consumed by the historical trace
+// fixture. This is not a state-machine event or a production compatibility API.
+struct RecordedEffect {
+    uint32_t id{0};
+    double timestamp{0.0};
+    std::string source;
+    uint64_t correlation_id{0};
+    std::map<std::string, std::variant<int64_t, double, bool, std::string>> payload;
+};
 
 // Record kinds of a replay stream (bag_to_stream.py).
 enum RecordKind : uint8_t {
@@ -127,12 +136,11 @@ std::vector<uint8_t> encode(const M& m) {
 
 // Convert typed flight outputs to the existing recorded trace format only in this fixture.
 // The retired state-machine event sequence is intentionally not manufactured.
-inline sm::Event recordedEffect(const pmc::FlightEffect& effect) {
+inline RecordedEffect recordedEffect(const pmc::FlightEffect& effect) {
     return std::visit([](const auto& e) {
         using E = std::decay_t<decltype(e)>;
-        sm::Event out;
+        RecordedEffect out;
         out.timestamp = e.timestamp;
-        out.category = sm::EventCategory::kOutput;
         if constexpr (std::is_same_v<E, pmc::FlightSetpoint>)
             out.id = pmc::output_event_type::PUBLISH_SETPOINT;
         else if constexpr (std::is_same_v<E, pmc::FlightAttitude>)
@@ -170,7 +178,7 @@ inline sm::Event recordedEffect(const pmc::FlightEffect& effect) {
 
 // What an output event of the controller leads to, as the node's output consumers handle it.
 struct OutputEvent {
-    sm::Event event;
+    RecordedEffect event;
     pmc::Setpoint setpoint;                        // PUBLISH_SETPOINT
     pmc::AttitudeRateTarget attitude;              // PUBLISH_ATTITUDE_RATE_TARGET
     pmc::reference::AnalyticReference activation;  // PUBLISH_REFERENCE_TRAJECTORY_ACTIVATION
@@ -281,6 +289,7 @@ class NodePath {
                 break;
             }
             case kImu:
+                controller_.onFreshImu();
                 break;
             case kFcuState: {
                 const auto m = decode<mavros_msgs::State>(r.data);
@@ -445,7 +454,7 @@ class NodePath {
 
     // NmpcExecution::handle + workerLoop, inline: the node's NMPC dispatcher with the solve done at
     // once instead of on its worker thread.
-    void solve(const sm::Event& e, double t, OutputEvent& out) {
+    void solve(const RecordedEffect& e, double t, OutputEvent& out) {
         if (!std::isfinite(e.timestamp))
             return;
         const auto token = e.payload.find("control_generation");

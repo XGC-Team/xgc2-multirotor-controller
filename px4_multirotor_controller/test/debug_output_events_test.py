@@ -173,7 +173,7 @@ TEST = r'''
 int main() {
     using namespace px4_multirotor_controller;
     ros::NodeHandle nh;
-    state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> worker;
+    ControllerOutputWorker worker;
     DroneController controller;
     SensorData sensor;
     ros1_utils::PositionQualityStats quality;
@@ -239,17 +239,7 @@ int main() {
     assert(consumer.handle(FlightTrackingError{0.0}));
     assert(controller.cache.samples == 1 && worker.pending.empty());
 
-    // An in-flight RPC blocks the existing output worker. Status still publishes
-    // the current state immediately, with no old status queue to replay later.
-    std::promise<void> rpc_entered, release_rpc;
-    auto entered = rpc_entered.get_future();
-    auto release = release_rpc.get_future();
-    worker.pushTask(std::make_unique<state_machine::runtime::LambdaTask<ros::NodeHandle>>(
-        "BlockingRpc", [&](ros::NodeHandle&) { rpc_entered.set_value(); release.wait(); }));
-    auto rpc_task = std::move(worker.pending.front());
-    worker.pending.clear();
-    std::thread rpc_worker([&] { rpc_task->execute(nh); });
-    entered.wait();
+    // Status is synchronous; the real blocked-RPC case is exercised by the ROS transport test.
     const auto before_status = ros::publications().size();
     controller.machine.state_name = "SelfCheck";
     assert(consumer.handle(FlightStatus{0.0}));
@@ -260,8 +250,6 @@ int main() {
     assert(ros::publications().size() == before_status + 2);
     assert(std::get<std_msgs::String>(ros::publications().back().message).data == "Ready");
     assert(worker.pending.empty());
-    release_rpc.set_value();
-    rpc_worker.join();
     worker.drain(nh);
     assert(ros::publications().size() == before_status + 2);
     controller.machine.state_name.clear();
@@ -270,6 +258,40 @@ int main() {
     assert(!consumer.handle(FlightNmpcRequest{0.0, 0, 0}));
     std::cout << "1000 unsubscribed ticks: 0 snapshots, 0 tasks; "
                  "3 subscribed fact turns: 3 messages in order\n";
+}
+'''
+
+
+WORKER = r'''
+#pragma once
+#include "support.hpp"
+#include <array>
+#include <type_traits>
+namespace px4_multirotor_controller {
+struct OutputEvents { ros::Publisher publisher; std_msgs::UInt32MultiArray message; };
+struct OutputTracking { ros::Publisher publisher; std_msgs::Float32MultiArray message; };
+struct OutputSensorStats {
+    std::array<ros::Publisher, 8> publishers;
+    std::array<SensorData::TopicStats, 7> stats;
+    ros1_utils::PositionQualityStats quality;
+};
+struct OutputSensorDebug { SensorData sensor; };
+struct ControllerOutputWorker {
+    using Output = std::variant<OutputEvents, OutputTracking, OutputSensorStats, OutputSensorDebug>;
+    std::vector<Output> pending;
+    void post(Output item) { pending.push_back(std::move(item)); }
+    void drain(ros::NodeHandle&) {
+        for (auto& item : pending) std::visit([](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, OutputEvents> || std::is_same_v<T, OutputTracking>)
+                value.publisher.publish(value.message);
+            else if constexpr (std::is_same_v<T, OutputSensorStats>) {
+                for (const auto& pub : value.publishers) pub.publish(std_msgs::Float32MultiArray{});
+            }
+        }, item);
+        pending.clear();
+    }
+};
 }
 '''
 
@@ -294,6 +316,9 @@ class DebugOutputEventsTest(unittest.TestCase):
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text('#include "support.hpp"\n')
+            worker = root / "px4_multirotor_controller/output/controller_output_worker.h"
+            worker.parent.mkdir(parents=True, exist_ok=True)
+            worker.write_text(WORKER)
             main = root / "test.cpp"
             main.write_text(TEST)
             binary = root / "test"

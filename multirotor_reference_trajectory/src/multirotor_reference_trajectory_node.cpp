@@ -20,11 +20,11 @@ class OwnerTurn final : public ros::CallbackInterface {
 }  // namespace
 
 ReferenceTrajectoryNode::ReferenceTrajectoryNode(ros::NodeHandle& nh)
-    : nh_(nh), private_nh_("~"), output_executor_(nh_) {
+    : nh_(nh), private_nh_("~") {
     loadParams();
     runtime_.setConfig(config_);
     output_consumer_ = std::make_unique<ReferenceOutputConsumer>(
-        nh_, output_executor_, runtime_, status_topic_, active_analytic_topic_,
+        nh_, output_worker_, runtime_, status_topic_, active_analytic_topic_,
         active_sampled_topic_, reference_path_topic_, reference_path_sample_dt_,
         reference_path_preview_duration_, queue_size_);
     turn_callback_.reset(new OwnerTurn([this] { runTurn(); }));
@@ -33,7 +33,7 @@ ReferenceTrajectoryNode::ReferenceTrajectoryNode(ros::NodeHandle& nh)
     input_producer_ = std::make_unique<ReferenceInputProducer>(
         nh_, runtime_, analytic_topic_, sampled_topic_, reset_topic_, queue_size_,
         [this] { requestTurn(); });
-    output_executor_.start();
+    output_worker_.start();
     requestTurn();
     ROS_INFO(
         "[ReferenceTrajectoryNode] Initialized: analytic=%s sampled=%s "
@@ -46,7 +46,7 @@ ReferenceTrajectoryNode::ReferenceTrajectoryNode(ros::NodeHandle& nh)
 ReferenceTrajectoryNode::~ReferenceTrajectoryNode() {
     deadline_timer_.stop();
     nh_.getCallbackQueue()->removeByID(reinterpret_cast<uintptr_t>(this));
-    output_executor_.stop();
+    output_worker_.stop();
 }
 
 void ReferenceTrajectoryNode::run() {

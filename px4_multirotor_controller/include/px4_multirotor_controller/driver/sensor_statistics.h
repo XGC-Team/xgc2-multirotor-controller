@@ -2,6 +2,7 @@
 
 #include <array>
 #include <deque>
+#include <optional>
 #include "px4_multirotor_controller/common/types.h"
 
 namespace px4_multirotor_controller {
@@ -19,6 +20,7 @@ public:
     void start(const Time& now);
     void observe(SensorStream stream, const Time& receipt);
     void advance(const Time& now);
+    std::optional<Time> nextWake() const;
     void resetNewFlags();
     void setQualityOutput(SensorStream stream, double* effective_frequency) {
         tracks_.at(static_cast<unsigned>(stream)).effective_frequency = effective_frequency;

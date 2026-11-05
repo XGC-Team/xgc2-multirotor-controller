@@ -7,6 +7,10 @@ namespace px4_multirotor_controller {
 
 SelfCheckState::SelfCheckState(DroneController& controller) : controller_(controller) {}
 
+std::optional<double> SelfCheckState::nextWake() const {
+    return status_log_timer_.dueAt(LOG_INTERVAL);
+}
+
 void SelfCheckState::onEnter() {
     controller_.logInfo("[SelfCheckState] Entering SelfCheck State");
 

@@ -21,12 +21,14 @@ DroneController::DroneController(const SensorData& sensor_data) : sensor_data_(s
 
 DroneController::~DroneController() = default;
 
-void DroneController::update(double current_time) {
+bool DroneController::update(double current_time) {
     flight_effects_.clear();
     current_time_ = current_time;
     ControllerClock::set(current_time);
-    flight_->update();
+    return flight_->update();
 }
+
+std::optional<double> DroneController::nextWake() const { return flight_->nextWake(); }
 
 bool DroneController::postCommand(FlightCommand command, double receipt_sec) {
     // State decisions have always used the turn clock; preserve command order.
@@ -35,6 +37,8 @@ bool DroneController::postCommand(FlightCommand command, double receipt_sec) {
 }
 
 void DroneController::emitFlightSignal(FlightSignal signal) { flight_->emitSignal(signal); }
+
+void DroneController::onFreshImu() { flight_->onFreshImu(); }
 
 std::chrono::steady_clock::duration DroneController::flightElapsed() const {
     return flight_->elapsed();

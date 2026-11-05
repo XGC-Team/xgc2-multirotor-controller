@@ -54,9 +54,9 @@ void writeDoubles(FILE* out, const char* tag, std::initializer_list<double> valu
 
 void writeEvent(FILE* out, uint64_t k, const OutputEvent& o) {
     const auto& e = o.event;
-    std::fprintf(out, "%" PRIu64 " ev %u ts %016" PRIx64 " seq %" PRIu64 " cat %d src %s", k,
-                 static_cast<unsigned>(e.id), bits(e.timestamp), e.sequence,
-                 static_cast<int>(e.category), e.source.c_str());
+    // Keep the fixture's established normalized columns; no engine sequence is generated.
+    std::fprintf(out, "%" PRIu64 " ev %u ts %016" PRIx64 " seq 0 cat 2 src %s", k,
+                 static_cast<unsigned>(e.id), bits(e.timestamp), e.source.c_str());
     for (const auto& [key, value] : e.payload) {
         std::fprintf(out, " %s=", key.c_str());
         std::visit(

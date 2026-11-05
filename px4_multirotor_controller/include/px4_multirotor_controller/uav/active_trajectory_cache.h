@@ -3,6 +3,7 @@
 #include <Eigen/Dense>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <vector>
 #include <xgc2_math/control.hpp>
 #include <xgc2_math/trajectory.hpp>
@@ -42,6 +43,7 @@ class ActiveTrajectoryCache {
     uint32_t revision() const;
     bool valid() const;
     bool finiteTimeRemaining(const Time& now, double& remaining) const;
+    std::optional<double> nextTimeRemainingAtMost(const Time& now, double limit) const;
 
    private:
     static bool finiteVector(const Eigen::Vector3d& value);

@@ -27,6 +27,7 @@ class TakeoffInitState {
     void onEnter();
     void onTick();
     void onExit();
+    std::optional<double> nextWake() const;
 
    private:
     void configureTakeoffSetpoint();

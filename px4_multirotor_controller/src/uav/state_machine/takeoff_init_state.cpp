@@ -12,6 +12,13 @@ namespace px4_multirotor_controller {
 
 TakeoffInitState::TakeoffInitState(DroneController& controller) : controller_(controller) {}
 
+std::optional<double> TakeoffInitState::nextWake() const {
+    auto due = setpoint_publish_timer_.dueAt(SETPOINT_PUBLISH_INTERVAL);
+    if (!skip_altctl_gate_)
+        due = earlierDeadline(due, altctl_request_timer_.dueAt(ALTCTL_REQUEST_INTERVAL));
+    return due;
+}
+
 void TakeoffInitState::onEnter() {
     controller_.logInfo("[TakeoffInitState] Entering Takeoff Initialization");
 

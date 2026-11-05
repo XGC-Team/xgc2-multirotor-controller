@@ -49,6 +49,7 @@ class ControllerDriver {
     bool usesNumericalImu() const {
         return sensor_.feedback_source == FeedbackSource::MAVROS_LOCAL || hover_thrust_ != nullptr;
     }
+    void onFreshImu() { controller_.onFreshImu(); }
     void ingestBodyImu(const BodyInertialInput& input, double receipt_sec) {
         if (sensor_.feedback_source == FeedbackSource::MAVROS_LOCAL)
             ingestBodyInertial(sensor_, input, imu_gravity_);
@@ -84,9 +85,9 @@ class ControllerDriver {
         nmpc_.start();
         active_ = true;
     }
-    void update(const Time& now) {
+    bool update(const Time& now) {
         if (!active_)
-            return;
+            return false;
         clock_ns_.store(now.toNSec());
         statistics_.advance(now);
         const double now_sec = now.toSec();
@@ -101,7 +102,22 @@ class ControllerDriver {
                                   estimate.stamp_sec, now_sec);
             }
         }
-        controller_.update(now.toSec());
+        return controller_.update(now.toSec());
+    }
+    // ROS advances statistics after a double round trip; the native host
+    // supplies the original integer Time. Both use the same flight owner.
+    std::optional<uint64_t> nextWake(bool ros_statistics_clock) const {
+        if (!active_)
+            return std::nullopt;
+        std::optional<uint64_t> due;
+        const auto include = [&](uint64_t candidate) {
+            if (!due || candidate < *due) due = candidate;
+        };
+        if (const auto flight = controller_.nextWake()) include(controllerClockWakeNs(*flight));
+        if (const auto statistics = statistics_.nextWake())
+            include(ros_statistics_clock ? rosStatisticsWakeNs(*statistics) : statistics->toNSec());
+        if (next_hover_deadline_sec_) include(controllerClockWakeNs(*next_hover_deadline_sec_));
+        return due;
     }
     // In-flight completion is joined before return; no callback can outlive the
     // caller. Pending work is dropped and new dispatch is rejected by the same

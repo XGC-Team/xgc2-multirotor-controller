@@ -200,9 +200,8 @@ TEST = r'''
 int main() {
     using namespace px4_multirotor_controller;
     ros::NodeHandle nh;
-    state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> rpc;
     DroneController controller;
-    ControlOutputConsumer consumer(nh, rpc, controller, 5);
+    ControlOutputConsumer consumer(nh, controller, 5);
     // The RPC worker is unavailable throughout this entire producer sequence.
     for (int i = 0; i < 50; ++i) {
         ros::Time::clock() = 10.0 + i * 0.02;
@@ -233,9 +232,7 @@ int main() {
     consumer.handle(FlightAttitude{0.0});
     assert(std::get<mavros_msgs::AttitudeTarget>(ros::publications().back().message).thrust == 0);
     assert(!consumer.handle(FlightNmpcRequest{0.0, 0, 0}));
-    assert(rpc.pending.empty());
     const auto count = ros::publications().size();
-    rpc.drain(nh); // RPC recovery must not replay any old local/attitude targets.
     assert(ros::publications().size() == count);
     std::cout << "52 immediate publications; 0 RPC-queued samples; 0 recovery replays\n";
 }
@@ -252,7 +249,7 @@ SERVICE_TEST = r'''
 int main() {
     using namespace px4_multirotor_controller;
     ros::NodeHandle nh;
-    state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> rpc;
+    ControllerOutputWorker rpc;
     Px4ServiceOutputConsumer consumer(nh, rpc);
     const FlightArmRequest arm{0.0, true};
     const FlightModeRequest mode{0.0, "OFFBOARD"};
@@ -324,6 +321,32 @@ int main() {
 '''
 
 
+WORKER = r'''
+#pragma once
+#include "support.hpp"
+#include "px4_multirotor_controller/output/px4_command.h"
+#include <type_traits>
+namespace px4_multirotor_controller {
+struct OutputArm { bool arm; ros::ServiceClient* client; };
+struct OutputMode { std::string mode; ros::ServiceClient* client; };
+struct ControllerOutputWorker {
+    std::vector<std::variant<OutputArm, OutputMode>> pending;
+    void post(OutputArm item) { pending.push_back(item); }
+    void post(OutputMode item) { pending.push_back(std::move(item)); }
+    void drain(ros::NodeHandle&) {
+        for (auto& item : pending) std::visit([](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, OutputArm>)
+                detail::sendArmDisarmCommand(value.client, value.arm, "ArmOutputTask");
+            else detail::sendModeCommand(value.client, value.mode);
+        }, item);
+        pending.clear();
+    }
+};
+}
+'''
+
+
 class ControlOutputSchedulingTest(unittest.TestCase):
     def test_service_initialization_does_not_probe_and_commands_still_queue(self):
         self.compile_and_run("px4_service_output_consumer.cpp", SERVICE_TEST)
@@ -349,6 +372,9 @@ class ControlOutputSchedulingTest(unittest.TestCase):
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text('#include "support.hpp"\n')
+            worker = root / "px4_multirotor_controller/output/controller_output_worker.h"
+            worker.parent.mkdir(parents=True, exist_ok=True)
+            worker.write_text(WORKER)
             main = root / "test.cpp"
             main.write_text(test)
             binary = root / "test"

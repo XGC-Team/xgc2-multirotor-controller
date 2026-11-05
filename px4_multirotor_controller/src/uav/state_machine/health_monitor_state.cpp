@@ -4,12 +4,20 @@
 #include <utility>
 
 #include "px4_multirotor_controller/common/sensor_checks.h"
+#include "px4_multirotor_controller/common/controller_clock.h"
 #include "px4_multirotor_controller/drone_controller.h"
 
 namespace px4_multirotor_controller {
 
 
 HealthMonitorState::HealthMonitorState(DroneController& controller) : controller_(controller) {}
+
+std::optional<double> HealthMonitorState::nextWake() const {
+    if (safety_state_.state_estimate_unusable || safety_state_.state_estimate_unusable_since < 0.0)
+        return std::nullopt;
+    return controllerDueAt(safety_state_.state_estimate_unusable_since,
+                           controller_.getConfig().safety.state_estimate_unusable_trip_delay);
+}
 
 void HealthMonitorState::onTick() {
     const auto& sd = controller_.getSensorData();
@@ -96,26 +104,19 @@ void HealthMonitorState::onTick() {
         ss.velocity_z_exceeded = z_exceeded;
     }
 
-    if (sd.imu_stats.is_new && controller_config.tracking_backend == TrackingBackend::PX4_LOCAL) {
-        const auto& setpoint = controller_.getSetpoint();
-        const double acc_xy = std::sqrt(setpoint.ax * setpoint.ax + setpoint.ay * setpoint.ay);
-        const bool xy_saturated = acc_xy > cfg.acc_saturation_xy;
-        if (!ss.control_saturated_xy && xy_saturated) {
-            controller_.emitFlightSignal(FlightSignal::SaturationXY);
-        }
-        ss.control_saturated_xy = xy_saturated;
-
-        const bool z_saturated = std::abs(setpoint.az) > cfg.acc_saturation_z;
-        if (!ss.control_saturated_z && z_saturated) {
-            controller_.emitFlightSignal(FlightSignal::SaturationZ);
-        }
-        ss.control_saturated_z = z_saturated;
-    } else {
-        ss.control_saturated_xy = false;
-        ss.control_saturated_z = false;
-    }
-
     return;
+}
+
+void HealthMonitorState::onFreshImu(std::vector<FlightSignal>& signals) const {
+    const auto config = controller_.getConfig();
+    if (config.tracking_backend != TrackingBackend::PX4_LOCAL)
+        return;
+    const auto& setpoint = controller_.getSetpoint();
+    const double acc_xy = std::sqrt(setpoint.ax * setpoint.ax + setpoint.ay * setpoint.ay);
+    if (acc_xy > config.safety.acc_saturation_xy)
+        signals.push_back(FlightSignal::SaturationXY);
+    if (std::abs(setpoint.az) > config.safety.acc_saturation_z)
+        signals.push_back(FlightSignal::SaturationZ);
 }
 
 void HealthMonitorState::checkSensorActiveEdge(const SensorData::TopicStats& stats,

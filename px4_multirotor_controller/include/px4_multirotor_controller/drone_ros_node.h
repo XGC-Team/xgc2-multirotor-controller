@@ -1,10 +1,12 @@
 #pragma once
 
 #include <ros/ros.h>
+#include <ros/callback_queue_interface.h>
 #include <ros1_utils/topic_stats.h>
 
 #include <memory>
-#include <state_machine/runtime/async_task_executor.hpp>
+#include <mutex>
+#include <optional>
 
 #include "px4_multirotor_controller/driver/controller_driver.h"
 #include "px4_multirotor_controller/input/command_input_producer.h"
@@ -24,10 +26,13 @@ class DroneRosNode {
     explicit DroneRosNode(ros::NodeHandle& nh);
     ~DroneRosNode();
 
-    void run(double frequency);
+    void run();
 
    private:
-    void controlLoopCallback();
+    void requestTurn();
+    void runTurn();
+    void onDeadline(const ros::TimerEvent&);
+    void armDeadline();
     void dispatchOutputEffects(const std::vector<FlightEffect>& effects);
     void loadControllerConfig();
     void loadVrpnQualityConfig();
@@ -44,7 +49,7 @@ class DroneRosNode {
     ControllerDriver driver_;
     DroneController& controller_;
 
-    ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle> output_event_executor_;
+    ControllerOutputWorker output_worker_;
     std::unique_ptr<Px4ServiceOutputConsumer> px4_service_consumer_;
     std::unique_ptr<ControlOutputConsumer> control_consumer_;
     std::unique_ptr<DebugOutputConsumer> debug_consumer_;
@@ -57,6 +62,12 @@ class DroneRosNode {
     std::unique_ptr<SensorInputProducer> sensor_input_producer_;
     std::unique_ptr<CommandInputProducer> command_input_producer_;
     std::unique_ptr<TrajectoryInputProducer> trajectory_input_producer_;
+    ros::CallbackInterfacePtr turn_callback_;
+    ros::Timer deadline_timer_;
+    std::optional<uint64_t> armed_deadline_;
+    std::mutex turn_mutex_;
+    bool turn_queued_{false};
+    bool accepting_turns_{true};
 };
 
 }  // namespace px4_multirotor_controller

@@ -7,25 +7,13 @@
 #include "multirotor_reference_trajectory/ros_reference_conversion.h"
 
 namespace multirotor_reference_trajectory {
-namespace {
-
-template <typename Message>
-std::unique_ptr<::state_machine::runtime::Task<ros::NodeHandle>> makePublishTask(
-    std::string name, const ros::Publisher& pub, Message msg) {
-    return std::make_unique<::state_machine::runtime::LambdaTask<ros::NodeHandle>>(
-        std::move(name),
-        [pub, msg = std::move(msg)](ros::NodeHandle&) mutable { pub.publish(msg); });
-}
-
-}  // namespace
-
 ReferenceOutputConsumer::ReferenceOutputConsumer(
-    ros::NodeHandle& nh, ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
+    ros::NodeHandle& nh, ReferenceOutputWorker& worker,
     ReferenceTrajectoryRuntime& runtime, const std::string& status_topic,
     const std::string& active_analytic_topic, const std::string& active_sampled_topic,
     const std::string& reference_path_topic, double reference_path_sample_dt,
     double reference_path_preview_duration, uint32_t queue_size)
-    : executor_(executor),
+    : worker_(worker),
       runtime_(runtime),
       reference_path_sample_dt_(reference_path_sample_dt > 0.0 ? reference_path_sample_dt : 0.02),
       reference_path_preview_duration_(
@@ -41,21 +29,18 @@ ReferenceOutputConsumer::ReferenceOutputConsumer(
 
 void ReferenceOutputConsumer::handle(const ReferenceEffect& effect) {
     if (effect.kind == ReferenceEffectKind::Status) {
-        executor_.pushTask(makePublishTask(
-            "PublishReferenceStatus", status_pub_,
+        worker_.post(ReferencePublication{status_pub_,
             toRos(runtime_.makeStatus(effect.timestamp > 0.0 ? effect.timestamp
-                                                            : ros::Time::now().toSec()))));
+                                                            : ros::Time::now().toSec()))});
         return;
     }
     if (effect.kind == ReferenceEffectKind::ActiveAnalytic) {
-        executor_.pushTask(makePublishTask("PublishActiveAnalytic", active_analytic_pub_,
-                                           toRos(runtime_.activeAnalyticMessage())));
+        worker_.post(ReferencePublication{active_analytic_pub_, toRos(runtime_.activeAnalyticMessage())});
         publishReferencePath(effect.timestamp);
         return;
     }
     if (effect.kind == ReferenceEffectKind::ActiveSampled) {
-        executor_.pushTask(makePublishTask("PublishActiveSampled", active_sampled_pub_,
-                                           toRos(runtime_.activeSampledMessage())));
+        worker_.post(ReferencePublication{active_sampled_pub_, toRos(runtime_.activeSampledMessage())});
         publishReferencePath(effect.timestamp);
     }
 }
@@ -94,8 +79,7 @@ nav_msgs::Path ReferenceOutputConsumer::makeReferencePath(double stamp_sec) cons
 }
 
 void ReferenceOutputConsumer::publishReferencePath(double stamp_sec) {
-    executor_.pushTask(
-        makePublishTask("PublishReferencePath", reference_path_pub_, makeReferencePath(stamp_sec)));
+    worker_.post(ReferencePublication{reference_path_pub_, makeReferencePath(stamp_sec)});
 }
 
 }  // namespace multirotor_reference_trajectory

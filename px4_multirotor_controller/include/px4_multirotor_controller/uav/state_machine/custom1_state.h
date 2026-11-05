@@ -22,6 +22,7 @@ class Custom1State {
     void onEnter();
     void onTick();
     void onExit();
+    std::optional<double> nextWake() const;
 
    private:
     DroneController& controller_;

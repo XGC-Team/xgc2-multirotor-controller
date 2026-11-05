@@ -75,5 +75,9 @@ void SensorStatistics::advance(const Time& now) {
         next_heartbeat_ = nextDeadline(next_heartbeat_, now, 1000000000ULL);
     }
 }
+std::optional<Time> SensorStatistics::nextWake() const {
+    if (!started_) return std::nullopt;
+    return std::min(next_stats_, next_heartbeat_);
+}
 void SensorStatistics::resetNewFlags() { for (auto& track : tracks_) track.stats->is_new = false; }
 }

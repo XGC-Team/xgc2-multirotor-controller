@@ -68,7 +68,9 @@ class FlightRuntime {
    public:
     explicit FlightRuntime(DroneController& controller);
     bool postCommand(FlightCommand command);
-    void update();
+    void onFreshImu();
+    bool update();
+    std::optional<double> nextWake() const;
     void emitSignal(FlightSignal signal);
     FlightState flightState() const;
     std::chrono::steady_clock::duration elapsed() const;
@@ -78,6 +80,7 @@ class FlightRuntime {
    private:
     friend struct FlightSpec;
     static FlightSpec::Time asClock(double seconds);
+    double entryDeadline(double seconds, bool strict) const;
     bool hasCommand(FlightCommand command) const;
     bool hasSignal(FlightSignal signal) const;
     void selectSignal(FlightSignal signal);

@@ -12,6 +12,15 @@ namespace px4_multirotor_controller {
 
 LandingState::LandingState(DroneController& controller) : controller_(controller) {}
 
+std::optional<double> LandingState::nextWake() const {
+    return earlierDeadline(setpoint_publish_timer_.dueAt(SETPOINT_PUBLISH_INTERVAL),
+                           log_timer_.dueAt(1.0));
+}
+
+std::optional<double> LandingState::timeoutAfterEntry() const {
+    return timeout_reported_ ? std::nullopt : std::optional<double>{max_landing_duration_};
+}
+
 void LandingState::onEnter() {
     controller_.clearCustom1Request();
     controller_.logInfo("[LandingState] Entering Landing State");

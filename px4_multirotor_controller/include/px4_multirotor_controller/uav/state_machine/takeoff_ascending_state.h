@@ -28,6 +28,8 @@ class TakeoffAscendingState {
     void onTick();
     void onEvent(FlightCommand command);
     void onExit();
+    std::optional<double> nextWake() const;
+    std::optional<double> timeoutAfterEntry() const;
 
    private:
     void publishSetpointIfDue();

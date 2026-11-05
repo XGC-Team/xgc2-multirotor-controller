@@ -23,6 +23,7 @@ class HoverState {
     void onTick();
     void onEvent(FlightCommand command);
     void onExit();
+    std::optional<double> nextWake() const;
 
    private:
     void configureHoverSetpoint();

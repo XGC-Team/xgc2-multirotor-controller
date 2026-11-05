@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <limits>
 #include <utility>
 
 #include "px4_multirotor_controller/common/sensor_checks.h"
@@ -48,6 +50,12 @@ void FlightRuntime::emitSignal(FlightSignal signal) {
     diagnostic_events_.push_back(static_cast<uint32_t>(signal));
 }
 
+void FlightRuntime::onFreshImu() {
+    // The input owner invokes this once per delivered IMU; the real signals
+    // join the same turn's health facts, without an empty-turn edge latch.
+    health_.onFreshImu(signals_);
+}
+
 bool FlightRuntime::hasCommand(FlightCommand command) const {
     return std::find(commands_.begin(), commands_.end(), command) != commands_.end();
 }
@@ -88,8 +96,9 @@ std::optional<FlightSpec::Outcome> FlightRuntime::takeoffPreemption() {
     return std::nullopt;
 }
 
-void FlightRuntime::update() {
+bool FlightRuntime::update() {
     commands_.clear();
+    bool more_commands = false;
     {
         std::lock_guard<std::mutex> lock(commands_mutex_);
         const size_t take = std::min<size_t>(64, pending_commands_.size());
@@ -97,8 +106,9 @@ void FlightRuntime::update() {
             commands_.push_back(pending_commands_.front());
             pending_commands_.pop_front();
         }
+        more_commands = !pending_commands_.empty();
     }
-    signals_.clear();
+    const size_t fresh_imu_signals = signals_.size();
     signals_.insert(signals_.end(), deferred_signals_.begin(), deferred_signals_.end());
     deferred_signals_.clear();
     diagnostic_events_.clear();
@@ -107,6 +117,8 @@ void FlightRuntime::update() {
     selected_command_ = false;
 
     health_.onTick();                         // HEALTH, using the previous setpoint
+    for (size_t i = 0; i < fresh_imu_signals; ++i)
+        diagnostic_events_.push_back(static_cast<uint32_t>(signals_[i]));
     const size_t control_signal_start = signals_.size();
     state_.dispatch(FlightTick{});            // active CONTROL leaf
     auto choice = state_.dispatch(FlightChoose{}, *this);
@@ -123,7 +135,46 @@ void FlightRuntime::update() {
     // for one turn; events from HEALTH were not.
     for (size_t i = control_signal_start; i < signals_.size(); ++i)
         if (!selected_signal_ || *selected_signal_ != i) deferred_signals_.push_back(signals_[i]);
+    // The old owner handled a remaining batch, a deferred completion, and the
+    // newly entered state's next turn without waiting for another input.
     debug_.onTick();                          // DEBUG, after the transition
+    signals_.clear();
+    return transitioned || more_commands || !deferred_signals_.empty();
+}
+
+double FlightRuntime::entryDeadline(double seconds, bool strict) const {
+    using Duration = std::chrono::steady_clock::duration;
+    auto delta = std::chrono::duration_cast<Duration>(std::chrono::duration<double>(seconds));
+    const double represented = std::chrono::duration<double>(delta).count();
+    if (represented < seconds || (strict && represented == seconds))
+        delta += Duration{1};
+    const auto target = state_.entered_at() + delta;
+    double due = std::chrono::duration<double>(target.time_since_epoch()).count();
+    if (asClock(due) < target)
+        due = std::nextafter(due + std::chrono::duration<double>(Duration{1}).count(),
+                             std::numeric_limits<double>::infinity());
+    return due;
+}
+
+std::optional<double> FlightRuntime::nextWake() const {
+    auto due = earlierDeadline(health_.nextWake(), debug_.nextWake());
+    std::visit([&](const auto& state) {
+        using S = std::decay_t<decltype(state)>;
+        if constexpr (!std::is_same_v<S, ReadyState>)
+            due = earlierDeadline(due, state.nextWake());
+        if constexpr (std::is_same_v<S, TakeoffInitState> ||
+                      std::is_same_v<S, TakeoffOffboardRequestState> ||
+                      std::is_same_v<S, TakeoffArmRequestState>) {
+            due = earlierDeadline(due, entryDeadline(10.0, true));
+        } else if constexpr (std::is_same_v<S, TakeoffAscendingState>) {
+            if (const auto timeout = state.timeoutAfterEntry())
+                due = earlierDeadline(due, entryDeadline(*timeout, true));
+        } else if constexpr (std::is_same_v<S, LandingState>) {
+            if (const auto timeout = state.timeoutAfterEntry())
+                due = earlierDeadline(due, entryDeadline(*timeout, false));
+        }
+    }, state_.state());
+    return due;
 }
 
 std::chrono::steady_clock::duration FlightRuntime::elapsed() const {

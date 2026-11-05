@@ -1,6 +1,8 @@
 #pragma once
 
 #include <limits>
+#include <optional>
+#include <vector>
 #include "px4_multirotor_controller/uav/flight_signal.h"
 
 #include "px4_multirotor_controller/common/types.h"
@@ -27,6 +29,8 @@ class HealthMonitorState final {
 
 
     void onTick();
+    void onFreshImu(std::vector<FlightSignal>& signals) const;
+    std::optional<double> nextWake() const;
 
    private:
     struct SafetyState {
@@ -39,8 +43,6 @@ class HealthMonitorState final {
         bool geofence_violated{false};
         bool velocity_xy_exceeded{false};
         bool velocity_z_exceeded{false};
-        bool control_saturated_xy{false};
-        bool control_saturated_z{false};
         bool state_estimate_unusable{false};
         double state_estimate_unusable_since{-1.0};
     };

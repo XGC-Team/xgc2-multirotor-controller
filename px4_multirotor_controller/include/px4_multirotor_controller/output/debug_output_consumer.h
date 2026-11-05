@@ -7,17 +7,17 @@
 #include <std_msgs/String.h>
 #include <std_msgs/UInt32MultiArray.h>
 
-#include <state_machine/runtime/async_task_executor.hpp>
 #include <string>
 
 #include "px4_multirotor_controller/drone_controller.h"
+#include "px4_multirotor_controller/output/controller_output_worker.h"
 
 namespace px4_multirotor_controller {
 
 class DebugOutputConsumer final {
    public:
     DebugOutputConsumer(ros::NodeHandle& nh,
-                        ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor,
+                        ControllerOutputWorker& worker,
                         DroneController& controller, const SensorData& sensor_data,
                         const ros1_utils::PositionQualityStats& vrpn_quality_stats,
                         const bool& debug_print_enabled, uint32_t queue_size);
@@ -25,6 +25,7 @@ class DebugOutputConsumer final {
     bool handle(const FlightEffect& effect);
 
    private:
+    friend class ControllerOutputWorker;
     struct SensorStatsSnapshot {
         SensorData::TopicStats state_estimate;
         SensorData::TopicStats local_pos;
@@ -45,7 +46,7 @@ class DebugOutputConsumer final {
     std_msgs::Float32MultiArray snapshotTrackingError() const;
     std_msgs::UInt32MultiArray snapshotStateMachineEvents() const;
 
-    ::state_machine::runtime::AsyncTaskExecutor<ros::NodeHandle>& executor_;
+    ControllerOutputWorker& worker_;
     DroneController& controller_;
     const SensorData& sensor_data_;
     const ros1_utils::PositionQualityStats& vrpn_quality_stats_;
