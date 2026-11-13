@@ -223,7 +223,10 @@ void DroneRosNode::loadControllerConfig() {
             ? "nmpc"
             : config.tracking_backend == TrackingBackend::DFBC
                   ? "dfbc"
-                  : config.tracking_backend == TrackingBackend::SMC ? "smc" : "px4_local";
+                  : config.tracking_backend == TrackingBackend::SMC
+                        ? "smc"
+                        : config.tracking_backend == TrackingBackend::PVA_SMC ? "pva_smc"
+                                                                              : "px4_local";
     // 将配置传递给控制器
     controller_.setConfig(config);
     sensor_data_.feedback_source = config.feedback_source;
