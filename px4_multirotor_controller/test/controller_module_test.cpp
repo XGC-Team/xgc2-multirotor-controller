@@ -182,6 +182,23 @@ TEST(ControllerModuleConfig, KeysAreReadLikeTheRosParameters) {
     EXPECT_FALSE(c.safety.world_boundary.has_value());
 }
 
+TEST(ControllerModuleConfig, OptionalPerAxisSmcVectorsAreAcceptedAndValidated) {
+    const std::string text = config(
+        "\"tracking_backend\": \"smc\", "
+        "\"smc\": {\"k1\": 0.9, \"k2\": 0.36, \"boundary_layer\": 0.18, "
+        "\"k1_vec\": [0.9, 0.9, 1.25], \"k2_vec\": [0.36, 0.36, 0.36], "
+        "\"boundary_layer_vec\": [0.18, 0.18, 0.25]}");
+    const xgc2_config raw{text.c_str(), text.size()};
+    JsonConfig json(&raw);
+    const pmc::ControllerConfig c = conv::readConfig(json, [](bool, const std::string&) {});
+    ASSERT_TRUE(c.smc.k1_vec.has_value());
+    ASSERT_TRUE(c.smc.k2_vec.has_value());
+    ASSERT_TRUE(c.smc.boundary_layer_vec.has_value());
+    EXPECT_DOUBLE_EQ(c.smc.k1Axis(2), 1.25);
+    EXPECT_DOUBLE_EQ(c.smc.k2Axis(2), 0.36);
+    EXPECT_DOUBLE_EQ(c.smc.boundaryLayerAxis(2), 0.25);
+}
+
 TEST(ControllerModuleConfig, AbsentKeysKeepTheValuesOfTheOwningProfile) {
     const std::string text = config();
     const xgc2_config raw{text.c_str(), text.size()};
@@ -232,6 +249,10 @@ TEST_F(ControllerModuleTest, RefusesAnInvalidConfiguration) {
         {config("\"takeof_altitude\": 2.0"), "unknown configuration key 'takeof_altitude'"},
         {config("\"nmpc\": {\"control_perod\": 0.01}"),
          "unknown configuration key 'nmpc/control_perod'"},
+        {config("\"smc\": {\"k1_vec\": [0.9, 0.9]}"),
+         "'smc/k1_vec' must have 3 positive numbers"},
+        {config("\"smc\": {\"boundary_layer_vec\": [0.18, 0.0, 0.25]}"),
+         "'smc/boundary_layer_vec' must contain 3 positive finite numbers"},
         {"{\"world_boundary_json\": \"{}\"}", "world_boundary_json"},
     };
     for (const Bad& b : bad) {

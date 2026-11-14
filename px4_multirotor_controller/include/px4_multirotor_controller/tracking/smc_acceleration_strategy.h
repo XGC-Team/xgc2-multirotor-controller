@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <xgc2_math/control/smc_tracking_controller.hpp>
 
 #include "px4_multirotor_controller/common/time.h"
@@ -28,6 +29,7 @@ class SmcAccelerationStrategy final : public TrackingStrategy {
 
     ControllerConfig config_{};
     xgc2_math::control::SmcTrackingConfig smc_config_{};
+    std::array<xgc2_math::control::SmcTrackingConfig, 3> smc_axis_configs_{};
     bool entered_{false};
     Time last_log_time_;
 };

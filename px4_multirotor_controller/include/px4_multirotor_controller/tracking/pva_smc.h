@@ -17,12 +17,13 @@ inline Setpoint pvaSmcSetpoint(const Setpoint& reference, const SensorData::Loca
     const Eigen::Vector3d ev = measured.velocity - Eigen::Vector3d(reference.vx, reference.vy, reference.vz);
     Eigen::Vector3d feedback;
     for (int axis = 0; axis < 3; ++axis) {
-        const double slide = ev[axis] + signBeta(signBeta(ev[axis], 2.0) +
-                                                config.smc.k2 * std::atan(ep[axis]), 0.5);
-        const double saturation = std::abs(slide) > config.smc.boundary_layer
-                                      ? sign(slide)
-                                      : slide / config.smc.boundary_layer;
-        feedback[axis] = -config.smc.k1 * saturation;
+        const double k1 = config.smc.k1Axis(axis);
+        const double k2 = config.smc.k2Axis(axis);
+        const double rho = config.smc.boundaryLayerAxis(axis);
+        const double slide =
+            ev[axis] + signBeta(signBeta(ev[axis], 2.0) + k2 * std::atan(ep[axis]), 0.5);
+        const double saturation = std::abs(slide) > rho ? sign(slide) : slide / rho;
+        feedback[axis] = -k1 * saturation;
     }
     Setpoint output = reference;
     output.ax += feedback.x();

@@ -10,6 +10,11 @@ void SmcAccelerationStrategy::configure(const ControllerConfig& config) {
     smc_config_.k1 = config.smc.k1;
     smc_config_.k2 = config.smc.k2;
     smc_config_.boundary_layer = config.smc.boundary_layer;
+    for (int axis = 0; axis < 3; ++axis) {
+        smc_axis_configs_[axis].k1 = config.smc.k1Axis(axis);
+        smc_axis_configs_[axis].k2 = config.smc.k2Axis(axis);
+        smc_axis_configs_[axis].boundary_layer = config.smc.boundaryLayerAxis(axis);
+    }
 }
 
 bool SmcAccelerationStrategy::enter(const SensorData& sensor, const Time&) {
@@ -49,9 +54,30 @@ bool SmcAccelerationStrategy::update(const TrackingStrategyInput& input,
         return false;
     }
 
-    const auto smc = xgc2_math::control::computeSmcTracking(
-        smc_config_, measured_position, measured_velocity, input.reference.position,
-        input.reference.velocity, input.reference.acceleration);
+    xgc2_math::control::SmcTrackingOutput smc;
+    const bool has_per_axis =
+        config_.smc.k1_vec || config_.smc.k2_vec || config_.smc.boundary_layer_vec;
+    if (!has_per_axis) {
+        smc = xgc2_math::control::computeSmcTracking(
+            smc_config_, measured_position, measured_velocity, input.reference.position,
+            input.reference.velocity, input.reference.acceleration);
+    } else {
+        smc.success = true;
+        for (int axis = 0; axis < 3; ++axis) {
+            const auto axis_out = xgc2_math::control::computeSmcTracking(
+                smc_axis_configs_[axis], measured_position, measured_velocity,
+                input.reference.position, input.reference.velocity, input.reference.acceleration);
+            if (!axis_out.success) {
+                smc.success = false;
+                break;
+            }
+            smc.position_error[axis] = axis_out.position_error[axis];
+            smc.velocity_error[axis] = axis_out.velocity_error[axis];
+            smc.sliding[axis] = axis_out.sliding[axis];
+            smc.feedback[axis] = axis_out.feedback[axis];
+            smc.acceleration[axis] = axis_out.acceleration[axis];
+        }
+    }
     if (!smc.success) {
         result.message = "SMC compute failed";
         return false;

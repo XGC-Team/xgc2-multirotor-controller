@@ -85,6 +85,21 @@ Eigen::Vector3d getVector3Param(const ControllerParameters& nh, const std::strin
             result.z());
     return result;
 }
+std::optional<Eigen::Vector3d> getOptionalPositiveVector3Param(const ControllerParameters& nh,
+                                                               const std::string& name) {
+    std::vector<double> values;
+    if (!nh.getParam(name, values)) {
+        return std::nullopt;
+    }
+    if (values.size() != 3U) {
+        throw std::invalid_argument("'" + name + "' must have 3 positive numbers");
+    }
+    Eigen::Vector3d result(values[0], values[1], values[2]);
+    if (!result.array().isFinite().all() || (result.array() <= 0.0).any()) {
+        throw std::invalid_argument("'" + name + "' must contain 3 positive finite numbers");
+    }
+    return result;
+}
 
 ControllerConfig readControllerConfig(const ControllerParameters& parameters,
                                       const std::string& uav_name) {
@@ -207,6 +222,10 @@ ControllerConfig readControllerConfig(const ControllerParameters& parameters,
     parameters.param("smc/k1", config.smc.k1, config.smc.k1);
     parameters.param("smc/k2", config.smc.k2, config.smc.k2);
     parameters.param("smc/boundary_layer", config.smc.boundary_layer, config.smc.boundary_layer);
+    config.smc.k1_vec = getOptionalPositiveVector3Param(parameters, "smc/k1_vec");
+    config.smc.k2_vec = getOptionalPositiveVector3Param(parameters, "smc/k2_vec");
+    config.smc.boundary_layer_vec =
+        getOptionalPositiveVector3Param(parameters, "smc/boundary_layer_vec");
 
     int local_type_mask = static_cast<int>(config.local_type_mask);
     parameters.param("local_type_mask", local_type_mask, local_type_mask);
@@ -554,16 +573,23 @@ ControllerConfig readControllerConfig(const ControllerParameters& parameters,
             config.dfbc.acceleration_correction_limit.z(),
             config.dfbc.acceleration_correction_filter_tau);
     } else if (config.tracking_backend == TrackingBackend::SMC) {
-        parameters.logf(false,
-                        "[DroneRosNode] UAV SMC acceleration: dt=%.3f k1=%.3f k2=%.3f rho=%.4f "
-                        "feedback=mavros_local mask=%u frame=1",
-                        config.nmpc.control_period, config.smc.k1, config.smc.k2,
-                        config.smc.boundary_layer, static_cast<unsigned>(kSmcAccelerationTypeMask));
+        parameters.logf(
+            false,
+            "[DroneRosNode] UAV SMC acceleration: dt=%.3f k1=[%.3f %.3f %.3f] "
+            "k2=[%.3f %.3f %.3f] rho=[%.4f %.4f %.4f] feedback=mavros_local mask=%u frame=1",
+            config.nmpc.control_period, config.smc.k1Axis(0), config.smc.k1Axis(1),
+            config.smc.k1Axis(2), config.smc.k2Axis(0), config.smc.k2Axis(1), config.smc.k2Axis(2),
+            config.smc.boundaryLayerAxis(0), config.smc.boundaryLayerAxis(1),
+            config.smc.boundaryLayerAxis(2), static_cast<unsigned>(kSmcAccelerationTypeMask));
     } else if (config.tracking_backend == TrackingBackend::PVA_SMC) {
-        parameters.logf(false,
-                        "[DroneRosNode] UAV PVA SMC: dt=0.010 k1=%.3f k2=%.3f rho=%.4f "
-                        "feedback=paired_mavros_local frame=1",
-                        config.smc.k1, config.smc.k2, config.smc.boundary_layer);
+        parameters.logf(
+            false,
+            "[DroneRosNode] UAV PVA SMC: dt=0.010 k1=[%.3f %.3f %.3f] k2=[%.3f %.3f %.3f] "
+            "rho=[%.4f %.4f %.4f] feedback=paired_mavros_local frame=1",
+            config.smc.k1Axis(0), config.smc.k1Axis(1), config.smc.k1Axis(2),
+            config.smc.k2Axis(0), config.smc.k2Axis(1), config.smc.k2Axis(2),
+            config.smc.boundaryLayerAxis(0), config.smc.boundaryLayerAxis(1),
+            config.smc.boundaryLayerAxis(2));
     } else if (config.tracking_backend == TrackingBackend::PX4_LOCAL) {
         parameters.logf(false,
                         "[DroneRosNode] UAV PX4 local pass-through: default_mask=%u yaw=%s lift=%s",

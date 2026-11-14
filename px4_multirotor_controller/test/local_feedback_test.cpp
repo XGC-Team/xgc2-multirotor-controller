@@ -5,6 +5,7 @@
 #include "px4_multirotor_controller/common/control_feedback.h"
 #include "px4_multirotor_controller/driver/body_inertial_input.h"
 #include "px4_multirotor_controller/tracking/pva_smc.h"
+#include "px4_multirotor_controller/tracking/smc_acceleration_strategy.h"
 
 using namespace px4_multirotor_controller;
 
@@ -159,4 +160,54 @@ TEST(LocalFeedback, SharedDfbcNmpcMapperMatchesRigidStateExactly) {
         EXPECT_EQ(a.attitude.coeffs(), b.attitude.coeffs());
         EXPECT_EQ(a.body_rate, b.body_rate);
     }
+}
+
+TEST(LocalFeedback, ThreeAxisSmcGainsApplyPerAxisInPvaSmcAndSmcStrategy) {
+    ControllerConfig config;
+    config.smc.k1 = 0.9;
+    config.smc.k2 = 0.36;
+    config.smc.boundary_layer = 0.18;
+    config.smc.k1_vec = Eigen::Vector3d(0.9, 0.9, 1.25);
+    config.smc.k2_vec = Eigen::Vector3d(0.36, 0.36, 0.36);
+    config.smc.boundary_layer_vec = Eigen::Vector3d(0.18, 0.18, 0.25);
+
+    Setpoint reference;
+    reference.x = 0.0;
+    reference.y = 0.0;
+    reference.z = 1.0;
+    reference.ax = 0.1;
+    reference.ay = -0.2;
+    reference.az = 0.3;
+    // Inside-layer z velocity error (ep_z=0, ev_z=0.10 -> s_z = 0.20 in [0.18, 0.25]) tests
+    // boundary_layer_vec[2]=0.25 and k1_vec[2]=1.25; saturated x error tests k1_vec[0]=0.9.
+    SensorData::LocalPv paired{Eigen::Vector3d(1.0, 0.0, 1.0), Eigen::Vector3d(0.0, 0.0, 0.10)};
+    const auto pva_cmd = pvaSmcSetpoint(reference, paired, config);
+    EXPECT_NEAR(pva_cmd.ax, 0.1 - 0.9, 1e-12);
+    EXPECT_NEAR(pva_cmd.ay, -0.2, 1e-12);
+    EXPECT_NEAR(pva_cmd.az, 0.3 - 1.25 * (0.20 / 0.25), 1e-12);
+
+    SmcAccelerationStrategy strat;
+    strat.configure(config);
+    SensorData sensor;
+    sensor.local_pos_stats.is_active = sensor.local_velocity_stats.is_active = true;
+    sensor.imu_stats.is_active = sensor.state_stats.is_active = true;
+    sensor.local_x = paired.position.x();
+    sensor.local_y = paired.position.y();
+    sensor.local_z = paired.position.z();
+    sensor.local_vx = paired.velocity.x();
+    sensor.local_vy = paired.velocity.y();
+    sensor.local_vz = paired.velocity.z();
+    ASSERT_TRUE(strat.enter(sensor, Time(1.0)));
+
+    TrackingStrategyInput in;
+    in.now = Time(1.01);
+    in.sensor = sensor;
+    in.reference.position = Eigen::Vector3d(reference.x, reference.y, reference.z);
+    in.reference.velocity = Eigen::Vector3d::Zero();
+    in.reference.acceleration = Eigen::Vector3d(reference.ax, reference.ay, reference.az);
+    TrackingStrategyResult res;
+    ASSERT_TRUE(strat.update(in, res));
+    EXPECT_NEAR(res.local_setpoint.ax, pva_cmd.ax, 1e-12);
+    EXPECT_NEAR(res.local_setpoint.ay, pva_cmd.ay, 1e-12);
+    EXPECT_NEAR(res.local_setpoint.az, pva_cmd.az, 1e-12);
 }

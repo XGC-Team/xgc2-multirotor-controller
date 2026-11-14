@@ -88,6 +88,19 @@ struct ControllerConfig {
         double k1{0.5};
         double k2{0.5};
         double boundary_layer{0.01};
+        std::optional<Eigen::Vector3d> k1_vec;
+        std::optional<Eigen::Vector3d> k2_vec;
+        std::optional<Eigen::Vector3d> boundary_layer_vec;
+
+        double k1Axis(int axis) const {
+            return k1_vec ? (*k1_vec)[axis] : k1;
+        }
+        double k2Axis(int axis) const {
+            return k2_vec ? (*k2_vec)[axis] : k2;
+        }
+        double boundaryLayerAxis(int axis) const {
+            return boundary_layer_vec ? (*boundary_layer_vec)[axis] : boundary_layer;
+        }
     } smc;
 
     // ========== 偏航角控制开关 ==========
