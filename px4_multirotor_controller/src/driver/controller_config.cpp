@@ -599,6 +599,79 @@ ControllerConfig readControllerConfig(const ControllerParameters& parameters,
 
     // ========== 安全限制参数 ==========
     // The explicit worldBoundary above is the only geofence configuration.
+    parameters.param("require_control_velocity_bounds",
+                     config.safety.require_control_velocity_bounds,
+                     config.safety.require_control_velocity_bounds);
+    if (config.safety.require_control_velocity_bounds &&
+        (!config.safety.world_boundary ||
+         !config.safety.world_boundary->control_velocity_bounds)) {
+        throw std::invalid_argument(
+            "require_control_velocity_bounds=true requires non-null world_boundary_json "
+            "controlVelocityBounds");
+    }
+
+    std::string pose_source = "simulation";
+    parameters.param("pose_source", pose_source, pose_source);
+    if (pose_source == "physical") {
+        config.pose_source = "physical";
+        config.vrpn_pose_topic = "mavros/vision_pose/pose";
+        config.safety.localization_delay_s = 0.050;
+    } else if (pose_source == "simulation") {
+        config.pose_source = "simulation";
+        config.vrpn_pose_topic = "pose";
+        config.safety.localization_delay_s = 0.0;
+    } else {
+        throw std::invalid_argument("pose_source must be simulation or physical");
+    }
+    std::string vrpn_pose_topic;
+    if (parameters.getParam("vrpn_pose_topic", vrpn_pose_topic) && !vrpn_pose_topic.empty()) {
+        config.vrpn_pose_topic = vrpn_pose_topic;
+    }
+
+    parameters.param("safety/pose_stale_timeout_s", config.safety.pose_stale_timeout_s,
+                     config.safety.pose_stale_timeout_s);
+    if (!std::isfinite(config.safety.pose_stale_timeout_s) ||
+        config.safety.pose_stale_timeout_s <= 0.0) {
+        throw std::invalid_argument("safety/pose_stale_timeout_s must be finite and > 0");
+    }
+
+    parameters.param("safety/max_aligned_position_error_m",
+                     config.safety.max_aligned_position_error_m,
+                     config.safety.max_aligned_position_error_m);
+    if (!std::isfinite(config.safety.max_aligned_position_error_m) ||
+        config.safety.max_aligned_position_error_m <= 0.0) {
+        throw std::invalid_argument(
+            "safety/max_aligned_position_error_m must be finite and > 0");
+    }
+
+    parameters.param("safety/localization_delay_s", config.safety.localization_delay_s,
+                     config.safety.localization_delay_s);
+    if (!std::isfinite(config.safety.localization_delay_s) ||
+        config.safety.localization_delay_s < 0.0) {
+        throw std::invalid_argument("safety/localization_delay_s must be finite and >= 0");
+    }
+
+    parameters.param("safety/mocap_gross_bounds/x_min", config.safety.mocap_gross_bounds.x_min,
+                     config.safety.mocap_gross_bounds.x_min);
+    parameters.param("safety/mocap_gross_bounds/x_max", config.safety.mocap_gross_bounds.x_max,
+                     config.safety.mocap_gross_bounds.x_max);
+    parameters.param("safety/mocap_gross_bounds/y_min", config.safety.mocap_gross_bounds.y_min,
+                     config.safety.mocap_gross_bounds.y_min);
+    parameters.param("safety/mocap_gross_bounds/y_max", config.safety.mocap_gross_bounds.y_max,
+                     config.safety.mocap_gross_bounds.y_max);
+    parameters.param("safety/mocap_gross_bounds/z_min", config.safety.mocap_gross_bounds.z_min,
+                     config.safety.mocap_gross_bounds.z_min);
+    parameters.param("safety/mocap_gross_bounds/z_max", config.safety.mocap_gross_bounds.z_max,
+                     config.safety.mocap_gross_bounds.z_max);
+    const auto& gross = config.safety.mocap_gross_bounds;
+    if (!std::isfinite(gross.x_min) || !std::isfinite(gross.x_max) ||
+        !std::isfinite(gross.y_min) || !std::isfinite(gross.y_max) ||
+        !std::isfinite(gross.z_min) || !std::isfinite(gross.z_max) ||
+        gross.x_min >= gross.x_max || gross.y_min >= gross.y_max ||
+        gross.z_min >= gross.z_max) {
+        throw std::invalid_argument(
+            "safety/mocap_gross_bounds requires finite min < max on all three axes");
+    }
 
     // 位置跳变检测
     readParamWithLog(parameters, "position_jump_threshold", config.safety.position_jump_threshold,

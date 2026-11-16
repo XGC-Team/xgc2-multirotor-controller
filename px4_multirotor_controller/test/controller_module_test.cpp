@@ -646,6 +646,27 @@ TEST_F(ControllerChainTest, NmpcResultWakesTheHostAndIsConsumedWithoutWaitingFor
     EXPECT_EQ(host_->wakeCount(), wakes);
 }
 
+TEST_F(ControllerModuleTest, InvalidSe3PoseInActiveFlightEntersLandingImmediately) {
+    open(config(std::string(kFlightConfig) + ", \"tracking_backend\": \"nmpc\""));
+    ASSERT_TRUE(reach("Ready", 3.0));
+    xgc2_px4_command_v1 command{};
+    std::strcpy(command.text, "takeoff");
+    ASSERT_TRUE(host_->push("command", command, vehicle_->now()));
+    ASSERT_TRUE(reach("Hover", 20.0)) << vehicle_->state();
+
+    const int64_t t_invalid = vehicle_->now() + 10000000LL;
+    host_->setNow(t_invalid);
+    xgc2_px4_pose_v1 bad_pose{};
+    const double qnan = std::numeric_limits<double>::quiet_NaN();
+    bad_pose.stamp_sec = static_cast<uint32_t>(t_invalid / 1000000000LL);
+    bad_pose.stamp_nsec = static_cast<uint32_t>(t_invalid % 1000000000LL);
+    for (double& p : bad_pose.position) p = qnan;
+    for (double& q : bad_pose.orientation_xyzw) q = qnan;
+    ASSERT_TRUE(host_->push("vrpn_pose", bad_pose, t_invalid));
+    ASSERT_EQ(host_->step(XGC2_STEP_INPUT), XGC2_OK);
+    EXPECT_EQ(vehicle_->state(), "Landing");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {

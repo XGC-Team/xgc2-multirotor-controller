@@ -31,10 +31,13 @@ void LandingState::onEnter() {
 
     const double slowest_descent_rate = std::max(
         std::min(std::abs(LANDING_VZ_HIGH_ALTITUDE), std::abs(LANDING_VZ_LOW_ALTITUDE)), 1e-3);
-    const double positive_initial_altitude = std::max(initial_altitude_, 0.0);
+    const double positive_initial_altitude =
+        std::isfinite(initial_altitude_) ? std::max(initial_altitude_, 0.0) : 0.0;
     max_landing_duration_ =
         (positive_initial_altitude / slowest_descent_rate) + LANDING_TIME_MARGIN;
-    max_landing_duration_ = std::min(max_landing_duration_, LANDING_TIMEOUT);
+    max_landing_duration_ = std::isfinite(max_landing_duration_)
+                                ? std::min(max_landing_duration_, LANDING_TIMEOUT)
+                                : LANDING_TIMEOUT;
 
     configureLandingSetpoint();
 
@@ -54,6 +57,9 @@ void LandingState::onEnter() {
 }
 
 double LandingState::getDescentVelocity(double altitude) {
+    if (!std::isfinite(altitude)) {
+        return LANDING_VZ_HIGH_ALTITUDE;
+    }
     return altitude > LANDING_ALTITUDE_THRESHOLD ? LANDING_VZ_HIGH_ALTITUDE
                                                  : LANDING_VZ_LOW_ALTITUDE;
 }
@@ -66,8 +72,11 @@ void LandingState::configureLandingSetpoint() {
     landing_setpoint_.z = 0.0;
     landing_setpoint_.vx = 0.0;
     landing_setpoint_.vy = 0.0;
-    landing_setpoint_.vz = getDescentVelocity(
-        sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend));
+    landing_setpoint_.vz =
+        localPositionHealthy()
+            ? getDescentVelocity(
+                  sensor_checks::worldZ(sensor_data, controller_.getConfig().tracking_backend))
+            : LANDING_VZ_HIGH_ALTITUDE;
     landing_setpoint_.ax = 0.0;
     landing_setpoint_.ay = 0.0;
     landing_setpoint_.az = 0.0;
@@ -96,6 +105,10 @@ void LandingState::onTick() {
 void LandingState::updateDescentVelocityIfNeeded() {
     const auto& sensor_data = controller_.getSensorData();
     const auto backend = controller_.getConfig().tracking_backend;
+    if (!localPositionHealthy()) {
+        landing_setpoint_.vz = LANDING_VZ_HIGH_ALTITUDE;
+        return;
+    }
     if (sensor_checks::isWorldPoseNew(sensor_data, backend)) {
         landing_setpoint_.vz = getDescentVelocity(sensor_checks::worldZ(sensor_data, backend));
     }
@@ -138,7 +151,32 @@ void LandingState::reportTimeoutIfNeeded() {
         elapsed_time);
 }
 
+bool LandingState::localPositionHealthy() const {
+    if (controller_.isLocalPositionFaulted()) {
+        return false;
+    }
+    const auto& sensor = controller_.getSensorData();
+    const auto& safety = controller_.getConfig().safety;
+    const double now = controller_.getCurrentTime();
+    if (sensor.local_pose_invalid || !sensor.local_pos_stats.is_active) {
+        return false;
+    }
+    if (sensor.last_valid_local_rx_s &&
+        (now - *sensor.last_valid_local_rx_s) >= safety.pose_stale_timeout_s) {
+        return false;
+    }
+    if (!std::isfinite(sensor.local_x) || !std::isfinite(sensor.local_y) ||
+        !std::isfinite(sensor.local_z)) {
+        return false;
+    }
+    const auto backend = controller_.getConfig().tracking_backend;
+    return std::isfinite(sensor_checks::worldZ(sensor, backend));
+}
+
 bool LandingState::landingFeedbackActive() const {
+    if (!localPositionHealthy()) {
+        return false;
+    }
     const auto& sensor = controller_.getSensorData();
     const auto backend = controller_.getConfig().tracking_backend;
     const bool active =

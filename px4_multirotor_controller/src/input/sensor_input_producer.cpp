@@ -7,6 +7,7 @@
 
 #include "px4_multirotor_controller/common/state_estimate_status.h"
 #include "px4_multirotor_controller/driver/controller_driver.h"
+#include "px4_multirotor_controller/driver/pose_ingress.h"
 #include "px4_multirotor_controller/ros_time_conversion.h"
 
 namespace px4_multirotor_controller {
@@ -68,7 +69,6 @@ void SensorInputProducer::start() {
             }));
     }
     auto on_position = [this](const geometry_msgs::PoseStamped::ConstPtr& message) {
-        statistics_.observe(SensorStream::LocalPose, toCoreTime(ros::Time::now()));
         localPosCallback(message);
         if (on_input_) on_input_();
     };
@@ -118,7 +118,6 @@ void SensorInputProducer::start() {
         }));
     subscribers_.push_back(nh_.subscribe<geometry_msgs::PoseStamped>(
         vrpn_pose_topic_, queue_size_, [this](const geometry_msgs::PoseStamped::ConstPtr& message) {
-            statistics_.observe(SensorStream::Pose, toCoreTime(ros::Time::now()));
             vrpnPoseCallback(message);
             if (on_input_) on_input_();
         }));
@@ -172,15 +171,25 @@ static_assert(state_estimate::FLAG_FILTER_IMU_ONLY == Rse::FLAG_FILTER_IMU_ONLY,
 void SensorInputProducer::syncStats() {}  // Shared driver owns the actual stats slots.
 
 void SensorInputProducer::localPosCallback(const geometry_msgs::PoseStamped::ConstPtr& msg) {
-    sensor_data_.local_x = msg->pose.position.x;
-    sensor_data_.local_y = msg->pose.position.y;
-    sensor_data_.local_z = msg->pose.position.z;
-    sensor_data_.local_qx = msg->pose.orientation.x;
-    sensor_data_.local_qy = msg->pose.orientation.y;
-    sensor_data_.local_qz = msg->pose.orientation.z;
-    sensor_data_.local_qw = msg->pose.orientation.w;
+    if (!msg) return;
+    const Time receipt = toCoreTime(ros::Time::now());
+    const auto ingress = ingestLocalPoseSample(
+        sensor_data_, msg->header.stamp.sec, msg->header.stamp.nsec, receipt.toSec(),
+        msg->pose.position.x, msg->pose.position.y, msg->pose.position.z, msg->pose.orientation.x,
+        msg->pose.orientation.y, msg->pose.orientation.z, msg->pose.orientation.w);
+    if (ingress == PoseIngressResult::RejectedInvalid) {
+        ROS_WARN_THROTTLE(
+            1.0,
+            "[SensorInputProducer] Rejected invalid local_position SE(3) pose (count=%llu)",
+            static_cast<unsigned long long>(sensor_data_.local_pose_invalid_count));
+        return;
+    }
+    if (ingress == PoseIngressResult::AcceptedNonFreshStamp) {
+        return;
+    }
+    statistics_.observe(SensorStream::LocalPose, receipt);
     if (driver_ && driver_->hoverThrustRuntime()) {
-        const double now = ros::Time::now().toSec();
+        const double now = receipt.toSec();
         driver_->ingestAltitude(msg->pose.position.z,
                                 msg->header.stamp.isZero() ? now : msg->header.stamp.toSec(), now);
     }
@@ -194,6 +203,13 @@ void SensorInputProducer::velocityCallback(const geometry_msgs::TwistStamped::Co
 
 void SensorInputProducer::localPvCallback(const geometry_msgs::PoseStamped::ConstPtr& position,
                                           const geometry_msgs::TwistStamped::ConstPtr& velocity) {
+    if (!position || !velocity ||
+        !isValidSe3Pose(position->pose.position.x, position->pose.position.y,
+                        position->pose.position.z, position->pose.orientation.x,
+                        position->pose.orientation.y, position->pose.orientation.z,
+                        position->pose.orientation.w)) {
+        return;
+    }
     driver_->ingestPairedLocalPv(
         Eigen::Vector3d(position->pose.position.x, position->pose.position.y,
                         position->pose.position.z),
@@ -276,13 +292,22 @@ void SensorInputProducer::batteryCallback(const sensor_msgs::BatteryState::Const
 }
 
 void SensorInputProducer::vrpnPoseCallback(const geometry_msgs::PoseStamped::ConstPtr& msg) {
-    sensor_data_.vrpn_x = msg->pose.position.x;
-    sensor_data_.vrpn_y = msg->pose.position.y;
-    sensor_data_.vrpn_z = msg->pose.position.z;
-    sensor_data_.vrpn_qx = msg->pose.orientation.x;
-    sensor_data_.vrpn_qy = msg->pose.orientation.y;
-    sensor_data_.vrpn_qz = msg->pose.orientation.z;
-    sensor_data_.vrpn_qw = msg->pose.orientation.w;
+    if (!msg) return;
+    const Time receipt = toCoreTime(ros::Time::now());
+    const auto ingress = ingestVrpnPoseSample(
+        sensor_data_, msg->header.stamp.sec, msg->header.stamp.nsec, receipt.toSec(),
+        msg->pose.position.x, msg->pose.position.y, msg->pose.position.z, msg->pose.orientation.x,
+        msg->pose.orientation.y, msg->pose.orientation.z, msg->pose.orientation.w);
+    if (ingress == PoseIngressResult::RejectedInvalid) {
+        ROS_WARN_THROTTLE(
+            1.0, "[SensorInputProducer] Rejected invalid vrpn_pose SE(3) pose (count=%llu)",
+            static_cast<unsigned long long>(sensor_data_.vrpn_pose_invalid_count));
+        return;
+    }
+    if (ingress == PoseIngressResult::AcceptedNonFreshStamp) {
+        return;
+    }
+    statistics_.observe(SensorStream::Pose, receipt);
     vrpn_quality_stats_ = vrpn_quality_detector_.process(sensor_data_.vrpn_x, sensor_data_.vrpn_y,
                                                          sensor_data_.vrpn_z);
     if (vrpn_quality_stats_.frame_is_valid)

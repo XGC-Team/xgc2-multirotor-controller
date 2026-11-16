@@ -436,6 +436,8 @@ add_library(px4_multirotor_controller_core
 set_target_properties(px4_multirotor_controller_core PROPERTIES INCLUDE_DIRECTORIES "")
 set_target_properties(px4_multirotor_controller_core PROPERTIES INSTALL_RPATH "$ORIGIN;/opt/xgc2/acados/lib")
 set_target_properties(px4_multirotor_controller_uav_nmpc_runtime PROPERTIES INSTALL_RPATH "$ORIGIN;/opt/xgc2/acados/lib")
+multirotor_prefer_devel_runtime(px4_multirotor_controller_core)
+multirotor_prefer_devel_runtime(px4_multirotor_controller_uav_nmpc_runtime)
 if(XGC2_MATH_INCLUDE_OVERRIDE)
   target_include_directories(px4_multirotor_controller_core BEFORE PUBLIC
     "${XGC2_MATH_INCLUDE_OVERRIDE}")
@@ -516,6 +518,7 @@ set(MODULE_SUPPORT_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../module_support/inc
 set(MULTIROTOR_REFERENCE_INCLUDE_DIR
   ${CMAKE_CURRENT_SOURCE_DIR}/../multirotor_reference_trajectory/include)
 add_library(${PROJECT_NAME}_module MODULE module/controller_module.cpp)
+multirotor_prefer_devel_runtime(${PROJECT_NAME}_module)
 set_target_properties(${PROJECT_NAME}_module PROPERTIES
   INCLUDE_DIRECTORIES ""
   CXX_VISIBILITY_PRESET hidden
@@ -674,6 +677,7 @@ if(CATKIN_ENABLE_TESTING)
     src/output/control_output_consumer.cpp
   )
   if(TARGET px4_multirotor_controller_smc_custom1_test)
+    multirotor_prefer_devel_runtime(px4_multirotor_controller_smc_custom1_test)
     target_include_directories(px4_multirotor_controller_smc_custom1_test BEFORE PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS}
@@ -697,28 +701,34 @@ endif()
 if(CATKIN_ENABLE_TESTING)
   catkin_add_gtest(px4_sensor_statistics_test test/sensor_statistics_test.cpp)
   if(TARGET px4_sensor_statistics_test)
+    multirotor_prefer_devel_runtime(px4_sensor_statistics_test)
     target_link_libraries(px4_sensor_statistics_test px4_multirotor_controller_core gtest_main)
   endif()
   catkin_add_gtest(px4_dfbc_stream_reference_test test/dfbc_stream_reference_test.cpp)
   if(TARGET px4_dfbc_stream_reference_test)
+    multirotor_prefer_devel_runtime(px4_dfbc_stream_reference_test)
     target_link_libraries(px4_dfbc_stream_reference_test px4_multirotor_controller_core gtest_main)
   endif()
   catkin_add_gtest(px4_local_feedback_test test/local_feedback_test.cpp)
   if(TARGET px4_local_feedback_test)
+    multirotor_prefer_devel_runtime(px4_local_feedback_test)
     target_link_libraries(px4_local_feedback_test px4_multirotor_controller_core gtest_main)
   endif()
   catkin_add_gtest(px4_internal_hover_thrust_driver_test test/internal_hover_thrust_driver_test.cpp)
   if(TARGET px4_internal_hover_thrust_driver_test)
+    multirotor_prefer_devel_runtime(px4_internal_hover_thrust_driver_test)
     target_link_libraries(px4_internal_hover_thrust_driver_test px4_multirotor_controller_core gtest_main)
   endif()
   catkin_add_gtest(px4_controller_driver_test test/controller_driver_test.cpp)
   if(TARGET px4_controller_driver_test)
+    multirotor_prefer_devel_runtime(px4_controller_driver_test)
     target_include_directories(px4_controller_driver_test BEFORE PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
       ${MULTIROTOR_UAV_NMPC_GENERATED_DIR} ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS})
     target_link_libraries(px4_controller_driver_test px4_multirotor_controller_core gtest_main)
   endif()
   add_executable(px4_nmpc_generation_reentry_test test/nmpc_generation_reentry_test.cpp)
+  multirotor_prefer_devel_runtime(px4_nmpc_generation_reentry_test)
   target_include_directories(px4_nmpc_generation_reentry_test BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
     ${MULTIROTOR_UAV_NMPC_GENERATED_DIR} ${MULTIROTOR_STATE_MACHINE_INCLUDE_DIRS})
@@ -741,6 +751,7 @@ if(CATKIN_ENABLE_TESTING)
   # reference module (a library of the other package of this repository) for the chain tests.
   catkin_add_gtest(controller_module_test test/controller_module_test.cpp)
   if(TARGET controller_module_test)
+    multirotor_prefer_devel_runtime(controller_module_test)
     add_dependencies(controller_module_test ${PROJECT_NAME}_module ${catkin_EXPORTED_TARGETS})
     if(TARGET px4_multirotor_reference_module)  # catkin_make: one project for both packages
       add_dependencies(controller_module_test px4_multirotor_reference_module)
@@ -764,6 +775,7 @@ if(CATKIN_ENABLE_TESTING)
     src/output/debug_output_consumer.cpp
   )
   if(TARGET controller_transport_parity)
+    multirotor_prefer_devel_runtime(controller_transport_parity)
     add_dependencies(controller_transport_parity ${PROJECT_NAME}_module ${catkin_EXPORTED_TARGETS})
     target_include_directories(controller_transport_parity BEFORE PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/test
@@ -783,6 +795,7 @@ if(CATKIN_ENABLE_TESTING)
     ${CONTROLLER_ROS_TEST_SOURCES}
   )
   if(TARGET controller_ros_scheduler_test)
+    multirotor_prefer_devel_runtime(controller_ros_scheduler_test)
     add_dependencies(controller_ros_scheduler_test ${catkin_EXPORTED_TARGETS})
     target_include_directories(controller_ros_scheduler_test BEFORE PRIVATE
       ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -795,6 +808,7 @@ if(CATKIN_ENABLE_TESTING)
   # The module against the ROS node's behavior on the recorded flights and a scripted flight.
   catkin_add_gtest(controller_module_parity_test test/controller_module_parity_test.cpp)
   if(TARGET controller_module_parity_test)
+    multirotor_prefer_devel_runtime(controller_module_parity_test)
     add_dependencies(controller_module_parity_test ${PROJECT_NAME}_module ${catkin_EXPORTED_TARGETS})
     target_include_directories(controller_module_parity_test BEFORE PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/module ${CMAKE_CURRENT_SOURCE_DIR}/test
@@ -834,5 +848,10 @@ endif()
 
 # catkin's test helpers can add their own include paths after the earlier
 # directory declarations. Apply the selected runtime last so every target
-# sees that runtime's headers before the image's older installed headers.
+# sees that runtime's headers before the image's older installed headers,
+# while keeping this package's own headers ahead of any installed prefix.
 include_directories(BEFORE ${MULTIROTOR_HOVER_RUNTIME_INCLUDE_DIRS})
+include_directories(BEFORE
+  ${MULTIROTOR_PRIVATE_GENERATED_INCLUDE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)

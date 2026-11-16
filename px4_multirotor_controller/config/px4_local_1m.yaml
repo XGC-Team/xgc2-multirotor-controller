@@ -73,9 +73,19 @@ nmpc:
   result_timeout: 0.1
   solve_timeout: 0.03
 position_jump_threshold: 100.0
+require_control_velocity_bounds: false
+pose_source: simulation  # physical binds mavros/vision_pose/pose + 0.05s; simulation binds pose + 0.0s
+safety:
+  max_aligned_position_error_m: 0.5
+  mocap_gross_bounds:
+    x_max: 100.0
+    x_min: -100.0
+    y_max: 50.0
+    y_min: -50.0
+    z_max: 10.0
+    z_min: -5.0
+  pose_stale_timeout_s: 2.0
 skip_takeoff_init_disarm: false
 state_estimate_topic: alg/state_estimator/state
 takeoff_altitude: 1.0
 tracking_backend: px4_local
-# Canonical robot pose; the ground station has already applied the world offset.
-vrpn_pose_topic: pose

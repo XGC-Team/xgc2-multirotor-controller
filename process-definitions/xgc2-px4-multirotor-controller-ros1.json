@@ -50,6 +50,25 @@
             "type": "string",
             "default": "/opt/ros/noetic/share/px4_multirotor_controller/config/uav_nmpc.yaml",
             "x-xgc-path-kind": "file"
+          },
+          "poseSource": {
+            "type": "string",
+            "enum": [
+              "simulation",
+              "physical"
+            ],
+            "default": "simulation",
+            "description": "Typed localization deployment binding: physical selects mavros/vision_pose/pose and 0.05s delay; simulation selects pose and 0.0s."
+          },
+          "vrpnPoseTopic": {
+            "type": "string",
+            "default": "",
+            "description": "Optional explicit pose topic override; empty uses poseSource default."
+          },
+          "localizationDelayS": {
+            "type": "string",
+            "default": "",
+            "description": "Optional explicit safety/localization_delay_s override in seconds; empty uses poseSource default."
           }
         }
       },
@@ -61,7 +80,10 @@
           "uav_nmpc_controller.launch",
           "ns:=${namespace}",
           "config_file:=${configFile}",
-          "world_boundary_json:=${worldBoundaryJson}"
+          "world_boundary_json:=${worldBoundaryJson}",
+          "pose_source:=${poseSource}",
+          "vrpn_pose_topic:=${vrpnPoseTopic}",
+          "localization_delay_s:=${localizationDelayS}"
         ],
         "env": {
           "DISABLE_ROS1_EOL_WARNINGS": "1",

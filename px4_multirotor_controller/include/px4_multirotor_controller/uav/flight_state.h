@@ -75,6 +75,10 @@ class FlightRuntime {
     FlightState flightState() const;
     std::chrono::steady_clock::duration elapsed() const;
     const HealthMonitorState::PositionDistance& positionDistance() const;
+    const HealthMonitorState::SafetyTriggerEvidence& lastSafetyTrigger() const;
+    bool isLocalPositionFaulted() const;
+    uint64_t mocapStampAnomalyCount() const;
+    uint64_t localStampAnomalyCount() const;
     const std::vector<uint32_t>& diagnosticEvents() const { return diagnostic_events_; }
 
    private:

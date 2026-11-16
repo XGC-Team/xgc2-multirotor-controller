@@ -39,6 +39,7 @@
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/control/trajectory_lifter.h"
 #include "px4_multirotor_controller/driver/command_input.h"
+#include "px4_multirotor_controller/driver/pose_ingress.h"
 #include "px4_multirotor_controller/drone_controller.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 #include "px4_multirotor_controller/nmpc/uav_nmpc_solver.h"
@@ -228,14 +229,19 @@ class NodePath {
         const pmc::Time receipt = pmc::Time().fromNSec(r.t_ns);
         const double now = receipt.toSec();
         runStatsTimer(now);
-        if (auto it = tracks_.find(r.kind); it != tracks_.end()) {
-            Track& track = it->second;
-            track.times.push_back(now);
-            if (track.times.size() > 10)
-                track.times.pop_front();
-            track.stats->last_message_time = receipt;
-            track.stats->is_active = true;
-            track.stats->is_new = true;
+        auto record_track = [&](uint8_t kind) {
+            if (auto it = tracks_.find(kind); it != tracks_.end()) {
+                Track& track = it->second;
+                track.times.push_back(now);
+                if (track.times.size() > 10)
+                    track.times.pop_front();
+                track.stats->last_message_time = receipt;
+                track.stats->is_active = true;
+                track.stats->is_new = true;
+            }
+        };
+        if (r.kind != kLocalPose && r.kind != kVrpnPose) {
+            record_track(r.kind);
         }
         switch (r.kind) {
             case kEstimate: {
@@ -272,13 +278,13 @@ class NodePath {
             }
             case kLocalPose: {
                 const auto m = decode<geometry_msgs::PoseStamped>(r.data);
-                sensor_.local_x = m.pose.position.x;
-                sensor_.local_y = m.pose.position.y;
-                sensor_.local_z = m.pose.position.z;
-                sensor_.local_qx = m.pose.orientation.x;
-                sensor_.local_qy = m.pose.orientation.y;
-                sensor_.local_qz = m.pose.orientation.z;
-                sensor_.local_qw = m.pose.orientation.w;
+                if (pmc::ingestLocalPoseSample(
+                        sensor_, m.header.stamp.sec, m.header.stamp.nsec, now,
+                        m.pose.position.x, m.pose.position.y, m.pose.position.z,
+                        m.pose.orientation.x, m.pose.orientation.y, m.pose.orientation.z,
+                        m.pose.orientation.w) == pmc::PoseIngressResult::AcceptedFresh) {
+                    record_track(r.kind);
+                }
                 break;
             }
             case kLocalVelocity: {
@@ -308,13 +314,13 @@ class NodePath {
             }
             case kVrpnPose: {
                 const auto m = decode<geometry_msgs::PoseStamped>(r.data);
-                sensor_.vrpn_x = m.pose.position.x;
-                sensor_.vrpn_y = m.pose.position.y;
-                sensor_.vrpn_z = m.pose.position.z;
-                sensor_.vrpn_qx = m.pose.orientation.x;
-                sensor_.vrpn_qy = m.pose.orientation.y;
-                sensor_.vrpn_qz = m.pose.orientation.z;
-                sensor_.vrpn_qw = m.pose.orientation.w;
+                if (pmc::ingestVrpnPoseSample(
+                        sensor_, m.header.stamp.sec, m.header.stamp.nsec, now,
+                        m.pose.position.x, m.pose.position.y, m.pose.position.z,
+                        m.pose.orientation.x, m.pose.orientation.y, m.pose.orientation.z,
+                        m.pose.orientation.w) == pmc::PoseIngressResult::AcceptedFresh) {
+                    record_track(r.kind);
+                }
                 break;
             }
             case kCommand: {
@@ -444,10 +450,17 @@ class NodePath {
     };
 
     void runStatsTimer(double until) {
+        const double pose_timeout = controller_.getConfig().safety.pose_stale_timeout_s;
         for (; next_stats_ <= until; next_stats_ += 0.1) {
             for (auto& [kind, track] : tracks_) {
-                if (track.times.size() >= 2)
-                    track.stats->is_active = (next_stats_ - track.times.back()) <= 2.5;
+                if (track.times.size() >= 2) {
+                    const double elapsed = next_stats_ - track.times.back();
+                    if (kind == kLocalPose || kind == kVrpnPose) {
+                        track.stats->is_active = elapsed < pose_timeout;
+                    } else {
+                        track.stats->is_active = elapsed <= 2.5;
+                    }
+                }
             }
         }
     }

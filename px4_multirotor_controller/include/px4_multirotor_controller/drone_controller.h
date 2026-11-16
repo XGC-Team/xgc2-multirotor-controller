@@ -52,6 +52,10 @@ class DroneController {
     }
 
     const HealthMonitorState::PositionDistance& getPositionDistance() const;
+    const HealthMonitorState::SafetyTriggerEvidence& getLastSafetyTrigger() const;
+    bool isLocalPositionFaulted() const;
+    uint64_t getMocapStampAnomalyCount() const;
+    uint64_t getLocalStampAnomalyCount() const;
 
     void emitFlightSignal(FlightSignal signal);
     std::chrono::steady_clock::duration flightElapsed() const;

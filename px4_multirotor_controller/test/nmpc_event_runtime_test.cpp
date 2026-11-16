@@ -619,6 +619,7 @@ TEST(Px4LocalPassThrough, TakeoverNeedsHoverMatchUntilArmed) {
 TEST(SensorChecks, PassThroughReadyDoesNotNeedEstimator) {
     SensorData sensor;
     sensor.local_pos_stats.is_active = true;
+    sensor.vrpn_pose_stats.is_active = true;
     sensor.local_velocity_stats.is_active = true;
     sensor.imu_stats.is_active = true;
     sensor.state_stats.is_active = true;
@@ -629,6 +630,7 @@ TEST(SensorChecks, PassThroughReadyDoesNotNeedEstimator) {
 TEST(SensorChecks, PassThroughReadyDoesNotNeedBattery) {
     SensorData sensor;
     sensor.local_pos_stats.is_active = true;
+    sensor.vrpn_pose_stats.is_active = true;
     sensor.local_velocity_stats.is_active = true;
     sensor.imu_stats.is_active = true;
     sensor.state_stats.is_active = true;

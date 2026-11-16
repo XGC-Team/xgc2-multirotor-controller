@@ -23,7 +23,10 @@ void SelfCheckState::onTick() {
     // 每2秒打印一次传感器状态
     if (status_log_timer_.elapsed().count() >= LOG_INTERVAL) {
         const auto& sensor_data = controller_.getSensorData();
-        const bool vrpn_pose_active = sensor_data.vrpn_pose_stats.is_active;
+        const bool vrpn_pose_active =
+            sensor_data.vrpn_pose_stats.is_active && !sensor_data.vrpn_pose_invalid;
+        const bool local_pose_active =
+            sensor_data.local_pos_stats.is_active && !sensor_data.local_pose_invalid;
         const auto& distance = controller_.getPositionDistance();
         const char* consistency =
             !distance.available ? "WAIT" : (distance.exceeded ? "OVER" : "OK");
@@ -32,22 +35,25 @@ void SelfCheckState::onTick() {
             sensor_data.feedback_source == FeedbackSource::RIGID_ESTIMATE) {
             controller_.logInfo(
                 "[SelfCheckState] Checking sensors... "
-                "ControlState:%s(state_estimator est=%u flags=0x%08x) State:%s Pose:%s "
+                "ControlState:%s(state_estimator est=%u flags=0x%08x) State:%s LocalPos:%s Pose:%s "
                 "PoseConsistency:%s Diff:%.3fm FCU:%s(%s)",
                 sensor_checks::isControlStateUsableForControl(sensor_data) ? "OK" : "X",
                 static_cast<unsigned>(sensor_data.uav_state_estimator_state),
                 static_cast<unsigned>(sensor_data.uav_state_estimator_flags),
-                sensor_data.state_stats.is_active ? "OK" : "X", vrpn_pose_active ? "OK" : "X",
+                sensor_data.state_stats.is_active ? "OK" : "X",
+                sensor_data.local_pose_invalid ? "INVALID" : (local_pose_active ? "OK" : "X"),
+                sensor_data.vrpn_pose_invalid ? "INVALID" : (vrpn_pose_active ? "OK" : "X"),
                 consistency, distance.metres, sensor_data.fcu_connected ? "OK" : "X",
                 sensor_data.fcu_mode.c_str());
         } else {
             controller_.logInfo(
                 "[SelfCheckState] Checking sensors... LocalPos:%s Velocity:%s "
                 "IMU:%s State:%s Pose:%s PoseConsistency:%s Diff:%.3fm FCU:%s(%s)",
-                sensor_data.local_pos_stats.is_active ? "OK" : "X",
+                sensor_data.local_pose_invalid ? "INVALID" : (local_pose_active ? "OK" : "X"),
                 sensor_data.local_velocity_stats.is_active ? "OK" : "X",
                 sensor_data.imu_stats.is_active ? "OK" : "X",
-                sensor_data.state_stats.is_active ? "OK" : "X", vrpn_pose_active ? "OK" : "X",
+                sensor_data.state_stats.is_active ? "OK" : "X",
+                sensor_data.vrpn_pose_invalid ? "INVALID" : (vrpn_pose_active ? "OK" : "X"),
                 consistency, distance.metres, sensor_data.fcu_connected ? "OK" : "X",
                 sensor_data.fcu_mode.c_str());
         }

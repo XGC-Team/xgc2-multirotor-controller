@@ -80,10 +80,9 @@ DroneRosNode::DroneRosNode(ros::NodeHandle& nh)
         &driver_, [this] { requestTurn(); });
     loadVrpnQualityConfig();
     std::string state_estimate_topic;
-    std::string vrpn_pose_topic;
     nh_private_.param<std::string>("state_estimate_topic", state_estimate_topic,
                                    "alg/state_estimator/state");
-    nh_private_.param<std::string>("vrpn_pose_topic", vrpn_pose_topic, "pose");
+    const std::string vrpn_pose_topic = controller_.getConfig().vrpn_pose_topic;
     sensor_input_producer_->setStateEstimateTopic(state_estimate_topic);
     sensor_input_producer_->setVrpnPoseTopic(vrpn_pose_topic);
     // Receipt topics are the ones just handed to the producer at its set
@@ -239,8 +238,7 @@ void DroneRosNode::loadControllerConfig() {
         load_fact_.node_name = ros::this_node::getName();
         load_fact_.instance_id = boost::uuids::to_string(boost::uuids::random_generator()());
         load_fact_.tracking_backend = tracking_backend;
-        load_fact_.position_distance_limit_metres =
-            HealthMonitorState::kPositionDistanceLimitMetres;
+        load_fact_.position_distance_limit_metres = config.safety.max_aligned_position_error_m;
         load_fact_pending_ = true;
     } catch (const std::exception&) {
         load_fact_pending_ = false;

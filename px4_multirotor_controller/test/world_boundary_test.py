@@ -17,13 +17,17 @@ import xml.etree.ElementTree as ET
 PACKAGE = Path(__file__).resolve().parents[1]
 SUPPORT = r'''
 #pragma once
+#include <array>
 #include <cstdint>
+#include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 #include "px4_multirotor_controller/common/world_boundary.h"
 namespace px4_multirotor_controller {
 enum class FlightSignal : uint32_t;
+enum class FlightState : uint32_t { SelfCheck = 1, Ready = 2, Landing = 9 };
 enum class TrackingBackend { PX4_LOCAL, NMPC, DFBC };
 enum class FeedbackSource { RIGID_ESTIMATE, MAVROS_LOCAL };
 inline bool trackingUsesFusedEstimate(TrackingBackend backend) {
@@ -31,16 +35,40 @@ inline bool trackingUsesFusedEstimate(TrackingBackend backend) {
 }
 struct SensorData {
     FeedbackSource feedback_source{FeedbackSource::RIGID_ESTIMATE};
-    struct TopicStats { bool is_active{true}; bool is_new{false}; };
+    struct TopicStats { bool is_active{true}; bool is_new{false}; double time_since_last_msg{0}; };
     TopicStats vrpn_pose_stats, local_pos_stats, local_velocity_stats, uav_state_estimate_stats, state_stats, imu_stats;
-    double vrpn_x{0}, vrpn_y{0}, vrpn_z{0}, local_x{0}, local_y{0}, local_z{0};
-    double local_vx{0}, local_vy{0}, local_vz{0}, x{0}, y{0}, z{0};
+    double vrpn_x{0}, vrpn_y{0}, vrpn_z{0}, vrpn_qx{0}, vrpn_qy{0}, vrpn_qz{0}, vrpn_qw{1};
+    double local_x{0}, local_y{0}, local_z{0}, local_qx{0}, local_qy{0}, local_qz{0}, local_qw{1};
+    double local_vx{0}, local_vy{0}, local_vz{0}, x{0}, y{0}, z{0}, vx{0}, vy{0}, vz{0};
     bool usable{true};
+    bool local_pose_invalid{false}, vrpn_pose_invalid{false};
+    uint64_t local_pose_invalid_count{0}, vrpn_pose_invalid_count{0};
+    std::optional<double> last_valid_local_rx_s, last_valid_vrpn_rx_s;
+    std::optional<uint64_t> last_valid_local_stamp_ns, last_valid_vrpn_stamp_ns;
+    struct PoseSample {
+        uint64_t seq{0}, stamp_ns{0};
+        double stamp_s{0}, rx_s{0};
+        bool has_header_stamp{false};
+        double x{0}, y{0}, z{0}, qx{0}, qy{0}, qz{0}, qw{1};
+    };
+    struct PoseRing {
+        static constexpr size_t kCapacity = 64;
+        std::array<PoseSample, kCapacity> samples{};
+        size_t head{0}, count{0};
+    };
+    uint64_t local_pose_seq{0}, vrpn_pose_seq{0};
+    PoseRing local_pose_ring, vrpn_pose_ring;
 };
 struct ControllerConfig {
     TrackingBackend tracking_backend{TrackingBackend::PX4_LOCAL};
     struct Safety {
         std::optional<WorldBoundary> world_boundary;
+        bool require_control_velocity_bounds{false};
+        double pose_stale_timeout_s{2.0};
+        WorldControlBounds mocap_gross_bounds{-100.0, 100.0, -50.0, 50.0, -5.0, 10.0};
+        double localization_delay_s{0.0};
+        double max_aligned_position_error_m{0.50};
+        double max_pairing_gap_s{0.100};
         double max_velocity_xy{5}, max_velocity_z{2};
         double acc_saturation_xy{3}, acc_saturation_z{3}, state_estimate_unusable_trip_delay{.15};
     } safety;
@@ -50,8 +78,10 @@ struct DroneController {
     SensorData sensor;
     ControllerConfig config;
     Setpoint setpoint;
+    FlightState current_state{FlightState::Ready};
     std::vector<FlightSignal> signals;
     void emitFlightSignal(FlightSignal signal) { signals.push_back(signal); }
+    FlightState flightState() const { return current_state; }
     const SensorData& getSensorData() const { return sensor; }
     const ControllerConfig& getConfig() const { return config; }
     const Setpoint& getSetpoint() const { return setpoint; }
@@ -66,6 +96,10 @@ constexpr uint32_t SAFE_TIMEOUT_LOCAL_POS=20, SAFE_TIMEOUT_LOCAL_VELOCITY=21, SA
 constexpr uint32_t SAFE_UAV_STATE_ESTIMATE_UNUSABLE = 28, SAFE_GEOFENCE_VIOLATION = 40;
 constexpr uint32_t SAFE_VELOCITY_XY_EXCEEDED = 41, SAFE_VELOCITY_Z_EXCEEDED = 42;
 constexpr uint32_t SAFE_CONTROL_SATURATION_XY = 43, SAFE_CONTROL_SATURATION_Z = 44;
+constexpr uint32_t SAFE_POSITION_JUMP = 47, SAFE_VRPN_POSITION_JUMP = 49;
+constexpr uint32_t SAFE_TIMEOUT_VRPN_POSE = 50, SAFE_VRPN_POSE_INVALID = 51;
+constexpr uint32_t SAFE_LOCAL_POSE_INVALID = 52, SAFE_MOCAP_GROSS_BOUNDS_VIOLATION = 53;
+constexpr uint32_t SAFE_ALIGNED_POSE_ERROR_EXCEEDED = 54, SAFE_LOCAL_GROSS_BOUNDS_VIOLATION = 55;
 }
 namespace sensor_checks {
 inline bool isControlStateActive(const SensorData& s) { return s.uav_state_estimate_stats.is_active; }
@@ -268,6 +302,38 @@ void testLoadFactWithUnsetBoundary() {
     assert(fact["effectiveAt"]["rosTimeNs"].asString() == "9223372036854775807");
 }
 
+void testTwoSetBoundsAndVelocityBounds() {
+    const char* two_set =
+        "{\"schemaVersion\":1,\"frameId\":\"world\",\"unit\":\"m\","
+        "\"controlBounds\":{\"xMin\":-4.5,\"xMax\":4.5,\"yMin\":-3.25,\"yMax\":3.25,"
+        "\"zMin\":0.0,\"zMax\":2.5},\"groundZ\":0.0,"
+        "\"controlVelocityBounds\":{\"vxMin\":-2.0,\"vxMax\":2.0,\"vyMin\":-2.5,\"vyMax\":2.5,"
+        "\"vzMin\":-1.0,\"vzMax\":1.5},"
+        "\"planningBounds\":{\"xMin\":-4.0,\"xMax\":4.0,\"yMin\":-3.0,\"yMax\":3.0,"
+        "\"zMin\":0.2,\"zMax\":2.2},"
+        "\"planningVelocityBounds\":{\"vxMin\":-1.5,\"vxMax\":1.5,\"vyMin\":-1.5,\"vyMax\":1.5,"
+        "\"vzMin\":-0.8,\"vzMax\":1.0}}";
+    const auto b = parseWorldBoundary(two_set);
+    assert(b && b->control_bounds && b->control_velocity_bounds && b->planning_bounds &&
+           b->planning_velocity_bounds);
+    assert(b->control_velocity_bounds->vx_min == -2.0 && b->control_velocity_bounds->vz_max == 1.5);
+    assert(b->planning_bounds->x_min == -4.0 && b->planning_bounds->z_max == 2.2);
+    assert(b->planning_velocity_bounds->vx_max == 1.5);
+    const Json::Value roundtrip =
+        reparsed(controllerLoadFactJSON(*b, makeFact()))["values"]["worldBoundary"];
+    assert(roundtrip["controlVelocityBounds"]["vxMax"].asDouble() == 2.0);
+    assert(roundtrip["planningBounds"]["zMin"].asDouble() == 0.2);
+    assert(roundtrip["planningVelocityBounds"]["vzMax"].asDouble() == 1.0);
+    // Reject swapped velocity min/max and legacy magnitude key.
+    expectInvalid(
+        "{\"schemaVersion\":1,\"frameId\":\"world\",\"unit\":\"m\",\"controlBounds\":null,"
+        "\"groundZ\":null,\"controlVelocityBounds\":{\"vxMin\":2,\"vxMax\":-2,\"vyMin\":-1,"
+        "\"vyMax\":1,\"vzMin\":-1,\"vzMax\":1}}");
+    expectInvalid(
+        "{\"schemaVersion\":1,\"frameId\":\"world\",\"unit\":\"m\",\"controlBounds\":null,"
+        "\"groundZ\":null,\"controlVelocityLimits\":{\"maxHorizontalMps\":2,\"maxVerticalMps\":1}}");
+}
+
 int main() {
     testNullAndWhitespaceNullAreUnset();
     testCompleteBoundsExactValuesNoOffset();
@@ -276,7 +342,8 @@ int main() {
     testInvalidEndpointsThrow();
     testLoadFactKeepsClockStringsAndExactReadback();
     testLoadFactWithUnsetBoundary();
-    std::cout << "7 production worldBoundary parser/load-fact cases passed\n";
+    testTwoSetBoundsAndVelocityBounds();
+    std::cout << "8 production worldBoundary parser/load-fact cases passed\n";
 }
 '''
 MONITOR_TEST = r'''
@@ -351,11 +418,32 @@ void testBoundaryEdgeIsClosedAndEntryPostsOnce() {
     f.poseAt(0, 0, 1);
     assert(f.geofenceEvents() == 2);
 }
+void testPerAxisVelocityBoundsNoHiddenShrink() {
+    Fixture f;
+    WorldBoundary b;
+    b.control_bounds = WorldControlBounds{-5.0, 5.0, -5.0, 5.0, 0.0, 3.0};
+    b.control_velocity_bounds = WorldVelocityBounds{-2.0, 2.0, -2.0, 2.0, -1.0, 1.5};
+    b.planning_velocity_bounds = WorldVelocityBounds{-1.0, 1.0, -1.0, 1.0, -0.5, 0.5};
+    f.controller.config.safety.world_boundary = b;
+    f.controller.sensor.local_vx = 2.0;
+    f.controller.sensor.local_vy = -2.0;
+    f.controller.sensor.local_vz = 1.5;
+    f.poseAt(0, 0, 1);  // exact endpoints & diagonal speed 2.828 must NOT trip!
+    assert(f.controller.signals.empty());
+    f.controller.sensor.local_vx = 2.001;
+    f.poseAt(0, 0, 1);
+    assert(f.controller.signals.size() == 1 && f.controller.signals[0] == FlightSignal::VelocityXY);
+    f.controller.sensor.local_vx = 0.0;
+    f.controller.sensor.local_vz = 1.501;
+    f.poseAt(0, 0, 1);
+    assert(f.controller.signals.size() == 2 && f.controller.signals[1] == FlightSignal::VelocityZ);
+}
 int main() {
     testUnsetBoundaryDisablesGeofence();
     testNullControlBoundsDisablesGeofence();
     testBoundaryEdgeIsClosedAndEntryPostsOnce();
-    std::cout << "3 production monitor boundary cases passed\n";
+    testPerAxisVelocityBoundsNoHiddenShrink();
+    std::cout << "4 production monitor boundary cases passed\n";
 }
 '''
 

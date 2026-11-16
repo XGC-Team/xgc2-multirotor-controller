@@ -38,6 +38,7 @@ class LandingState {
     void publishSetpointIfDue();
     void logStatusIfDue();
     void reportTimeoutIfNeeded();
+    bool localPositionHealthy() const;
     bool landingFeedbackActive() const;
     void updateTouchdownConfirmation();
     void postTouchdownOnce();

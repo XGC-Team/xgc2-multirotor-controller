@@ -65,6 +65,9 @@ class ControllerDriver {
             hover_thrust_->ingestAltitude(altitude, stamp_sec, receipt_sec);
     }
     void ingestPairedLocalPv(const Eigen::Vector3d& position, const Eigen::Vector3d& velocity) {
+        if (!position.allFinite() || !velocity.allFinite()) {
+            return;
+        }
         sensor_.paired_local_pv = SensorData::LocalPv{position, velocity};
     }
     const hover_thrust_estimator::HoverThrustEstimatorRuntime* hoverThrustRuntime() const {
@@ -73,6 +76,7 @@ class ControllerDriver {
     void start(const Time& now) {
         const auto config = controller_.getConfig();
         sensor_.feedback_source = config.feedback_source;
+        statistics_.setPoseStaleTimeout(config.safety.pose_stale_timeout_s);
         imu_gravity_ = config.nmpc.gravity;
         if (config.hover_thrust.source == HoverThrustSource::INTERNAL) {
             hover_thrust_ = std::make_unique<hover_thrust_estimator::HoverThrustEstimatorRuntime>();
@@ -89,6 +93,7 @@ class ControllerDriver {
         if (!active_)
             return false;
         clock_ns_.store(now.toNSec());
+        statistics_.setPoseStaleTimeout(controller_.getConfig().safety.pose_stale_timeout_s);
         statistics_.advance(now);
         const double now_sec = now.toSec();
         if (hover_thrust_ &&

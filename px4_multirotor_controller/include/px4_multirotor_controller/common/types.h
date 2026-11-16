@@ -3,6 +3,7 @@
 #include <hover_thrust_estimator/common/types.h>
 
 #include <Eigen/Dense>  // 用于 MpcTrajectoryState
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -71,6 +72,8 @@ constexpr double kLocalSetpointPublishInterval = 1.0 / kLocalSetpointPublishHz;
 // 控制器配置参数
 struct ControllerConfig {
     FeedbackSource feedback_source{FeedbackSource::RIGID_ESTIMATE};
+    std::string pose_source{"simulation"};
+    std::string vrpn_pose_topic{"pose"};
     struct HoverThrustParams {
         HoverThrustSource source{HoverThrustSource::EXTERNAL};
         hover_thrust_estimator::HoverThrustEstimatorConfig estimator{};
@@ -187,6 +190,15 @@ struct ControllerConfig {
 
         // Explicit current Experiment boundary; unset is not a made-up site.
         std::optional<WorldBoundary> world_boundary;
+        bool require_control_velocity_bounds{false};
+
+        // Configurable pose staleness timeout (s), mocap gross arena box, and
+        // aligned local-vision pairing thresholds.
+        double pose_stale_timeout_s{2.0};
+        WorldControlBounds mocap_gross_bounds{-100.0, 100.0, -50.0, 50.0, -5.0, 10.0};
+        double localization_delay_s{0.0};
+        double max_aligned_position_error_m{0.50};
+        double max_pairing_gap_s{0.100};
 
         // 速度限制（m/s）
         double max_velocity_xy{5.0};
@@ -306,7 +318,13 @@ constexpr uint32_t SAFE_POSITION_JUMP = 47;  // 本地位置跳变
 
 // VRPN 质量事件
 constexpr uint32_t SAFE_VRPN_EFFECTIVE_FREQ_LOW = 48;  // VRPN有效频率过低
-constexpr uint32_t SAFE_VRPN_POSITION_JUMP = 49;       // VRPN位置跳变
+constexpr uint32_t SAFE_VRPN_POSITION_JUMP = 49;       // VRPN位姿跳变
+constexpr uint32_t SAFE_TIMEOUT_VRPN_POSE = 50;        // VRPN/Vision位姿超时
+constexpr uint32_t SAFE_VRPN_POSE_INVALID = 51;        // VRPN/Vision位姿无效(NaN/Inf/四元数)
+constexpr uint32_t SAFE_LOCAL_POSE_INVALID = 52;       // 本地位姿无效(NaN/Inf/四元数)
+constexpr uint32_t SAFE_MOCAP_GROSS_BOUNDS_VIOLATION = 53;  // 动捕粗边界越界
+constexpr uint32_t SAFE_ALIGNED_POSE_ERROR_EXCEEDED = 54;   // 时间对齐本地-动捕位置偏差超限
+constexpr uint32_t SAFE_LOCAL_GROSS_BOUNDS_VIOLATION = 55;  // 本地位姿粗边界越界
 }  // namespace event_type
 
 namespace output_event_type {
@@ -422,10 +440,39 @@ struct SensorData {
     };
     std::optional<LocalPv> paired_local_pv;
 
-    // Canonical pose used by the position-distance check. Not SMC feedback.
+    // Canonical pose used by the aligned pairing & mocap anomaly checks. Not SMC feedback.
     double vrpn_x{0.0}, vrpn_y{0.0}, vrpn_z{0.0};
     double vrpn_qx{0.0}, vrpn_qy{0.0}, vrpn_qz{0.0}, vrpn_qw{1.0};
     TopicStats vrpn_pose_stats;
+
+    bool local_pose_invalid{false};
+    bool vrpn_pose_invalid{false};
+    uint64_t local_pose_invalid_count{0};
+    uint64_t vrpn_pose_invalid_count{0};
+    std::optional<double> last_valid_local_rx_s;
+    std::optional<double> last_valid_vrpn_rx_s;
+    std::optional<uint64_t> last_valid_local_stamp_ns;
+    std::optional<uint64_t> last_valid_vrpn_stamp_ns;
+
+    struct PoseSample {
+        uint64_t seq{0};
+        uint64_t stamp_ns{0};
+        double stamp_s{0.0};
+        double rx_s{0.0};
+        bool has_header_stamp{false};
+        double x{0.0}, y{0.0}, z{0.0};
+        double qx{0.0}, qy{0.0}, qz{0.0}, qw{1.0};
+    };
+    struct PoseRing {
+        static constexpr size_t kCapacity = 64;
+        std::array<PoseSample, kCapacity> samples{};
+        size_t head{0};
+        size_t count{0};
+    };
+    uint64_t local_pose_seq{0};
+    uint64_t vrpn_pose_seq{0};
+    PoseRing local_pose_ring;
+    PoseRing vrpn_pose_ring;
 
     SensorData() = default;
 };

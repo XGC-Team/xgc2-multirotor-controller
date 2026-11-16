@@ -36,8 +36,33 @@ inline bool areBaseSensorsActive(const SensorData& sensor) {
 }
 
 inline bool arePassThroughSensorsActive(const SensorData& sensor) {
-    return sensor.local_pos_stats.is_active && sensor.local_velocity_stats.is_active &&
+    return sensor.local_pos_stats.is_active && !sensor.local_pose_invalid &&
+           std::isfinite(sensor.local_x) && std::isfinite(sensor.local_y) &&
+           std::isfinite(sensor.local_z) && sensor.local_velocity_stats.is_active &&
            sensor.imu_stats.is_active && sensor.state_stats.is_active;
+}
+
+inline bool isPoseStreamReady(const SensorData::TopicStats& stats, bool invalid,
+                              double x, double y, double z,
+                              double qx, double qy, double qz, double qw) {
+    if (!stats.is_active || invalid || !std::isfinite(x) || !std::isfinite(y) ||
+        !std::isfinite(z) || !std::isfinite(qx) || !std::isfinite(qy) ||
+        !std::isfinite(qz) || !std::isfinite(qw)) {
+        return false;
+    }
+    const double norm = std::sqrt(qx * qx + qy * qy + qz * qz + qw * qw);
+    return std::isfinite(norm) && std::abs(norm - 1.0) <= 0.05;
+}
+
+inline bool areCanonicalPosesReady(const SensorData& sensor) {
+    return isPoseStreamReady(sensor.local_pos_stats, sensor.local_pose_invalid,
+                             sensor.local_x, sensor.local_y, sensor.local_z,
+                             sensor.local_qx, sensor.local_qy, sensor.local_qz,
+                             sensor.local_qw) &&
+           isPoseStreamReady(sensor.vrpn_pose_stats, sensor.vrpn_pose_invalid,
+                             sensor.vrpn_x, sensor.vrpn_y, sensor.vrpn_z,
+                             sensor.vrpn_qx, sensor.vrpn_qy, sensor.vrpn_qz,
+                             sensor.vrpn_qw);
 }
 
 inline bool isStateEstimateUsableForControl(const SensorData& sensor) {
@@ -60,7 +85,8 @@ inline bool isControlStateUsableForControl(const SensorData& sensor) {
         return isStateEstimateUsableForControl(sensor);
     const double norm2 = sensor.local_qx * sensor.local_qx + sensor.local_qy * sensor.local_qy +
                          sensor.local_qz * sensor.local_qz + sensor.local_qw * sensor.local_qw;
-    return isControlStateActive(sensor) && sensor.mavros_inertial_valid &&
+    return isControlStateActive(sensor) && !sensor.local_pose_invalid &&
+           sensor.mavros_inertial_valid &&
            std::isfinite(sensor.local_x) && std::isfinite(sensor.local_y) &&
            std::isfinite(sensor.local_z) && std::isfinite(sensor.local_vx) &&
            std::isfinite(sensor.local_vy) && std::isfinite(sensor.local_vz) &&
@@ -72,6 +98,9 @@ inline bool areSensorsAllActive(const SensorData& sensor) {
 }
 
 inline bool areSensorsReady(const SensorData& sensor, TrackingBackend backend) {
+    if (!areCanonicalPosesReady(sensor)) {
+        return false;
+    }
     if (!trackingUsesFusedEstimate(backend)) {
         return arePassThroughSensorsActive(sensor);
     }

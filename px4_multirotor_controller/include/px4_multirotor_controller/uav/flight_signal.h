@@ -27,6 +27,14 @@ enum class FlightSignal : uint32_t {
     VelocityZ = event_type::SAFE_VELOCITY_Z_EXCEEDED,
     SaturationXY = event_type::SAFE_CONTROL_SATURATION_XY,
     SaturationZ = event_type::SAFE_CONTROL_SATURATION_Z,
+    VrpnJump = event_type::SAFE_VRPN_POSITION_JUMP,
+    LocalJump = event_type::SAFE_POSITION_JUMP,
+    TimeoutVrpnPose = event_type::SAFE_TIMEOUT_VRPN_POSE,
+    VrpnPoseInvalid = event_type::SAFE_VRPN_POSE_INVALID,
+    LocalPoseInvalid = event_type::SAFE_LOCAL_POSE_INVALID,
+    MocapGrossBounds = event_type::SAFE_MOCAP_GROSS_BOUNDS_VIOLATION,
+    LocalGrossBounds = event_type::SAFE_LOCAL_GROSS_BOUNDS_VIOLATION,
+    AlignedPoseError = event_type::SAFE_ALIGNED_POSE_ERROR_EXCEEDED,
 };
 
 }  // namespace px4_multirotor_controller

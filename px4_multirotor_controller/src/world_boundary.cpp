@@ -21,12 +21,81 @@ void requireKeys(const Json::Value& value, const std::set<std::string>& expected
     }
 }
 
+void validateKeys(const Json::Value& value, const std::set<std::string>& required,
+                  const std::set<std::string>& optional) {
+    if (!value.isObject()) {
+        throw std::invalid_argument(
+            "world_boundary_json requires the complete worldBoundary object or null");
+    }
+    const auto names = value.getMemberNames();
+    const std::set<std::string> present(names.begin(), names.end());
+    for (const auto& key : required) {
+        if (present.count(key) == 0) {
+            throw std::invalid_argument("world_boundary_json has missing required field: " + key);
+        }
+    }
+    for (const auto& key : present) {
+        if (required.count(key) == 0 && optional.count(key) == 0) {
+            throw std::invalid_argument("world_boundary_json has unknown field: " + key);
+        }
+    }
+}
+
 double finiteNumber(const Json::Value& value) {
     if (!value.isNumeric() || !std::isfinite(value.asDouble())) {
         throw std::invalid_argument(
             "world_boundary_json endpoints and groundZ must be finite numbers");
     }
     return value.asDouble();
+}
+
+WorldControlBounds parseAxisBounds(const Json::Value& bounds) {
+    requireKeys(bounds, {"xMin", "xMax", "yMin", "yMax", "zMin", "zMax"});
+    const WorldControlBounds parsed{
+        finiteNumber(bounds["xMin"]), finiteNumber(bounds["xMax"]),
+        finiteNumber(bounds["yMin"]), finiteNumber(bounds["yMax"]),
+        finiteNumber(bounds["zMin"]), finiteNumber(bounds["zMax"])};
+    if (parsed.x_min >= parsed.x_max || parsed.y_min >= parsed.y_max ||
+        parsed.z_min >= parsed.z_max) {
+        throw std::invalid_argument("world_boundary_json requires min < max on all three axes");
+    }
+    return parsed;
+}
+
+WorldVelocityBounds parseVelocityBounds(const Json::Value& bounds) {
+    requireKeys(bounds, {"vxMin", "vxMax", "vyMin", "vyMax", "vzMin", "vzMax"});
+    const WorldVelocityBounds parsed{
+        finiteNumber(bounds["vxMin"]), finiteNumber(bounds["vxMax"]),
+        finiteNumber(bounds["vyMin"]), finiteNumber(bounds["vyMax"]),
+        finiteNumber(bounds["vzMin"]), finiteNumber(bounds["vzMax"])};
+    if (parsed.vx_min >= parsed.vx_max || parsed.vy_min >= parsed.vy_max ||
+        parsed.vz_min >= parsed.vz_max) {
+        throw std::invalid_argument(
+            "world_boundary_json requires min < max on all three velocity axes");
+    }
+    return parsed;
+}
+
+Json::Value axisBoundsJSON(const WorldControlBounds& bounds) {
+    Json::Value output(Json::objectValue);
+    output["xMin"] = bounds.x_min;
+    output["xMax"] = bounds.x_max;
+    output["yMin"] = bounds.y_min;
+    output["yMax"] = bounds.y_max;
+    output["zMin"] = bounds.z_min;
+    output["zMax"] = bounds.z_max;
+    return output;
+}
+
+Json::Value velocityBoundsJSON(const WorldVelocityBounds& bounds) {
+    Json::Value output(Json::objectValue);
+    output["vxMin"] = bounds.vx_min;
+    output["vxMax"] = bounds.vx_max;
+    output["vyMin"] = bounds.vy_min;
+    output["vyMax"] = bounds.vy_max;
+    output["vzMin"] = bounds.vz_min;
+    output["vzMax"] = bounds.vz_max;
+    return output;
 }
 
 Json::Value boundaryJSON(const std::optional<WorldBoundary>& boundary) {
@@ -38,16 +107,16 @@ Json::Value boundaryJSON(const std::optional<WorldBoundary>& boundary) {
     value["frameId"] = "world";
     value["unit"] = "m";
     value["groundZ"] = boundary->ground_z ? Json::Value(*boundary->ground_z) : Json::Value();
-    value["controlBounds"] = Json::Value();
-    if (boundary->control_bounds) {
-        const auto& bounds = *boundary->control_bounds;
-        auto& output = value["controlBounds"];
-        output["xMin"] = bounds.x_min;
-        output["xMax"] = bounds.x_max;
-        output["yMin"] = bounds.y_min;
-        output["yMax"] = bounds.y_max;
-        output["zMin"] = bounds.z_min;
-        output["zMax"] = bounds.z_max;
+    value["controlBounds"] =
+        boundary->control_bounds ? axisBoundsJSON(*boundary->control_bounds) : Json::Value();
+    if (boundary->control_velocity_bounds) {
+        value["controlVelocityBounds"] = velocityBoundsJSON(*boundary->control_velocity_bounds);
+    }
+    if (boundary->planning_bounds) {
+        value["planningBounds"] = axisBoundsJSON(*boundary->planning_bounds);
+    }
+    if (boundary->planning_velocity_bounds) {
+        value["planningVelocityBounds"] = velocityBoundsJSON(*boundary->planning_velocity_bounds);
     }
     return value;
 }
@@ -75,7 +144,8 @@ std::optional<WorldBoundary> parseWorldBoundary(const std::string& raw) {
     if (value.isNull()) {
         return std::nullopt;
     }
-    requireKeys(value, {"schemaVersion", "frameId", "unit", "controlBounds", "groundZ"});
+    validateKeys(value, {"schemaVersion", "frameId", "unit", "controlBounds", "groundZ"},
+                 {"controlVelocityBounds", "planningBounds", "planningVelocityBounds"});
     const auto& version = value["schemaVersion"];
     if ((version.type() != Json::intValue && version.type() != Json::uintValue) ||
         version.asLargestInt() != 1 || !value["frameId"].isString() ||
@@ -88,18 +158,17 @@ std::optional<WorldBoundary> parseWorldBoundary(const std::string& raw) {
     if (!value["groundZ"].isNull()) {
         result.ground_z = finiteNumber(value["groundZ"]);
     }
-    const auto& bounds = value["controlBounds"];
-    if (!bounds.isNull()) {
-        requireKeys(bounds, {"xMin", "xMax", "yMin", "yMax", "zMin", "zMax"});
-        result.control_bounds =
-            WorldControlBounds{finiteNumber(bounds["xMin"]), finiteNumber(bounds["xMax"]),
-                               finiteNumber(bounds["yMin"]), finiteNumber(bounds["yMax"]),
-                               finiteNumber(bounds["zMin"]), finiteNumber(bounds["zMax"])};
-        const auto& checked = *result.control_bounds;
-        if (checked.x_min >= checked.x_max || checked.y_min >= checked.y_max ||
-            checked.z_min >= checked.z_max) {
-            throw std::invalid_argument("world_boundary_json requires min < max on all three axes");
-        }
+    if (!value["controlBounds"].isNull()) {
+        result.control_bounds = parseAxisBounds(value["controlBounds"]);
+    }
+    if (value.isMember("controlVelocityBounds") && !value["controlVelocityBounds"].isNull()) {
+        result.control_velocity_bounds = parseVelocityBounds(value["controlVelocityBounds"]);
+    }
+    if (value.isMember("planningBounds") && !value["planningBounds"].isNull()) {
+        result.planning_bounds = parseAxisBounds(value["planningBounds"]);
+    }
+    if (value.isMember("planningVelocityBounds") && !value["planningVelocityBounds"].isNull()) {
+        result.planning_velocity_bounds = parseVelocityBounds(value["planningVelocityBounds"]);
     }
     return result;
 }

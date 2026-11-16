@@ -48,6 +48,22 @@ const HealthMonitorState::PositionDistance& DroneController::getPositionDistance
     return flight_->positionDistance();
 }
 
+const HealthMonitorState::SafetyTriggerEvidence& DroneController::getLastSafetyTrigger() const {
+    return flight_->lastSafetyTrigger();
+}
+
+bool DroneController::isLocalPositionFaulted() const {
+    return flight_->isLocalPositionFaulted();
+}
+
+uint64_t DroneController::getMocapStampAnomalyCount() const {
+    return flight_->mocapStampAnomalyCount();
+}
+
+uint64_t DroneController::getLocalStampAnomalyCount() const {
+    return flight_->localStampAnomalyCount();
+}
+
 const std::vector<uint32_t>& DroneController::flightDiagnosticEvents() const {
     return flight_->diagnosticEvents();
 }

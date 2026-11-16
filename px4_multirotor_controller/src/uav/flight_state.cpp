@@ -71,7 +71,11 @@ void FlightRuntime::selectSignal(FlightSignal signal) {
 
 std::optional<FlightSpec::Outcome> FlightRuntime::normalPreemption() {
     // Rule order of the existing Normal parent; sensor edges precede Land.
-    constexpr std::array<FlightSignal, 11> safety_order = {
+    constexpr std::array<FlightSignal, 19> safety_order = {
+        FlightSignal::VrpnPoseInvalid, FlightSignal::LocalPoseInvalid,
+        FlightSignal::MocapGrossBounds, FlightSignal::LocalGrossBounds,
+        FlightSignal::VrpnJump, FlightSignal::LocalJump,
+        FlightSignal::AlignedPoseError, FlightSignal::TimeoutVrpnPose,
         FlightSignal::Geofence, FlightSignal::VelocityXY, FlightSignal::VelocityZ,
         FlightSignal::SaturationXY, FlightSignal::SaturationZ, FlightSignal::EstimateUnusable,
         FlightSignal::TimeoutEstimate, FlightSignal::TimeoutLocalPosition,
@@ -79,6 +83,13 @@ std::optional<FlightSpec::Outcome> FlightRuntime::normalPreemption() {
     for (const auto signal : safety_order) {
         if (hasSignal(signal)) {
             selectSignal(signal);
+            const auto& ev = health_.lastSafetyTrigger();
+            controller_.logError(
+                "[FlightRuntime] Emergency Landing triggered: signal=%u reason=%s "
+                "measured=%.4f threshold=%.4f dt_s=%.4f",
+                static_cast<unsigned>(signal),
+                ev.triggered ? ev.reason.c_str() : "flight_signal",
+                ev.measured, ev.threshold, ev.dt_s);
             return FlightSpec::Outcome{Enter{LandingState(controller_)}};
         }
     }
@@ -90,10 +101,7 @@ std::optional<FlightSpec::Outcome> FlightRuntime::normalPreemption() {
 }
 
 std::optional<FlightSpec::Outcome> FlightRuntime::takeoffPreemption() {
-    if (auto normal = normalPreemption()) return normal;
-    if (health_.positionDistance().exceeded)
-        return FlightSpec::Outcome{Enter{LandingState(controller_)}};
-    return std::nullopt;
+    return normalPreemption();
 }
 
 bool FlightRuntime::update() {
@@ -185,6 +193,22 @@ const HealthMonitorState::PositionDistance& FlightRuntime::positionDistance() co
     return health_.positionDistance();
 }
 
+const HealthMonitorState::SafetyTriggerEvidence& FlightRuntime::lastSafetyTrigger() const {
+    return health_.lastSafetyTrigger();
+}
+
+bool FlightRuntime::isLocalPositionFaulted() const {
+    return health_.isLocalPositionFaulted();
+}
+
+uint64_t FlightRuntime::mocapStampAnomalyCount() const {
+    return health_.mocapStampAnomalyCount();
+}
+
+uint64_t FlightRuntime::localStampAnomalyCount() const {
+    return health_.localStampAnomalyCount();
+}
+
 FlightState FlightRuntime::flightState() const {
     return std::visit([](const auto& state) {
         using S = std::decay_t<decltype(state)>;
@@ -208,16 +232,16 @@ FlightSpec::Outcome FlightSpec::handle(SelfCheckState&, const FlightChoose&, Fli
 }
 
 FlightSpec::Outcome FlightSpec::handle(ReadyState&, const FlightChoose&, FlightRuntime& rt) {
-    if (auto normal = rt.normalPreemption()) return std::move(*normal);
     const auto& sensor = rt.controller_.getSensorData();
     const auto backend = rt.controller_.getConfig().tracking_backend;
     if (sensor_checks::isAirborne(sensor, backend)) return Enter{LandingState(rt.controller_)};
-    const auto& distance = rt.health_.positionDistance();
-    if (rt.hasCommand(FlightCommand::Takeoff) && distance.available && !distance.exceeded) {
+    if (!sensor_checks::areSensorsReady(sensor, backend) || rt.health_.isPoseTimedOut())
+        return Enter{SelfCheckState(rt.controller_)};
+    if (rt.hasCommand(FlightCommand::Takeoff)) {
         rt.selected_command_ = true;
+        rt.health_.resetSafetyLatches();
         return Enter{TakeoffInitState(rt.controller_)};
     }
-    if (!sensor_checks::areSensorsReady(sensor, backend)) return Enter{SelfCheckState(rt.controller_)};
     return Stay{};
 }
 
@@ -278,7 +302,6 @@ FlightSpec::Outcome FlightSpec::handle(TakeoffAscendingState&, const FlightChoos
 
 FlightSpec::Outcome FlightSpec::handle(HoverState&, const FlightChoose&, FlightRuntime& rt) {
     if (auto normal = rt.normalPreemption()) return std::move(*normal);
-    if (rt.health_.positionDistance().exceeded) return Enter{LandingState(rt.controller_)};
     if (rt.hasCommand(FlightCommand::Track) && rt.controller_.custom1ReferenceReady()) {
         rt.selected_command_ = true;
         return Enter{Custom1State(rt.controller_)};
@@ -290,7 +313,6 @@ FlightSpec::Outcome FlightSpec::handle(HoverState&, const FlightChoose&, FlightR
 
 FlightSpec::Outcome FlightSpec::handle(Custom1State&, const FlightChoose&, FlightRuntime& rt) {
     if (auto normal = rt.normalPreemption()) return std::move(*normal);
-    if (rt.health_.positionDistance().exceeded) return Enter{LandingState(rt.controller_)};
     if (rt.hasCommand(FlightCommand::Hover)) {
         rt.selected_command_ = true;
         return Enter{HoverState(rt.controller_)};

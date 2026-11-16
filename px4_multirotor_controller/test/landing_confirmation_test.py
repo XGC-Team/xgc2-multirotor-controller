@@ -34,9 +34,14 @@ struct Stats { bool is_active{true}; bool is_new{true}; };
 struct SensorData {
     Stats local_pos_stats, local_velocity_stats, uav_state_estimate_stats, state_stats;
     bool fcu_connected{true}, fcu_armed{true};
-    double local_z{2}, local_vz{0}, z{2}, vz{0};
+    bool local_pose_invalid{false};
+    std::optional<double> last_valid_local_rx_s;
+    double local_x{0}, local_y{0}, local_z{2}, local_vz{0}, z{2}, vz{0};
 };
-struct Config { TrackingBackend tracking_backend{TrackingBackend::PX4_LOCAL}; };
+struct Config {
+    TrackingBackend tracking_backend{TrackingBackend::PX4_LOCAL};
+    struct Safety { double pose_stale_timeout_s{2.0}; } safety;
+};
 struct Setpoint {
     uint16_t type_mask{0};
     double x{0}, y{0}, z{0}, vx{0}, vy{0}, vz{0}, ax{0}, ay{0}, az{0};
@@ -61,6 +66,8 @@ struct DroneController {
     void emitFlightSignal(FlightSignal signal) { signals.push_back(signal); }
     void emitFlightEffect(FlightEffect effect) { outputs.push_back(std::move(effect)); }
     void clearCustom1Request() {}
+    bool local_faulted{false};
+    bool isLocalPositionFaulted() const { return local_faulted; }
     const SensorData& getSensorData() const { return sensor; }
     const Config& getConfig() const { return config; }
     Setpoint& getSetpoint() { return setpoint; }
@@ -189,7 +196,7 @@ void testNoCompletionFromInvalidFeedback() {
 void testFusedFeedbackAndReentry() {
     DroneController controller;
     controller.config.tracking_backend = TrackingBackend::NMPC;
-    controller.sensor.local_pos_stats.is_active = false;
+    controller.sensor.local_pos_stats.is_active = true;
     TestLanding landing(controller);
     landing.onEnter();
     settle(landing, controller);
@@ -209,11 +216,35 @@ void testFusedFeedbackAndReentry() {
     landing.onExit();
     assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
 }
+void testFaultedLocalPositionFreezesDescentAndBlocksDisarm() {
+    DroneController controller;
+    controller.sensor.local_z = 0.05;
+    controller.sensor.local_vz = 0.0;
+    controller.sensor.local_pose_invalid = true;
+    TestLanding landing(controller);
+    landing.onEnter();
+    assert(controller.setpoint.vz == -0.2);
+    for (int i = 0; i < 8; ++i) tick(landing, controller);
+    assert(controller.setpoint.vz == -0.2);
+    assert(count(controller.outputs, output_event_type::REQUEST_ARMING) == 0);
+    controller.sensor.fcu_armed = false;
+    tick(landing, controller);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
+
+    // Stale local pose via last_valid_local_rx_s also freezes -0.2 and blocks disarm.
+    controller.sensor.local_pose_invalid = false;
+    controller.sensor.last_valid_local_rx_s = 1.0;
+    controller.now = 3.5;  // elapsed = 2.5 >= 2.0
+    tick(landing, controller);
+    assert(controller.setpoint.vz == -0.2);
+    assert(count(controller.signals, event_type::TOUCHDOWN) == 0);
+}
 int main() {
     testTimeoutAndLateDisarmConfirmation();
     testNoCompletionFromInvalidFeedback();
     testFusedFeedbackAndReentry();
-    std::cout << "Landing timeout, normal-disarm confirmation, stale feedback, and reentry passed\n";
+    testFaultedLocalPositionFreezesDescentAndBlocksDisarm();
+    std::cout << "Landing timeout, normal-disarm confirmation, faulted local freeze, and reentry passed\n";
 }
 '''
 

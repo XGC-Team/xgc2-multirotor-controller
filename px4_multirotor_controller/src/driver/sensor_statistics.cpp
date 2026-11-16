@@ -1,5 +1,6 @@
 #include "px4_multirotor_controller/driver/sensor_statistics.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace px4_multirotor_controller {
@@ -11,6 +12,16 @@ Time nextDeadline(const Time& deadline, const Time& now, uint64_t period_ns) {
     const uint64_t remaining_ns = period_ns - (now_ns - deadline.toNSec()) % period_ns;
     return Time().fromNSec(now_ns + remaining_ns);
 }
+
+bool isPoseStreamIndex(std::size_t index) {
+    return index == static_cast<std::size_t>(SensorStream::LocalPose) ||
+           index == static_cast<std::size_t>(SensorStream::Pose);
+}
+
+constexpr std::array<std::size_t, 2> kPoseStreamIndices{
+    static_cast<std::size_t>(SensorStream::LocalPose),
+    static_cast<std::size_t>(SensorStream::Pose),
+};
 }  // namespace
 
 SensorStatistics::SensorStatistics(SensorData& s)
@@ -18,6 +29,12 @@ SensorStatistics::SensorStatistics(SensorData& s)
              {&s.local_velocity_stats, {}, {}, {}}, {&s.imu_stats, {}, {}, {}},
              {&s.state_stats, {}, {}, {}}, {&s.battery_stats, {}, {}, {}},
              {&s.vrpn_pose_stats, {}, {}, {}}}} {}
+
+void SensorStatistics::setPoseStaleTimeout(double timeout_s) {
+    if (std::isfinite(timeout_s) && timeout_s > 0.0) {
+        pose_stale_timeout_s_ = timeout_s;
+    }
+}
 
 void SensorStatistics::start(const Time& now) {
     if (started_) return;
@@ -57,11 +74,30 @@ void SensorStatistics::updateStatistics() {
     }
 }
 void SensorStatistics::updateHeartbeats(const Time& now) {
-    for (auto& track : tracks_) {
+    const Duration pose_timeout(pose_stale_timeout_s_);
+    for (std::size_t i = 0; i < tracks_.size(); ++i) {
+        auto& track = tracks_[i];
         if (track.times.empty()) continue;
         const double elapsed = (now - track.times.back()).toSec();
         track.stats->time_since_last_msg = elapsed;
-        track.stats->is_active = elapsed <= 2.5;
+        if (isPoseStreamIndex(i)) {
+            track.stats->is_active =
+                now < (track.times.back() + pose_timeout) && elapsed < pose_stale_timeout_s_;
+        } else {
+            track.stats->is_active = elapsed <= 2.5;
+        }
+    }
+}
+void SensorStatistics::updatePoseTimeouts(const Time& now) {
+    const Duration pose_timeout(pose_stale_timeout_s_);
+    for (const std::size_t i : kPoseStreamIndices) {
+        auto& track = tracks_[i];
+        if (track.times.empty() || !track.stats->is_active) continue;
+        const double elapsed = (now - track.times.back()).toSec();
+        if (now >= (track.times.back() + pose_timeout) || elapsed >= pose_stale_timeout_s_) {
+            track.stats->time_since_last_msg = elapsed;
+            track.stats->is_active = false;
+        }
     }
 }
 void SensorStatistics::advance(const Time& now) {
@@ -73,11 +109,21 @@ void SensorStatistics::advance(const Time& now) {
     if (now >= next_heartbeat_) {
         updateHeartbeats(now);
         next_heartbeat_ = nextDeadline(next_heartbeat_, now, 1000000000ULL);
+    } else {
+        updatePoseTimeouts(now);
     }
 }
 std::optional<Time> SensorStatistics::nextWake() const {
     if (!started_) return std::nullopt;
-    return std::min(next_stats_, next_heartbeat_);
+    Time due = std::min(next_stats_, next_heartbeat_);
+    const Duration pose_timeout(pose_stale_timeout_s_);
+    for (const std::size_t i : kPoseStreamIndices) {
+        const auto& track = tracks_[i];
+        if (track.stats->is_active && !track.times.empty()) {
+            due = std::min(due, track.times.back() + pose_timeout);
+        }
+    }
+    return due;
 }
 void SensorStatistics::resetNewFlags() { for (auto& track : tracks_) track.stats->is_new = false; }
 }

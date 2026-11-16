@@ -34,11 +34,32 @@ TEST(ControllerConfiguration, OwningProfileValuesAndValidation) {
     EXPECT_DOUBLE_EQ(config.takeoff_altitude, 2.3); // owning YAML, not C++ default
     EXPECT_DOUBLE_EQ(config.nmpc.control_period, 0.01); // unchanged validation
     EXPECT_TRUE(config.dfbc.acceleration_correction_enabled);
+    EXPECT_EQ(config.pose_source, "simulation");
+    EXPECT_EQ(config.vrpn_pose_topic, "pose");
+    EXPECT_DOUBLE_EQ(config.safety.localization_delay_s, 0.0);
+
+    auto physical_getter = [](const std::string& key, ControllerParameterValue& value) {
+        if (key == "world_boundary_json") { value = std::string("null"); return true; }
+        if (key == "pose_source") { value = std::string("physical"); return true; }
+        return false;
+    };
+    auto physical_config = readControllerConfig(ControllerParameters(physical_getter));
+    EXPECT_EQ(physical_config.pose_source, "physical");
+    EXPECT_EQ(physical_config.vrpn_pose_topic, "mavros/vision_pose/pose");
+    EXPECT_DOUBLE_EQ(physical_config.safety.localization_delay_s, 0.050);
+
+    auto bad_getter = [](const std::string& key, ControllerParameterValue& value) {
+        if (key == "world_boundary_json") { value = std::string("null"); return true; }
+        if (key == "pose_source") { value = std::string("auto"); return true; }
+        return false;
+    };
+    EXPECT_THROW(readControllerConfig(ControllerParameters(bad_getter)), std::invalid_argument);
 }
 TEST(ControllerClock, PausedAndSlowTakeoffUsesUpdateTimeForRequestsAndTimeout) {
     SensorData data;
     data.local_pos_stats.is_active = data.local_velocity_stats.is_active = true;
     data.imu_stats.is_active = data.state_stats.is_active = true;
+    data.vrpn_pose_stats.is_active = true;
     data.local_pos_stats.is_new = data.vrpn_pose_stats.is_new = true;
     data.fcu_connected = true;
     data.fcu_mode = "MANUAL";

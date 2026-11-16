@@ -80,6 +80,7 @@
 #include "px4_multirotor_controller/driver/command_input.h"
 #include "px4_multirotor_controller/driver/controller_config.h"
 #include "px4_multirotor_controller/driver/controller_driver.h"
+#include "px4_multirotor_controller/driver/pose_ingress.h"
 #include "px4_multirotor_controller/driver/trajectory_ingress.h"
 #include "px4_multirotor_controller/nmpc/nmpc_math_utils.h"
 #include "px4_multirotor_controller/payloads.h"
@@ -435,7 +436,7 @@ class ControllerModule {
         }
         const pmc::Time receipt = time(input.view.stamp_ns);
         const double receipt_sec = receipt.toSec();
-        if (input.port < kStatisticsStreams) {
+        if (input.port < kStatisticsStreams && input.port != kLocalPose && input.port != kVrpnPose) {
             rt.driver.statistics().observe(static_cast<pmc::SensorStream>(input.port), receipt);
         }
         pmc::SensorData& sensor = rt.sensor;
@@ -475,13 +476,21 @@ class ControllerModule {
             }
             case kLocalPose: {
                 const auto& m = *static_cast<const xgc2_px4_pose_v1*>(data);
-                sensor.local_x = m.position[0];
-                sensor.local_y = m.position[1];
-                sensor.local_z = m.position[2];
-                sensor.local_qx = m.orientation_xyzw[0];
-                sensor.local_qy = m.orientation_xyzw[1];
-                sensor.local_qz = m.orientation_xyzw[2];
-                sensor.local_qw = m.orientation_xyzw[3];
+                const auto ingress = pmc::ingestLocalPoseSample(
+                    sensor, m.stamp_sec, m.stamp_nsec, receipt_sec, m.position[0], m.position[1],
+                    m.position[2], m.orientation_xyzw[0], m.orientation_xyzw[1],
+                    m.orientation_xyzw[2], m.orientation_xyzw[3]);
+                if (ingress == pmc::PoseIngressResult::RejectedInvalid) {
+                    if (((sensor.local_pose_invalid_count - 1U) % 50U) == 0U) {
+                        log(kLogWarn, "rejected invalid local_pose SE(3) sample (count=" +
+                                          std::to_string(sensor.local_pose_invalid_count) + ")");
+                    }
+                    break;
+                }
+                if (ingress == pmc::PoseIngressResult::AcceptedNonFreshStamp) {
+                    break;
+                }
+                rt.driver.statistics().observe(pmc::SensorStream::LocalPose, receipt);
                 break;
             }
             case kLocalVelocity: {
@@ -518,13 +527,21 @@ class ControllerModule {
             }
             case kVrpnPose: {
                 const auto& m = *static_cast<const xgc2_px4_pose_v1*>(data);
-                sensor.vrpn_x = m.position[0];
-                sensor.vrpn_y = m.position[1];
-                sensor.vrpn_z = m.position[2];
-                sensor.vrpn_qx = m.orientation_xyzw[0];
-                sensor.vrpn_qy = m.orientation_xyzw[1];
-                sensor.vrpn_qz = m.orientation_xyzw[2];
-                sensor.vrpn_qw = m.orientation_xyzw[3];
+                const auto ingress = pmc::ingestVrpnPoseSample(
+                    sensor, m.stamp_sec, m.stamp_nsec, receipt_sec, m.position[0], m.position[1],
+                    m.position[2], m.orientation_xyzw[0], m.orientation_xyzw[1],
+                    m.orientation_xyzw[2], m.orientation_xyzw[3]);
+                if (ingress == pmc::PoseIngressResult::RejectedInvalid) {
+                    if (((sensor.vrpn_pose_invalid_count - 1U) % 50U) == 0U) {
+                        log(kLogWarn, "rejected invalid vrpn_pose SE(3) sample (count=" +
+                                          std::to_string(sensor.vrpn_pose_invalid_count) + ")");
+                    }
+                    break;
+                }
+                if (ingress == pmc::PoseIngressResult::AcceptedNonFreshStamp) {
+                    break;
+                }
+                rt.driver.statistics().observe(pmc::SensorStream::Pose, receipt);
                 break;
             }
             case kCommand: {

@@ -26,6 +26,8 @@ public:
         tracks_.at(static_cast<unsigned>(stream)).effective_frequency = effective_frequency;
     }
     void markValidFrame(SensorStream stream) { ++tracks_.at(static_cast<unsigned>(stream)).valid_frames; }
+    void setPoseStaleTimeout(double timeout_s);
+    double poseStaleTimeout() const { return pose_stale_timeout_s_; }
 private:
     struct Track {
         SensorData::TopicStats* stats;
@@ -37,8 +39,10 @@ private:
     };
     void updateStatistics();
     void updateHeartbeats(const Time& now);
+    void updatePoseTimeouts(const Time& now);
     std::array<Track, static_cast<unsigned>(SensorStream::Count)> tracks_;
     Time next_stats_, next_heartbeat_;
+    double pose_stale_timeout_s_{2.0};
     bool started_{false};
 };
 }

@@ -753,6 +753,9 @@ TEST_F(SmcCustom1RuntimeTest, ConsumerDropsBodyRateAndHoldsFrozenHover) {
     sensor_.local_x += 0.35;
     sensor_.local_y -= 0.2;
     sensor_.local_z += 0.15;
+    sensor_.vrpn_x = sensor_.local_x;
+    sensor_.vrpn_y = sensor_.local_y;
+    sensor_.vrpn_z = sensor_.local_z;
     const int setpoints_before_drift = setpoint_count;
     at(t0 + 2.05);
     publish_current_events();

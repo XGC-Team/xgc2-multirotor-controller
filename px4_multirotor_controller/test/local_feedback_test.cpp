@@ -13,6 +13,7 @@ namespace {
 void localReady(SensorData& sensor) {
     sensor.feedback_source = FeedbackSource::MAVROS_LOCAL;
     sensor.local_pos_stats.is_active = sensor.local_velocity_stats.is_active = true;
+    sensor.vrpn_pose_stats.is_active = true;
     sensor.imu_stats.is_active = sensor.state_stats.is_active = true;
     sensor.local_qw = 1.0;
     BodyInertialInput imu;
@@ -97,6 +98,17 @@ TEST(LocalFeedback, HealthUsesSelectedSourceAndDoesNotInventRseHealth) {
     EXPECT_FALSE(sensor_checks::areSensorsReady(sensor, TrackingBackend::DFBC));
     sensor.uav_state_estimator_flags = 0;
     EXPECT_TRUE(sensor_checks::areSensorsReady(sensor, TrackingBackend::DFBC));
+
+    sensor.vrpn_pose_invalid = true;
+    EXPECT_FALSE(sensor_checks::areSensorsReady(sensor, TrackingBackend::DFBC));
+    EXPECT_FALSE(sensor_checks::areSensorsReady(sensor, TrackingBackend::PX4_LOCAL));
+    sensor.vrpn_pose_invalid = false;
+    sensor.local_pose_invalid = true;
+    EXPECT_FALSE(sensor_checks::areSensorsReady(sensor, TrackingBackend::DFBC));
+    EXPECT_FALSE(sensor_checks::areSensorsReady(sensor, TrackingBackend::PX4_LOCAL));
+    sensor.local_pose_invalid = false;
+    sensor.vrpn_pose_stats.is_active = false;
+    EXPECT_FALSE(sensor_checks::areSensorsReady(sensor, TrackingBackend::PX4_LOCAL));
 }
 
 TEST(LocalFeedback, PositionVelocityAndQuaternionUseOneSelectedSource) {

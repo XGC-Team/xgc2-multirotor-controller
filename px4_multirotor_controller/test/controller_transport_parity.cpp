@@ -150,9 +150,9 @@ TEST(ControllerTransports, SameMessagesGiveTheSameStateStampHeartbeatAndStop) {
     tick(102.0, false);
     EXPECT_EQ(host.lastReportDetail(), "Ready");
     tick(102.6, false);
-    EXPECT_EQ(host.lastReportDetail(), "Ready");
+    EXPECT_EQ(host.lastReportDetail(), "SelfCheck");
     tick(103.0, false);
-    EXPECT_EQ(host.lastReportDetail(), "Landing");  // the original SAFE_TIMEOUT_STATE wins
+    EXPECT_EQ(host.lastReportDetail(), "SelfCheck");
     ASSERT_EQ(host.stop(), XGC2_OK);
     ros_driver.stop();
     EXPECT_EQ(host.step(), XGC2_ERR_STATE);
@@ -179,6 +179,9 @@ TEST(ControllerTransports, EachDeliveredImuIsConsumedOnceEvenInOneCallbackBatch)
         driver.statistics().observe(stream, Time(100.0));
     driver.update(Time(100.0));
     ASSERT_EQ(driver.controller().flightState(), FlightState::Ready);
+    ASSERT_TRUE(driver.controller().postCommand(FlightCommand::Takeoff, 100.0));
+    driver.update(Time(100.005));
+    ASSERT_EQ(driver.controller().flightState(), FlightState::TakeoffInit);
     driver.statistics().resetNewFlags();
 
     auto imu = nh.advertise<sensor_msgs::Imu>("mavros/imu/data", 20);
@@ -373,6 +376,7 @@ TEST(ControllerTransports, RosLocalPvUsesActualExactTimePairs) {
     position.header.stamp = ros::Time(100, 20);
     position.pose.position.x = 3.0;
     position.pose.position.z = 1.2;
+    position.pose.orientation.w = 1.0;
     geometry_msgs::TwistStamped speed;
     speed.header.stamp = ros::Time(100, 21);
     speed.twist.linear.x = 9.0;
@@ -423,6 +427,7 @@ TEST(ControllerTransports, RosDiagnosticsKeepDistinctFactsWithoutEmptyTurns) {
     SensorData data;
     data.local_pos_stats.is_active = data.local_velocity_stats.is_active = true;
     data.imu_stats.is_active = data.state_stats.is_active = true;
+    data.vrpn_pose_stats.is_active = true;
     data.local_pos_stats.is_new = data.vrpn_pose_stats.is_new = true;
     data.local_z = data.vrpn_z = 1.0;
     data.fcu_connected = true;
@@ -460,14 +465,14 @@ TEST(ControllerTransports, RosDiagnosticsKeepDistinctFactsWithoutEmptyTurns) {
 
     controller.update(100.0);  // The real SelfCheck -> Ready guard.
     publishEffects();
-    waitForCount(1);
+    ASSERT_NO_FATAL_FAILURE(waitForCount(1));
     EXPECT_EQ(received[0], (std::vector<uint32_t>{0}));
 
     ASSERT_TRUE(controller.postCommand(FlightCommand::Takeoff, 100.01));
     ASSERT_TRUE(controller.postCommand(FlightCommand::Takeoff, 100.01));
     controller.update(100.01);
     publishEffects();
-    waitForCount(2);
+    ASSERT_NO_FATAL_FAILURE(waitForCount(2));
     EXPECT_EQ(received[1], (std::vector<uint32_t>{event_type::TAKEOFF_REQUESTED,
                                                   event_type::TAKEOFF_REQUESTED}));
 
@@ -481,17 +486,229 @@ TEST(ControllerTransports, RosDiagnosticsKeepDistinctFactsWithoutEmptyTurns) {
     data.state_stats.is_new = true;
     controller.update(100.03);  // The actual ALTCTL_READY completion.
     publishEffects();
-    waitForCount(3);
+    ASSERT_NO_FATAL_FAILURE(waitForCount(3));
     EXPECT_EQ(received[2], (std::vector<uint32_t>{event_type::ALTCTL_READY}));
 
     ASSERT_TRUE(controller.postCommand(FlightCommand::Land, 100.04));
     ASSERT_TRUE(controller.postCommand(FlightCommand::Track, 100.04));
     controller.update(100.04);
     publishEffects();
-    waitForCount(4);
+    ASSERT_NO_FATAL_FAILURE(waitForCount(4));
     EXPECT_EQ(received[3], (std::vector<uint32_t>{event_type::LANDING_REQUESTED,
                                                   event_type::TRAJECTORY_TRACKING_REQUESTED}));
     worker.stop();
+}
+
+TEST(ControllerTransports, VisionPoseNoFallbackAndSingleCanonicalInvalidLandsImmediately) {
+    ros::Time::setNow(ros::Time(200.0));
+    ros::CallbackQueue queue;
+    ros::NodeHandle nh("vision_pose_invalid_e2e");
+    nh.setCallbackQueue(&queue);
+
+    SensorData data;
+    ControllerDriver driver(data);
+    ControllerParameters parameters([](const std::string& key, ControllerParameterValue& out) {
+        if (key == "world_boundary_json") {
+            out = std::string("null");
+            return true;
+        }
+        if (key == "tracking_backend") {
+            out = std::string("px4_local");
+            return true;
+        }
+        if (key == "pose_source") {
+            out = std::string("physical");
+            return true;
+        }
+        return false;
+    });
+    const auto cfg = readControllerConfig(parameters);
+    EXPECT_EQ(cfg.vrpn_pose_topic, "mavros/vision_pose/pose");
+    EXPECT_DOUBLE_EQ(cfg.safety.localization_delay_s, 0.050);
+    driver.controller().setConfig(cfg);
+    ros1_utils::PositionQualityStats quality;
+    SensorInputProducer producer(nh, data, quality, driver.statistics(), 20, [] {}, &driver);
+    producer.setVrpnPoseTopic(cfg.vrpn_pose_topic);
+    producer.start();
+    driver.start(Time(200.0));
+
+    auto local = nh.advertise<geometry_msgs::PoseStamped>("mavros/local_position/pose", 20);
+    auto pose = nh.advertise<geometry_msgs::PoseStamped>("pose", 20);
+    auto vision = nh.advertise<geometry_msgs::PoseStamped>("mavros/vision_pose/pose", 20);
+    auto velocity =
+        nh.advertise<geometry_msgs::TwistStamped>("mavros/local_position/velocity_local", 20);
+    auto imu = nh.advertise<sensor_msgs::Imu>("mavros/imu/data", 20);
+    auto state = nh.advertise<mavros_msgs::State>("mavros/state", 20);
+    const auto deadline = ros::WallTime::now() + ros::WallDuration(3.0);
+    while ((!local.getNumSubscribers() || !vision.getNumSubscribers() ||
+            !velocity.getNumSubscribers() || !imu.getNumSubscribers() ||
+            !state.getNumSubscribers()) &&
+           ros::WallTime::now() < deadline) {
+        queue.callAvailable(ros::WallDuration(0.01));
+    }
+    ASSERT_TRUE(local.getNumSubscribers() && vision.getNumSubscribers() &&
+                velocity.getNumSubscribers() && imu.getNumSubscribers() &&
+                state.getNumSubscribers());
+    EXPECT_EQ(pose.getNumSubscribers(), 0U);  // Zero hidden subscription on "pose".
+
+    geometry_msgs::PoseStamped lp;
+    lp.header.stamp = ros::Time(200.0);
+    lp.pose.position.x = 1.0;
+    lp.pose.position.y = 2.0;
+    lp.pose.position.z = 1.0;
+    lp.pose.orientation.w = 1.0;
+    geometry_msgs::TwistStamped lv;
+    lv.header.stamp = lp.header.stamp;
+    sensor_msgs::Imu im;
+    im.header.stamp = lp.header.stamp;
+    im.orientation.w = 1.0;
+    im.linear_acceleration.z = 9.8066;
+    mavros_msgs::State st;
+    st.header.stamp = lp.header.stamp;
+    st.connected = true;
+    st.mode = "MANUAL";
+
+    local.publish(lp);
+    velocity.publish(lv);
+    imu.publish(im);
+    state.publish(st);
+    pose.publish(lp);  // Silent vision_pose must NOT fall back to "pose".
+    const auto rx_deadline = ros::WallTime::now() + ros::WallDuration(2.0);
+    while (!(data.local_pos_stats.is_new && data.local_velocity_stats.is_new &&
+             data.imu_stats.is_new && data.state_stats.is_new) &&
+           ros::WallTime::now() < rx_deadline) {
+        queue.callAvailable(ros::WallDuration(0.01));
+    }
+    driver.update(Time(200.0));
+    EXPECT_EQ(driver.controller().flightState(), FlightState::SelfCheck);
+    EXPECT_TRUE(driver.controller().postCommand(FlightCommand::Takeoff, 200.0));
+    driver.update(Time(200.01));
+    EXPECT_EQ(driver.controller().flightState(), FlightState::SelfCheck);
+
+    // Now supply valid mavros/vision_pose/pose -> Ready -> TakeoffInit -> Hover.
+    auto vp = lp;
+    vp.header.stamp = ros::Time(200.05);
+    ros::Time::setNow(ros::Time(200.05));
+    vision.publish(vp);
+    const auto v_deadline = ros::WallTime::now() + ros::WallDuration(2.0);
+    while (!data.vrpn_pose_stats.is_new && ros::WallTime::now() < v_deadline) {
+        queue.callAvailable(ros::WallDuration(0.01));
+    }
+    ASSERT_TRUE(data.vrpn_pose_stats.is_new);
+    driver.update(Time(200.05));
+    ASSERT_EQ(driver.controller().flightState(), FlightState::Ready);
+    ASSERT_TRUE(driver.controller().postCommand(FlightCommand::Takeoff, 200.05));
+    driver.update(Time(200.06));
+    ASSERT_EQ(driver.controller().flightState(), FlightState::TakeoffInit);
+
+    // Emit ONE Canonical Invalid all-7 qNaN PoseStamped on mavros/vision_pose/pose.
+    ros::Time::setNow(ros::Time(200.10));
+    driver.statistics().resetNewFlags();
+    geometry_msgs::PoseStamped qnan_pose;
+    qnan_pose.header.stamp = ros::Time(200.10);
+    const double qnan = std::numeric_limits<double>::quiet_NaN();
+    qnan_pose.pose.position.x = qnan;
+    qnan_pose.pose.position.y = qnan;
+    qnan_pose.pose.position.z = qnan;
+    qnan_pose.pose.orientation.x = qnan;
+    qnan_pose.pose.orientation.y = qnan;
+    qnan_pose.pose.orientation.z = qnan;
+    qnan_pose.pose.orientation.w = qnan;
+    vision.publish(qnan_pose);
+    const auto bad_deadline = ros::WallTime::now() + ros::WallDuration(2.0);
+    while (data.vrpn_pose_invalid_count == 0 && ros::WallTime::now() < bad_deadline) {
+        queue.callAvailable(ros::WallDuration(0.01));
+    }
+    ASSERT_EQ(data.vrpn_pose_invalid_count, 1U);
+    EXPECT_TRUE(data.vrpn_pose_invalid);
+    EXPECT_FALSE(data.vrpn_pose_stats.is_new);
+    // Preserved last_valid vrpn coordinates!
+    EXPECT_DOUBLE_EQ(data.vrpn_x, 1.0);
+    EXPECT_DOUBLE_EQ(data.vrpn_y, 2.0);
+    EXPECT_DOUBLE_EQ(data.vrpn_z, 1.0);
+    EXPECT_DOUBLE_EQ(data.vrpn_qw, 1.0);
+
+    driver.update(Time(200.10));
+    EXPECT_EQ(driver.controller().flightState(), FlightState::Landing);
+    EXPECT_EQ(driver.controller().getLastSafetyTrigger().event_id,
+              event_type::SAFE_VRPN_POSE_INVALID);
+
+    // Also prove an invalid (qNaN) -> valid 2-frame burst coalesced before ONE turn
+    // still triggers immediate Landing via the real ROS producer + pose_source=physical.
+    driver.stop();
+    SensorData burst_data;
+    ControllerDriver burst_driver(burst_data);
+    burst_driver.controller().setConfig(cfg);
+    ros1_utils::PositionQualityStats burst_quality;
+    ros::CallbackQueue burst_queue;
+    ros::NodeHandle burst_nh("vision_pose_invalid_valid_batch");
+    burst_nh.setCallbackQueue(&burst_queue);
+    SensorInputProducer burst_producer(burst_nh, burst_data, burst_quality,
+                                       burst_driver.statistics(), 20, [] {}, &burst_driver);
+    burst_producer.setVrpnPoseTopic(cfg.vrpn_pose_topic);
+    burst_producer.start();
+    burst_driver.start(Time(300.0));
+    auto b_local = burst_nh.advertise<geometry_msgs::PoseStamped>("mavros/local_position/pose", 20);
+    auto b_vision = burst_nh.advertise<geometry_msgs::PoseStamped>("mavros/vision_pose/pose", 20);
+    auto b_vel = burst_nh.advertise<geometry_msgs::TwistStamped>("mavros/local_position/velocity_local", 20);
+    auto b_imu = burst_nh.advertise<sensor_msgs::Imu>("mavros/imu/data", 20);
+    auto b_state = burst_nh.advertise<mavros_msgs::State>("mavros/state", 20);
+    const auto b_conn = ros::WallTime::now() + ros::WallDuration(3.0);
+    while ((!b_local.getNumSubscribers() || !b_vision.getNumSubscribers() ||
+            !b_vel.getNumSubscribers() || !b_imu.getNumSubscribers() ||
+            !b_state.getNumSubscribers()) &&
+           ros::WallTime::now() < b_conn) {
+        burst_queue.callAvailable(ros::WallDuration(0.01));
+    }
+    ASSERT_TRUE(b_local.getNumSubscribers() && b_vision.getNumSubscribers() &&
+                b_vel.getNumSubscribers() && b_imu.getNumSubscribers() &&
+                b_state.getNumSubscribers());
+
+    ros::Time::setNow(ros::Time(300.0));
+    lp.header.stamp = ros::Time(300.0);
+    lv.header.stamp = lp.header.stamp;
+    im.header.stamp = lp.header.stamp;
+    st.header.stamp = lp.header.stamp;
+    vp = lp;
+    vp.header.stamp = ros::Time(300.05);
+    b_local.publish(lp);
+    b_vel.publish(lv);
+    b_imu.publish(im);
+    b_state.publish(st);
+    b_vision.publish(vp);
+    const auto b_rx = ros::WallTime::now() + ros::WallDuration(2.0);
+    while (!(burst_data.local_pos_stats.is_new && burst_data.vrpn_pose_stats.is_new &&
+             burst_data.local_velocity_stats.is_new && burst_data.imu_stats.is_new &&
+             burst_data.state_stats.is_new) &&
+           ros::WallTime::now() < b_rx) {
+        burst_queue.callAvailable(ros::WallDuration(0.01));
+    }
+    burst_driver.update(Time(300.05));
+    ASSERT_EQ(burst_driver.controller().flightState(), FlightState::Ready);
+    ASSERT_TRUE(burst_driver.controller().postCommand(FlightCommand::Takeoff, 300.05));
+    burst_driver.update(Time(300.06));
+    ASSERT_EQ(burst_driver.controller().flightState(), FlightState::TakeoffInit);
+
+    // Burst: qNaN invalid frame followed immediately by a good valid frame BEFORE update().
+    ros::Time::setNow(ros::Time(300.10));
+    burst_driver.statistics().resetNewFlags();
+    qnan_pose.header.stamp = ros::Time(300.10);
+    auto good_after_bad = lp;
+    good_after_bad.header.stamp = ros::Time(300.11);
+    b_vision.publish(qnan_pose);
+    b_vision.publish(good_after_bad);
+    const auto b_burst_rx = ros::WallTime::now() + ros::WallDuration(2.0);
+    while ((burst_data.vrpn_pose_invalid_count == 0 || !burst_data.vrpn_pose_stats.is_new) &&
+           ros::WallTime::now() < b_burst_rx) {
+        burst_queue.callAvailable(ros::WallDuration(0.01));
+    }
+    ASSERT_EQ(burst_data.vrpn_pose_invalid_count, 1U);
+    ASSERT_FALSE(burst_data.vrpn_pose_invalid);
+    burst_driver.update(Time(300.11));
+    EXPECT_EQ(burst_driver.controller().flightState(), FlightState::Landing);
+    EXPECT_EQ(burst_driver.controller().getLastSafetyTrigger().event_id,
+              event_type::SAFE_VRPN_POSE_INVALID);
+    burst_driver.stop();
 }
 
 int main(int argc, char** argv) {
