@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <string>
 #include <utility>
 
@@ -44,11 +45,15 @@ void TakeoffInitState::configureTakeoffSetpoint() {
 
     const double configured_target_altitude = controller_.getConfig().takeoff_altitude;
     target_altitude_ = std::max(configured_target_altitude, initial_altitude_);
+    controller_.setTakeoffAltitudePlan(initial_altitude_, target_altitude_);
+    const auto explicit_vz_max = controller_.explicitTakeoffVzMax();
 
     Setpoint& setpoint = controller_.getSetpoint();
     setpoint.x = sensor_checks::worldX(sensor_data, backend);
     setpoint.y = sensor_checks::worldY(sensor_data, backend);
-    setpoint.z = target_altitude_;
+    setpoint.z = explicit_vz_max.has_value()
+                     ? (std::isfinite(initial_altitude_) ? initial_altitude_ : target_altitude_)
+                     : target_altitude_;
     setpoint.vx = 0.0;
     setpoint.vy = 0.0;
     setpoint.vz = 0.0;
@@ -60,7 +65,15 @@ void TakeoffInitState::configureTakeoffSetpoint() {
     setpoint.qz = 0.0;
     setpoint.qw = 1.0;
     setpoint.yaw_rate = 0.0;
-    setpoint.type_mask = TAKEOFF_POSITION_TYPE_MASK;
+    setpoint.type_mask = explicit_vz_max.has_value() ? kHoverPositionVelocityTypeMask
+                                                     : TAKEOFF_POSITION_TYPE_MASK;
+    if (explicit_vz_max.has_value() && controller_.getConfig().enable_yaw_control) {
+        setpoint.qx = sensor_checks::worldQx(sensor_data, backend);
+        setpoint.qy = sensor_checks::worldQy(sensor_data, backend);
+        setpoint.qz = sensor_checks::worldQz(sensor_data, backend);
+        setpoint.qw = sensor_checks::worldQw(sensor_data, backend);
+        setpoint.type_mask &= ~kIgnoreYawBit;
+    }
 
     if (target_altitude_ > configured_target_altitude) {
         controller_.logWarn(

@@ -112,6 +112,14 @@ class DroneController {
     bool custom1Requested() const;
     bool custom1ReferenceReady() const;
 
+    void setTakeoffAltitudePlan(double initial_altitude, double target_altitude) {
+        takeoff_initial_altitude_ = initial_altitude;
+        takeoff_target_altitude_ = target_altitude;
+    }
+    double takeoffInitialAltitude() const { return takeoff_initial_altitude_; }
+    double takeoffTargetAltitude() const { return takeoff_target_altitude_; }
+    std::optional<double> explicitTakeoffVzMax() const;
+
     template <typename... Args>
     void logInfo(const char* format, Args... args) const {
         const auto buffer = formatLogMessage(format, args...);
@@ -165,6 +173,8 @@ class DroneController {
     NmpcResultBuffer nmpc_result_buffer_;
     double current_time_{0.0};  // 当前时间戳（秒）
     bool custom1_requested_{false};
+    double takeoff_initial_altitude_{0.0};
+    double takeoff_target_altitude_{0.0};
 };
 
 }  // namespace px4_multirotor_controller

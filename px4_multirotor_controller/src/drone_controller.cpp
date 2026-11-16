@@ -5,6 +5,7 @@
 
 
 #include <chrono>
+#include <cmath>
 #include <stdexcept>
 
 #include "px4_multirotor_controller/common/sensor_checks.h"
@@ -126,6 +127,18 @@ bool DroneController::custom1ReferenceReady() const {
         return true;
     }
     return mpc_trajectory_buffer_.hasPending() && ready(mpc_trajectory_buffer_.pending());
+}
+
+std::optional<double> DroneController::explicitTakeoffVzMax() const {
+    const auto cfg = getConfig();
+    if (!cfg.safety.world_boundary || !cfg.safety.world_boundary->control_velocity_bounds) {
+        return std::nullopt;
+    }
+    const double vz_max = cfg.safety.world_boundary->control_velocity_bounds->vz_max;
+    if (!std::isfinite(vz_max) || vz_max <= 0.0) {
+        return std::nullopt;
+    }
+    return vz_max;
 }
 
 void DroneController::emitLogInfo(const char* message) const {

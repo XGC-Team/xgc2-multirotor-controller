@@ -32,6 +32,9 @@ class TakeoffAscendingState {
     std::optional<double> timeoutAfterEntry() const;
 
    private:
+    void initializeAscentProfile();
+    void updateAscentSetpoint(double now_s);
+    bool ascentProfileCompleted(double now_s) const;
     void publishSetpointIfDue();
     void logStatusIfDue();
     bool postTimeoutIfNeeded();
@@ -48,6 +51,19 @@ class TakeoffAscendingState {
     static constexpr double ASCENDING_TIMEOUT = 30.0;         // 上升超时时间（秒）
     static constexpr double SETPOINT_PUBLISH_INTERVAL = kLocalSetpointPublishInterval;
     static constexpr int CONSECUTIVE_SETTLED_FRAMES = 5;      // 连续满足条件的帧数阈值
+    static constexpr double kNominalTakeoffClimbVz = 1.0;     // 显式边界下的名义起飞爬升速度（米/秒）
+    static constexpr double kTakeoffVzSafetyFactor = 0.65;    // 留给闭环跟踪超调的速率裕度系数
+    static constexpr double kMaxTakeoffClimbAccel = 1.0;      // 平滑爬升加速度上限（米/秒^2）
+
+    bool profile_active_{false};
+    double ascent_start_time_s_{0.0};
+    double ascent_start_z_{0.0};
+    double target_altitude_{0.0};
+    double climb_v_peak_{0.0};
+    double ramp_duration_s_{0.0};
+    double cruise_duration_s_{0.0};
+    double profile_duration_s_{0.0};
+    double ascending_timeout_s_{ASCENDING_TIMEOUT};
 
     bool altitude_reached_event_posted_{false};  // 是否已经投递 ALTITUDE_REACHED
     bool timeout_event_posted_{false};           // 是否已经投递 TAKEOFF_TIMEOUT
