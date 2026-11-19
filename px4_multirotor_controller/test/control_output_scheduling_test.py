@@ -31,6 +31,7 @@ SUPPORT = r'''
 #include <vector>
 #include "px4_multirotor_controller/uav/flight_effect.h"
 namespace ros {
+namespace this_node { inline std::string getName() { return "/uav51/controller"; } }
 struct Time {
     double value{0.0};
     static Time now() { return Time{clock()}; }
@@ -46,7 +47,7 @@ struct CommandLong {
         uint16_t command{0};
         double param1{0}, param2{0}, param3{0}, param4{0}, param5{0}, param6{0}, param7{0};
     } request;
-    struct Response { bool success{false}; } response;
+    struct Response { bool success{false}; uint8_t result{0}; } response;
 };
 struct SetMode {
     struct Request { std::string custom_mode; } request;
@@ -101,6 +102,8 @@ inline void log(const char* format, ...) {
     services().logs.emplace_back(message);
 }
 struct ServiceClient {
+    std::string resolved;
+    std::string getService() const { return resolved; }
     bool exists() {
         auto& boundary = services();
         std::unique_lock<std::mutex> lock(boundary.mutex);
@@ -112,6 +115,7 @@ struct ServiceClient {
         auto& boundary = services();
         boundary.calls.emplace_back(message);
         message.response.success = boundary.arm_success;
+        message.response.result = boundary.arm_success ? 0 : 4;
         return boundary.transport_ok;
     }
     bool call(mavros_msgs::SetMode& message) {
@@ -122,9 +126,11 @@ struct ServiceClient {
     }
 };
 struct NodeHandle {
+    std::string getNamespace() const { return "/uav51"; }
+    std::string resolveName(const std::string& name) const { return getNamespace() + "/" + name; }
     template<class T> ServiceClient serviceClient(const std::string& topic, bool persistent = false) {
         services().registrations.emplace_back(topic, persistent);
-        return ServiceClient{};
+        return ServiceClient{resolveName(topic)};
     }
     template<class T> Publisher advertise(const std::string& topic, uint32_t) {
         return Publisher{topic};
@@ -284,6 +290,26 @@ int main() {
     assert(boundary.logs[boundary.logs.size() - 2].find("Failed to call arm/disarm") != std::string::npos);
     assert(boundary.logs.back().find("Failed to call set_mode") != std::string::npos);
     assert(boundary.exists_calls == 0 && boundary.registrations.size() == 2);
+    const FlightArmRequest landing{42.125, false, ArmIntentSource::LandingTouchdown};
+    auto disarm = [&](bool transport, bool accepted, const std::string& needle) {
+        boundary.transport_ok = transport;
+        boundary.arm_success = accepted;
+        assert(consumer.handle(landing));
+        assert(rpc.pending.size() == 1);
+        rpc.drain(nh);
+        const auto& message = std::get<mavros_msgs::CommandLong>(boundary.calls.back()).request;
+        assert(message.command == 400 && message.param1 == 0 && message.param2 == 0);
+        const auto& log = boundary.logs.back();
+        assert(log.find("slot=/uav51 service=/uav51/mavros/cmd/command source=landing-touchdown") != std::string::npos);
+        assert(log.find("node=/uav51/controller pid=") != std::string::npos);
+        assert(log.find("intent_ros_s=42.125000000") != std::string::npos && log.find(needle) != std::string::npos);
+    };
+    disarm(false, false, "outcome=no_service_response");
+    assert(boundary.logs.back().find("request=1 ") != std::string::npos);
+    disarm(true, false, "outcome=rejected mav_result=4");
+    assert(boundary.logs.back().find("request=2 ") != std::string::npos);
+    disarm(true, true, "outcome=accepted mav_result=0");
+    assert(boundary.logs.back().find("request=3 ") != std::string::npos);
     assert(!consumer.handle(FlightNmpcRequest{0.0, 0, 0}));
     std::cout << "0 initialization probes; 2 nonpersistent clients once; 6 async real task calls/results\n";
 }
@@ -296,7 +322,7 @@ WORKER = r'''
 #include "px4_multirotor_controller/output/px4_command.h"
 #include <type_traits>
 namespace px4_multirotor_controller {
-struct OutputArm { bool arm; ros::ServiceClient* client; };
+struct OutputArm { bool arm; ros::ServiceClient* client; NormalDisarmTrace trace; };
 struct OutputMode { std::string mode; ros::ServiceClient* client; };
 struct ControllerOutputWorker {
     std::vector<std::variant<OutputArm, OutputMode>> pending;
@@ -306,7 +332,7 @@ struct ControllerOutputWorker {
         for (auto& item : pending) std::visit([](const auto& value) {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, OutputArm>)
-                detail::sendArmDisarmCommand(value.client, value.arm, "ArmOutputTask");
+                detail::sendArmDisarmCommand(value.client, value.arm, "ArmOutputTask", &value.trace);
             else detail::sendModeCommand(value.client, value.mode);
         }, item);
         pending.clear();

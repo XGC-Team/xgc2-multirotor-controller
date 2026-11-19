@@ -10,7 +10,12 @@ namespace px4_multirotor_controller {
 // ROS and native edges after the turn, just as the previous output events were.
 struct FlightSetpoint { double timestamp; };
 struct FlightAttitude { double timestamp; };
-struct FlightArmRequest { double timestamp; bool arm; };
+enum class ArmIntentSource : uint8_t { Other, ReadyEntry, LandingTouchdown };
+struct FlightArmRequest {
+    double timestamp;
+    bool arm;
+    ArmIntentSource source{ArmIntentSource::Other};
+};
 struct FlightModeRequest { double timestamp; std::string mode; };
 struct FlightNmpcRequest { double timestamp; uint64_t sequence; uint64_t generation; };
 struct FlightReferenceActivation { double timestamp; };

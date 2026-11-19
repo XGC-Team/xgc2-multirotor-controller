@@ -237,7 +237,7 @@ void LandingState::postTouchdownOnce() {
         return;
     }
     if (!disarm_requested_) {
-        controller_.emitFlightEffect(FlightArmRequest{controller_.getCurrentTime(), false});
+        controller_.emitFlightEffect(FlightArmRequest{controller_.getCurrentTime(), false, ArmIntentSource::LandingTouchdown});
         disarm_requested_ = true;
         controller_.logInfo(
             "[LandingState] Normal disarm requested; waiting for fresh FCU armed=false");

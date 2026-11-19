@@ -24,6 +24,7 @@ class Px4ServiceOutputConsumer final {
     ros::ServiceClient arming_client_;
     ros::ServiceClient set_mode_client_;
     bool clients_initialized_{false};
+    uint64_t normal_disarm_sequence_{0};
 };
 
 }  // namespace px4_multirotor_controller

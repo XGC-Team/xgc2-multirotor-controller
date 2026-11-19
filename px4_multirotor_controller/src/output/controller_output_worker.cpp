@@ -17,7 +17,7 @@ void ControllerOutputWorker::execute(const ControllerOutput& output) {
     std::visit([](const auto& item) {
         using T = std::decay_t<decltype(item)>;
         if constexpr (std::is_same_v<T, OutputArm>) {
-            detail::sendArmDisarmCommand(item.client, item.arm, "ArmOutputTask");
+            detail::sendArmDisarmCommand(item.client, item.arm, "ArmOutputTask", &item.trace);
         } else if constexpr (std::is_same_v<T, OutputMode>) {
             detail::sendModeCommand(item.client, item.mode);
         } else if constexpr (std::is_same_v<T, OutputEvents> ||

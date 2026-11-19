@@ -9,6 +9,10 @@
 #include "px4_multirotor_controller/common/types.h"
 #include "px4_multirotor_controller/output/px4_command.h"
 
+#include <unistd.h>
+
+#include <utility>
+
 namespace px4_multirotor_controller {
 
 Px4ServiceOutputConsumer::Px4ServiceOutputConsumer(ros::NodeHandle& nh,
@@ -31,11 +35,22 @@ void Px4ServiceOutputConsumer::initializeClientsIfNeeded() {
 
 bool Px4ServiceOutputConsumer::handle(const FlightEffect& effect) {
     if (const auto* arm = std::get_if<FlightArmRequest>(&effect)) {
+        NormalDisarmTrace trace;
+        if (!arm->arm) {
+            trace = {++normal_disarm_sequence_, arm->timestamp, nh_.getNamespace(), arm->source};
+        }
         if (!clients_initialized_) {
-            ROS_WARN("[Px4ServiceOutputConsumer] Arming client not initialized, dropping arm request");
+            if (arm->arm) {
+                ROS_WARN("[Px4ServiceOutputConsumer] Arming client not initialized, dropping arm request");
+            } else {
+                const auto owner = normalDisarmIdentity(trace, nh_.resolveName("mavros/cmd/command"),
+                                                        ros::this_node::getName(), ::getpid());
+                ROS_WARN("[Px4ServiceOutputConsumer] Normal disarm not dispatched: %s outcome=not_sent",
+                         owner.c_str());
+            }
             return true;
         }
-        worker_.post(OutputArm{arm->arm, &arming_client_});
+        worker_.post(OutputArm{arm->arm, &arming_client_, std::move(trace)});
         return true;
     }
     if (const auto* mode = std::get_if<FlightModeRequest>(&effect)) {

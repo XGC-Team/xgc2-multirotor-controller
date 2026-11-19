@@ -18,7 +18,7 @@ void ReadyState::onEnter() {
     if (sensor_checks::isAirborne(sensor_data, controller_.getConfig().tracking_backend)) {
         controller_.logWarn("[ReadyState] Airborne flag set, skipping disarm request");
     } else {
-        controller_.emitFlightEffect(FlightArmRequest{controller_.getCurrentTime(), false});
+        controller_.emitFlightEffect(FlightArmRequest{controller_.getCurrentTime(), false, ArmIntentSource::ReadyEntry});
     }
     return;
 }

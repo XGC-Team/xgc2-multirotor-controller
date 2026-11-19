@@ -12,10 +12,15 @@
 #include <variant>
 
 #include "px4_multirotor_controller/common/types.h"
+#include "px4_multirotor_controller/output/normal_disarm_trace.h"
 
 namespace px4_multirotor_controller {
 
-struct OutputArm { bool arm{false}; ros::ServiceClient* client{nullptr}; };
+struct OutputArm {
+    bool arm{false};
+    ros::ServiceClient* client{nullptr};
+    NormalDisarmTrace trace;
+};
 struct OutputMode { std::string mode; ros::ServiceClient* client; };
 struct OutputEvents { ros::Publisher publisher; std_msgs::UInt32MultiArray message; };
 struct OutputTracking { ros::Publisher publisher; std_msgs::Float32MultiArray message; };
