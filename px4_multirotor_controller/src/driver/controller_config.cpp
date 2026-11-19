@@ -240,6 +240,8 @@ ControllerConfig readControllerConfig(const ControllerParameters& parameters,
     // ========== 偏航角控制开关 ==========
     readParamWithLog(parameters, "enable_yaw_control", config.enable_yaw_control,
                      "Enable yaw control");
+    parameters.param("world_yaw_zero", config.world_yaw_zero, config.world_yaw_zero);
+    config.enable_yaw_control = config.enable_yaw_control || config.world_yaw_zero;
 
     // ========== DFBC attitude-rate 策略参数 ==========
     config.dfbc.position_natural_frequency = getVector3Param(

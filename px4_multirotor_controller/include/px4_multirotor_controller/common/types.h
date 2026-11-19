@@ -108,6 +108,7 @@ struct ControllerConfig {
 
     // ========== 偏航角控制开关 ==========
     bool enable_yaw_control{false};  // 是否启用偏航角控制（false=忽略偏航角）
+    bool world_yaw_zero{false};      // Optional world-frame planner reference condition.
 
     // ========== DFBC 几何 attitude-rate 策略参数 ==========
     struct DfbcParams {

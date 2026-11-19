@@ -33,7 +33,7 @@ inline PlannerSetpointResult ingestPlannerSetpoint(DroneController& controller,
         config.tracking_backend != TrackingBackend::PVA_SMC && !streaming_dfbc) {
         return PlannerSetpointResult::kNotUsed;
     }
-    const MpcTrajectoryState trajectory =
+    MpcTrajectoryState trajectory =
         ingestPositionTarget(ingress, config.tracking_backend, config.px4_local_lift);
     if (usesStageEffectiveTime(config.tracking_backend, config.px4_local_lift) &&
         !trajectory.is_valid) {
@@ -41,6 +41,13 @@ inline PlannerSetpointResult ingestPlannerSetpoint(DroneController& controller,
                        !smcWorldPvaAvailable(ingress.type_mask, ingress.coordinate_frame)
                    ? PlannerSetpointResult::kRejectedSmcFrame
                    : PlannerSetpointResult::kRejectedEffectiveTime;
+    }
+    if (config.world_yaw_zero && trajectory.coordinate_frame == 1U) {
+        trajectory.qx = trajectory.qy = trajectory.qz = 0.0;
+        trajectory.qw = 1.0;
+        trajectory.yaw_rate = 0.0;
+        const uint16_t mask = trajectory.type_mask != 0U ? trajectory.type_mask : config.local_type_mask;
+        trajectory.type_mask = (mask & ~kIgnoreYawBit) | kIgnoreYawRateBit;
     }
     cacheTrajectorySample(controller.mpcTrajectoryBuffer(), trajectory, ingress.receipt_time,
                           config);

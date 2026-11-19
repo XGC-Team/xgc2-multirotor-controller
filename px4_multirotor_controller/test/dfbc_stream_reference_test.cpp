@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "px4_multirotor_controller/common/state_estimate_status.h"
+#include "px4_multirotor_controller/driver/controller_config.h"
 #include "px4_multirotor_controller/driver/trajectory_ingress.h"
 
 namespace px4_multirotor_controller {
@@ -121,6 +122,27 @@ class DfbcStreamReferenceTest : public ::testing::Test {
     double now_{100.0};
 };
 
+TEST(WorldHeadingConfigTest, ExplicitWorldReferenceEnablesTheExistingYawChannel) {
+    for (const bool fixed : {false, true}) {
+        for (const bool enable : {false, true}) {
+            ControllerParameters params([=](const std::string& key, ControllerParameterValue& value) {
+                if (key == "world_yaw_zero")
+                    value = fixed;
+                else if (key == "enable_yaw_control")
+                    value = enable;
+                else if (key == "world_boundary_json")
+                    value = std::string("null");
+                else
+                    return false;
+                return true;
+            });
+            const auto config = readControllerConfig(params);
+            EXPECT_EQ(config.world_yaw_zero, fixed);
+            EXPECT_EQ(config.enable_yaw_control, fixed || enable);
+        }
+    }
+}
+
 TEST_F(DfbcStreamReferenceTest, OptInDoesNotChangeDefaultFiniteReferencePath) {
     config_.dfbc.reference_source = DfbcReferenceSource::TRAJECTORY_CACHE;
     controller_->setConfig(config_);
@@ -149,6 +171,65 @@ TEST_F(DfbcStreamReferenceTest, RequiresCompleteFiniteWorldPvaAndEffectiveStamp)
     EXPECT_FALSE(controller_->mpcTrajectoryBuffer().hasPending());
     input = sample();
     EXPECT_EQ(ingestPlannerSetpoint(*controller_, input), PlannerSetpointResult::kCached);
+}
+
+TEST_F(DfbcStreamReferenceTest, SharedWorldHeadingConditionPreservesReferencePvaAndHistory) {
+    auto input = sample(.13);
+    input.velocity << .25, .5, -.05;
+    input.acceleration << -.11, .12, 0.;
+    input.yaw = .73;
+    input.yaw_rate = .9;
+    input.type_mask = kIgnoreYawBit;
+    ASSERT_EQ(ingestPlannerSetpoint(*controller_, input), PlannerSetpointResult::kCached);
+    auto legacy = controller_->mpcTrajectoryBuffer().pending();
+    EXPECT_DOUBLE_EQ(quaternionToYaw(legacy.qx, legacy.qy, legacy.qz, legacy.qw), input.yaw);
+    EXPECT_DOUBLE_EQ(legacy.yaw_rate, input.yaw_rate);
+    EXPECT_EQ(legacy.type_mask, input.type_mask);
+
+    config_.world_yaw_zero = true;
+    controller_->setConfig(config_);
+    ASSERT_EQ(ingestPlannerSetpoint(*controller_, input), PlannerSetpointResult::kCached);
+    const auto& fixed = controller_->mpcTrajectoryBuffer().pending();
+    EXPECT_DOUBLE_EQ(quaternionToYaw(fixed.qx, fixed.qy, fixed.qz, fixed.qw), 0.);
+    EXPECT_DOUBLE_EQ(fixed.yaw_rate, 0.);
+    EXPECT_EQ(fixed.type_mask, kIgnoreYawRateBit);
+    EXPECT_EQ(fixed.coordinate_frame, input.coordinate_frame);
+    EXPECT_EQ(fixed.position_k, input.position);
+    EXPECT_EQ(fixed.velocity_k, input.velocity);
+    EXPECT_EQ(fixed.acceleration_k, input.acceleration);
+    EXPECT_EQ(fixed.planning_time, input.header_stamp);
+    input.yaw = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_EQ(ingestPlannerSetpoint(*controller_, input), PlannerSetpointResult::kRejectedEffectiveTime);
+}
+
+TEST_F(DfbcStreamReferenceTest, WorldHeadingConditionDoesNotReinterpretBodyFrame) {
+    config_.tracking_backend = TrackingBackend::PX4_LOCAL;
+    config_.world_yaw_zero = true;
+    controller_->setConfig(config_);
+    auto input = sample();
+    input.coordinate_frame = 8;
+    input.yaw = -.43;
+    input.type_mask = kIgnoreYawRateBit;
+    ASSERT_EQ(ingestPlannerSetpoint(*controller_, input), PlannerSetpointResult::kCached);
+    const auto& body = controller_->mpcTrajectoryBuffer().pending();
+    EXPECT_EQ(body.coordinate_frame, 8);
+    EXPECT_DOUBLE_EQ(quaternionToYaw(body.qx, body.qy, body.qz, body.qw), input.yaw);
+    EXPECT_EQ(body.type_mask, input.type_mask);
+}
+
+TEST_F(DfbcStreamReferenceTest, PositionAndVelocityMaskIsRetainedForWorldHeading) {
+    config_.tracking_backend = TrackingBackend::PX4_LOCAL;
+    config_.world_yaw_zero = config_.enable_yaw_control = true;
+    controller_->setConfig(config_);
+    auto input = sample();
+    input.yaw = 1.2;
+    input.type_mask = 3523;  // SCE z position and XYZ velocity, ENU.
+    ASSERT_EQ(ingestPlannerSetpoint(*controller_, input), PlannerSetpointResult::kCached);
+    const auto& pending = controller_->mpcTrajectoryBuffer().pending();
+    const Setpoint sp = liftWorldLocal(pending, Time(now_), config_.local_type_mask,
+                                      config_.enable_yaw_control);
+    EXPECT_EQ(sp.type_mask, 3523U & ~kIgnoreYawBit);
+    EXPECT_DOUBLE_EQ(quaternionToYaw(sp.qx, sp.qy, sp.qz, sp.qw), 0.);
 }
 
 TEST_F(DfbcStreamReferenceTest, DefaultFiniteTrajectoryKeepsOriginalOutputPeriod) {

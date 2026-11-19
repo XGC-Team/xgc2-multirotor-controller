@@ -6,11 +6,13 @@
     <arg name="pose_source" default="simulation" />
     <arg name="vrpn_pose_topic" default="" />
     <arg name="localization_delay_s" default="" />
+    <arg name="world_yaw_zero" default="$(optenv XGC_WORLD_YAW_ZERO false)" />
     <group ns="$(arg ns)">
         <node pkg="px4_multirotor_controller" type="px4_multirotor_controller_node" name="px4_multirotor_controller" output="screen" respawn="false" clear_params="true">
             <rosparam command="load" file="$(arg config_file)" subst_value="true" />
             <param name="world_boundary_json" type="str" value="$(arg world_boundary_json)" />
             <param name="pose_source" type="str" value="$(arg pose_source)" />
+            <param name="world_yaw_zero" type="bool" value="$(arg world_yaw_zero)" if="$(arg world_yaw_zero)" />
             <param name="vrpn_pose_topic" type="str" value="$(arg vrpn_pose_topic)" if="$(eval arg('vrpn_pose_topic') != '')" />
             <param name="safety/localization_delay_s" type="double" value="$(arg localization_delay_s)" if="$(eval arg('localization_delay_s') != '')" />
         </node>
