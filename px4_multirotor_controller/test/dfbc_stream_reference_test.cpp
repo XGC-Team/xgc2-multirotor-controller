@@ -232,6 +232,27 @@ TEST_F(DfbcStreamReferenceTest, PositionAndVelocityMaskIsRetainedForWorldHeading
     EXPECT_DOUBLE_EQ(quaternionToYaw(sp.qx, sp.qy, sp.qz, sp.qw), 0.);
 }
 
+TEST_F(DfbcStreamReferenceTest, WorldHeadingReachesTheActualBodyRateOutput) {
+    config_.enable_yaw_control = true;
+    controller_->setConfig(config_);
+    enterCustom1();
+    auto input = sample();
+    input.yaw = .73;
+    ASSERT_EQ(ingestPlannerSetpoint(*controller_, input), PlannerSetpointResult::kCached);
+    tick();
+    ASSERT_TRUE(emitted(output_event_type::PUBLISH_ATTITUDE_RATE_TARGET));
+    EXPECT_GT(std::abs(controller_->getAttitudeRateTarget().body_rate_z), .1);
+
+    config_.world_yaw_zero = true;
+    controller_->setConfig(config_);
+    input.header_stamp = input.receipt_time = Time(now_);
+    ASSERT_EQ(ingestPlannerSetpoint(*controller_, input), PlannerSetpointResult::kCached);
+    tick();
+    ASSERT_TRUE(emitted(output_event_type::PUBLISH_ATTITUDE_RATE_TARGET));
+    EXPECT_NEAR(controller_->getAttitudeRateTarget().body_rate_z, 0., 1e-9);
+    EXPECT_GT(controller_->getAttitudeRateTarget().thrust, 0.);
+}
+
 TEST_F(DfbcStreamReferenceTest, DefaultFiniteTrajectoryKeepsOriginalOutputPeriod) {
     config_.dfbc.reference_source = DfbcReferenceSource::TRAJECTORY_CACHE;
     config_.nmpc.control_period = .02;
